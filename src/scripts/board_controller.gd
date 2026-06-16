@@ -5,6 +5,7 @@ signal units_changed
 signal merges_applied(messages: Array[String])
 
 const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
+const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
 
 var board_origin: Vector3 = Vector3.ZERO
 var board_center_x: float = 0.0
@@ -65,8 +66,12 @@ func _compute_board_origin() -> Vector3:
 func _build_hex_tiles(enemy: bool, origin: Vector3, storage: Array) -> void:
 	for row in HexMath.ROWS:
 		for col in HexMath.COLS:
-			var tile := _create_hex_tile((col + row) % 2 == 0, enemy)
-			tile.position = HexMath.cell_to_world(col, row, origin)
+			var grid_row := HexMath.enemy_global_row(row) if enemy else row
+			var tile := _create_hex_tile(HexMath.is_light_hex(col, grid_row), enemy)
+			if enemy:
+				tile.position = HexMath.enemy_cell_to_world(col, row, origin)
+			else:
+				tile.position = HexMath.cell_to_world(col, row, origin)
 			tile.name = ("EnemyHex" if enemy else "Hex") + "_%d_%d" % [col, row]
 			add_child(tile)
 			storage.append(tile)
@@ -159,15 +164,16 @@ func get_prep_framing() -> Dictionary:
 func get_camera_focus_battle() -> Vector3:
 	var player_extents := HexMath.compute_board_extents(board_origin)
 	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	var enemy_extents := HexMath.compute_board_extents(enemy_origin)
+	var enemy_extents := HexMath.compute_enemy_board_extents(enemy_origin)
 	var center_z: float = (float(player_extents["center_z"]) + float(enemy_extents["center_z"])) * 0.5
+	center_z += BATTLE_FOCUS_SOUTH_OFFSET
 	return global_position + Vector3(board_center_x, 0.0, center_z)
 
 
 func get_battle_board_span() -> float:
 	var player_extents := HexMath.compute_board_extents(board_origin)
 	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	var enemy_extents := HexMath.compute_board_extents(enemy_origin)
+	var enemy_extents := HexMath.compute_enemy_board_extents(enemy_origin)
 	return float(player_extents["max_z"]) - float(enemy_extents["min_z"]) + HexMath.HEX_SIZE * 2.0
 
 

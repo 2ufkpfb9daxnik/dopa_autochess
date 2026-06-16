@@ -11,7 +11,10 @@ enum Type {
 	BUY_EXP,
 	START_BATTLE,
 	GO_BACK,
+	SELL_UNDER_CURSOR,
+	CLOSE_LOG,
 }
+
 
 var type: Type = Type.NONE
 var screen_position: Vector2 = Vector2.ZERO
@@ -49,4 +52,11 @@ static func shop_buy(slot_index: int) -> GameAction:
 static func simple(action_type: Type) -> GameAction:
 	var action := GameAction.new()
 	action.type = action_type
+	return action
+
+
+static func at_screen(action_type: Type, screen_position: Vector2) -> GameAction:
+	var action := GameAction.new()
+	action.type = action_type
+	action.screen_position = screen_position
 	return action

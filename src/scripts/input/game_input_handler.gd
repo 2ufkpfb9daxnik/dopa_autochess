@@ -36,11 +36,18 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 
 func _handle_key(event: InputEventKey) -> void:
 	match event.keycode:
-		KEY_R:
+		KEY_D:
 			action_triggered.emit(GameAction.simple(GameAction.Type.REROLL))
-		KEY_E:
+		KEY_F:
 			action_triggered.emit(GameAction.simple(GameAction.Type.BUY_EXP))
+		KEY_E:
+			action_triggered.emit(
+				GameAction.at_screen(
+					GameAction.Type.SELL_UNDER_CURSOR,
+					get_viewport().get_mouse_position()
+				)
+			)
 		KEY_SPACE:
 			action_triggered.emit(GameAction.simple(GameAction.Type.START_BATTLE))
 		KEY_ESCAPE:
-			action_triggered.emit(GameAction.simple(GameAction.Type.GO_BACK))
+			action_triggered.emit(GameAction.simple(GameAction.Type.CLOSE_LOG))

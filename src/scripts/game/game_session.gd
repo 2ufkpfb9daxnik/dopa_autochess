@@ -57,8 +57,9 @@ func get_board_unit_cap() -> int:
 
 func refresh_shop() -> void:
 	shop_unit_ids.clear()
+	var level := get_level()
 	for _i in SHOP_SIZE:
-		shop_unit_ids.append(UnitCatalog.random_unit_id())
+		shop_unit_ids.append(UnitCatalog.random_unit_id_for_level(level))
 	state_changed.emit()
 
 

@@ -12,6 +12,8 @@ var bench_index: int = -1
 @onready var mesh_instance: MeshInstance3D = $MeshInstance3D
 @onready var label: Label3D = $Label3D
 
+var _cost_border: MeshInstance3D
+
 
 static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
 	var unit: GameUnit = UNIT_SCENE.instantiate()
@@ -35,6 +37,27 @@ func refresh_visuals() -> void:
 	var synergy_text := UnitCatalog.get_synergy_names(unit_id)
 	label.text = "%s\n%d\n%s" % ["★".repeat(stars), data["cost"], synergy_text]
 	label.modulate = Color.WHITE if stars <= 2 else Color(1.0, 0.95, 0.7)
+	_refresh_cost_border()
+
+
+func _refresh_cost_border() -> void:
+	if _cost_border == null:
+		_cost_border = MeshInstance3D.new()
+		_cost_border.name = "CostBorder"
+		var mesh := TorusMesh.new()
+		mesh.inner_radius = HexMath.HEX_SIZE * 0.80
+		mesh.outer_radius = HexMath.HEX_SIZE * 0.98
+		mesh.ring_segments = 6
+		mesh.rings = 3
+		_cost_border.mesh = mesh
+		_cost_border.rotation_degrees = Vector3(0.0, 90.0, 0.0)
+		_cost_border.position.y = 0.01
+		add_child(_cost_border)
+	if unit_id < 0:
+		_cost_border.visible = false
+		return
+	_cost_border.visible = true
+	_cost_border.material_override = CostColors.make_border_material(get_cost())
 
 
 func get_cost() -> int:

@@ -4,10 +4,15 @@ extends RefCounted
 
 static func count_synergies(units: Array) -> Dictionary:
 	var counts: Dictionary = {}
+	var counted_unit_ids: Dictionary = {}
 	for unit in units:
 		if unit == null or not unit is GameUnit:
 			continue
-		for synergy_id in UnitCatalog.get_synergies(unit.unit_id):
+		var unit_id: int = unit.unit_id
+		if counted_unit_ids.has(unit_id):
+			continue
+		counted_unit_ids[unit_id] = true
+		for synergy_id in UnitCatalog.get_synergies(unit_id):
 			counts[synergy_id] = int(counts.get(synergy_id, 0)) + 1
 	return counts
 

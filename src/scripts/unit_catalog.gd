@@ -28,5 +28,32 @@ static func get_synergy_names(unit_id: int) -> String:
 	return " ".join(names)
 
 
+static func get_unit_ids_by_cost(cost: int) -> Array[int]:
+	var ids: Array[int] = []
+	for unit in UNITS:
+		if int(unit["cost"]) == cost:
+			ids.append(int(unit["id"]))
+	return ids
+
+
+static func get_nearest_cost_with_units(target_cost: int) -> int:
+	if get_unit_ids_by_cost(target_cost).size() > 0:
+		return target_cost
+	for delta in range(1, ShopOdds.MAX_COST + 1):
+		if target_cost - delta >= 1 and get_unit_ids_by_cost(target_cost - delta).size() > 0:
+			return target_cost - delta
+		if get_unit_ids_by_cost(target_cost + delta).size() > 0:
+			return target_cost + delta
+	return int(UNITS[0]["cost"])
+
+
+static func random_unit_id_for_level(level: int) -> int:
+	var cost := ShopOdds.roll_cost(level)
+	var pool := get_unit_ids_by_cost(cost)
+	if pool.is_empty():
+		pool = get_unit_ids_by_cost(get_nearest_cost_with_units(cost))
+	return pool[randi_range(0, pool.size() - 1)]
+
+
 static func random_unit_id() -> int:
-	return randi_range(0, UNITS.size() - 1)
+	return random_unit_id_for_level(1)

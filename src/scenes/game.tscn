@@ -80,12 +80,72 @@ custom_minimum_size = Vector2(72, 32)
 layout_mode = 2
 text = "戻る"
 
-[node name="EventLogPanel" type="PanelContainer" parent="CanvasLayer/UI"]
+[node name="SynergyPanel" type="PanelContainer" parent="CanvasLayer/UI"]
 layout_mode = 0
 offset_left = 8.0
 offset_top = 56.0
 offset_right = 188.0
+offset_bottom = 520.0
+
+[node name="SynergyVBox" type="VBoxContainer" parent="CanvasLayer/UI/SynergyPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SynergyTitle" type="Label" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "シナジー"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(160, 440)
+
+[node name="SynergyLabel" type="RichTextLabel" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(150, 0)
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+text = "発動中なし"
+
+[node name="ShopOddsTooltip" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+mouse_filter = 2
+layout_mode = 0
+
+[node name="ShopOddsTooltipVBox" type="VBoxContainer" parent="CanvasLayer/UI/ShopOddsTooltip"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ShopOddsTitle" type="Label" parent="CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "ショップ出現率 (%)"
+horizontal_alignment = 1
+
+[node name="ShopOddsGrid" type="GridContainer" parent="CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox"]
+layout_mode = 2
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 2
+columns = 8
+
+[node name="EventLogPanel" type="PanelContainer" parent="CanvasLayer/UI"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -188.0
+offset_top = 56.0
+offset_right = -8.0
 offset_bottom = 280.0
+grow_horizontal = 0
+grow_vertical = 0
 
 [node name="EventLogVBox" type="VBoxContainer" parent="CanvasLayer/UI/EventLogPanel"]
 layout_mode = 2
@@ -110,32 +170,6 @@ theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
-
-[node name="SynergyPanel" type="PanelContainer" parent="CanvasLayer/UI"]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 288.0
-offset_right = 188.0
-offset_bottom = 520.0
-
-[node name="SynergyVBox" type="VBoxContainer" parent="CanvasLayer/UI/SynergyPanel"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="SynergyTitle" type="Label" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 14
-text = "シナジー"
-
-[node name="SynergyLabel" type="RichTextLabel" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
-layout_mode = 2
-size_flags_vertical = 3
-custom_minimum_size = Vector2(160, 200)
-theme_override_font_sizes/normal_font_size = 12
-bbcode_enabled = true
-fit_content = true
-scroll_active = false
-text = "発動中なし"
 
 [node name="BottomUI" type="VBoxContainer" parent="CanvasLayer/UI"]
 layout_mode = 1

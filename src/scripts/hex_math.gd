@@ -22,6 +22,23 @@ static func cell_to_world(col: int, row: int, origin: Vector3) -> Vector3:
 	return origin + cell_to_local(col, row)
 
 
+static func enemy_global_row(local_row: int) -> int:
+	# プレイヤー row0 の上に row -1, -2, … と続く1枚のグリッドとして配置
+	return -(local_row + 1)
+
+
+static func enemy_cell_to_local(col: int, row: int) -> Vector3:
+	return cell_to_local(col, enemy_global_row(row))
+
+
+static func enemy_cell_to_world(col: int, row: int, origin: Vector3) -> Vector3:
+	return origin + enemy_cell_to_local(col, row)
+
+
+static func is_light_hex(col: int, row: int) -> bool:
+	return (col + row) % 2 == 0
+
+
 static func world_to_cell(world_pos: Vector3, origin: Vector3) -> Vector2i:
 	var local := world_pos - origin
 	var best_cell := Vector2i(-1, -1)
@@ -50,6 +67,28 @@ static func compute_board_extents(origin: Vector3) -> Dictionary:
 	for row in ROWS:
 		for col in COLS:
 			var world := cell_to_world(col, row, origin)
+			min_x = minf(min_x, world.x)
+			max_x = maxf(max_x, world.x)
+			min_z = minf(min_z, world.z)
+			max_z = maxf(max_z, world.z)
+	return {
+		"center_x": (min_x + max_x) * 0.5,
+		"center_z": (min_z + max_z) * 0.5,
+		"min_x": min_x,
+		"max_x": max_x,
+		"min_z": min_z,
+		"max_z": max_z,
+	}
+
+
+static func compute_enemy_board_extents(origin: Vector3) -> Dictionary:
+	var min_x := INF
+	var max_x := -INF
+	var min_z := INF
+	var max_z := -INF
+	for row in ROWS:
+		for col in COLS:
+			var world := enemy_cell_to_world(col, row, origin)
 			min_x = minf(min_x, world.x)
 			max_x = maxf(max_x, world.x)
 			min_z = minf(min_z, world.z)
@@ -101,4 +140,5 @@ static func nearest_bench_slot(
 
 
 static func get_enemy_board_origin(player_origin: Vector3) -> Vector3:
-	return player_origin + Vector3(0.0, 0.0, -(float(ROWS) * ROW_SPACING + HEX_SIZE * 0.6))
+	# 敵盤面は同一 origin 上の連続グリッド（row -1 から）
+	return player_origin

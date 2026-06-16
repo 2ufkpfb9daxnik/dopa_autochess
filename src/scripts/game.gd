@@ -2,7 +2,16 @@ extends Node3D
 
 const INCOME_FEEDBACK_DURATION := 2.0
 const ACTION_COLUMN_HEIGHT := 112
-const CAMERA_TWEEN_DURATION := 0.45
+const CAMERA_TWEEN_DURATION := 0.55
+
+const LOG_COLLAPSED_TOP := 56.0
+const LOG_COLLAPSED_BOTTOM := 280.0
+const LOG_EXPANDED_BOTTOM_MARGIN := 168.0
+
+var _camera_tween_start: Transform3D
+var _camera_tween_end: Transform3D
+var _log_expanded := false
+var _log_scroll_position := 0
 
 @onready var camera: Camera3D = $Camera3D
 @onready var board: BoardController = $Board
@@ -17,6 +26,8 @@ const CAMERA_TWEEN_DURATION := 0.45
 @onready var bench_label: Label = $CanvasLayer/UI/TopBar/BenchLabel
 @onready var coin_label: Label = $CanvasLayer/UI/BottomUI/CoinLabel
 @onready var exp_status_label: Label = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpStatusLabel
+@onready var shop_odds_tooltip: PanelContainer = $CanvasLayer/UI/ShopOddsTooltip
+@onready var shop_odds_grid: GridContainer = $CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox/ShopOddsGrid
 @onready var shop_slots: HBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots
 @onready var bottom_ui: Control = $CanvasLayer/UI/BottomUI
 @onready var bottom_bar: HBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar
@@ -34,6 +45,8 @@ const CAMERA_TWEEN_DURATION := 0.45
 @onready var route_overlay: PanelContainer = $CanvasLayer/UI/RouteOverlay
 @onready var synergy_panel: PanelContainer = $CanvasLayer/UI/SynergyPanel
 @onready var prep_blocker: Control = $CanvasLayer/UI/PrepBlocker
+@onready var event_log_panel: PanelContainer = $CanvasLayer/UI/EventLogPanel
+@onready var event_log_scroll: ScrollContainer = $CanvasLayer/UI/EventLogPanel/EventLogVBox/ScrollContainer
 @onready var event_log_label: RichTextLabel = $CanvasLayer/UI/EventLogPanel/EventLogVBox/ScrollContainer/EventLogLabel
 @onready var continue_button: Button = $CanvasLayer/UI/ExtensionOverlay/ExtensionVBox/ContinueButton
 @onready var end_run_button: Button = $CanvasLayer/UI/ExtensionOverlay/ExtensionVBox/EndRunButton
@@ -43,7 +56,7 @@ const CAMERA_TWEEN_DURATION := 0.45
 	$CanvasLayer/UI/RouteOverlay/RouteVBox/RouteButtons/RouteButton2,
 ]
 @onready var route_title_label: Label = $CanvasLayer/UI/RouteOverlay/RouteVBox/RouteTitle
-@onready var synergy_label: RichTextLabel = $CanvasLayer/UI/SynergyPanel/SynergyVBox/SynergyLabel
+@onready var synergy_label: RichTextLabel = $CanvasLayer/UI/SynergyPanel/SynergyVBox/ScrollContainer/SynergyLabel
 
 
 func _ready() -> void:
@@ -55,7 +68,7 @@ func _ready() -> void:
 	drag_controller.drag_state_changed.connect(_on_drag_state_changed)
 	session.state_changed.connect(_update_ui)
 	board.merges_applied.connect(_on_merges_applied)
-	board.units_changed.connect(_update_synergy_panel)
+	board.units_changed.connect(_update_ui)
 	event_log.message_added.connect(_refresh_event_log)
 	session.extension_choice_required.connect(_on_extension_choice_required)
 	session.route_choice_required.connect(_on_route_choice_required)
@@ -72,7 +85,125 @@ func _ready() -> void:
 		var slot_button: Button = shop_slots.get_child(index) as Button
 		slot_button.pressed.connect(func() -> void: _on_action(GameAction.shop_buy(index)))
 	_log("準備フェーズ開始")
+	_setup_shop_odds_tooltip()
+	_setup_log_panel()
 	_update_ui()
+
+
+func _setup_log_panel() -> void:
+	_bind_log_panel_input(event_log_panel)
+	_apply_log_panel_layout()
+
+
+func _bind_log_panel_input(control: Control) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not control.gui_input.is_connected(_on_event_log_panel_gui_input):
+		control.gui_input.connect(_on_event_log_panel_gui_input)
+	for child in control.get_children():
+		if child is Control:
+			_bind_log_panel_input(child as Control)
+
+
+func _setup_shop_odds_tooltip() -> void:
+	action_column.mouse_filter = Control.MOUSE_FILTER_STOP
+	action_column.mouse_entered.connect(_show_shop_odds_tooltip)
+	action_column.mouse_exited.connect(_defer_hide_shop_odds_tooltip)
+	exp_status_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_odds_tooltip.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_odds_tooltip.mouse_entered.connect(_show_shop_odds_tooltip)
+	shop_odds_tooltip.mouse_exited.connect(_defer_hide_shop_odds_tooltip)
+	shop_odds_tooltip.visible = false
+
+
+func _show_shop_odds_tooltip() -> void:
+	ShopOdds.populate_odds_grid(shop_odds_grid, session.get_level())
+	shop_odds_tooltip.visible = true
+	call_deferred("_position_shop_odds_tooltip")
+
+
+func _defer_hide_shop_odds_tooltip() -> void:
+	call_deferred("_try_hide_shop_odds_tooltip")
+
+
+func _try_hide_shop_odds_tooltip() -> void:
+	var mouse_pos := get_viewport().get_mouse_position()
+	if action_column.get_global_rect().has_point(mouse_pos):
+		return
+	if shop_odds_tooltip.get_global_rect().has_point(mouse_pos):
+		return
+	shop_odds_tooltip.visible = false
+
+
+func _position_shop_odds_tooltip() -> void:
+	var anchor_rect := action_column.get_global_rect()
+	var tooltip_size := shop_odds_tooltip.size
+	var x := anchor_rect.position.x + anchor_rect.size.x * 0.5 - tooltip_size.x * 0.5
+	var y := anchor_rect.position.y - tooltip_size.y - 2.0
+	var viewport_size := get_viewport().get_visible_rect().size
+	x = clampf(x, 8.0, viewport_size.x - tooltip_size.x - 8.0)
+	y = clampf(y, 8.0, viewport_size.y - tooltip_size.y - 8.0)
+	shop_odds_tooltip.global_position = Vector2(x, y)
+
+
+func _on_event_log_panel_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_toggle_log_expanded()
+		get_viewport().set_input_as_handled()
+
+
+func _toggle_log_expanded() -> void:
+	_save_log_scroll()
+	_log_expanded = not _log_expanded
+	_apply_log_panel_layout()
+	call_deferred("_restore_log_scroll")
+
+
+func _collapse_log_panel() -> void:
+	if not _log_expanded:
+		return
+	_save_log_scroll()
+	_log_expanded = false
+	_apply_log_panel_layout()
+	call_deferred("_restore_log_scroll")
+
+
+func _apply_log_panel_layout() -> void:
+	event_log_panel.offset_left = -188.0
+	event_log_panel.offset_right = -8.0
+	event_log_panel.offset_top = LOG_COLLAPSED_TOP
+	if _log_expanded:
+		event_log_panel.anchor_bottom = 1.0
+		event_log_panel.offset_bottom = -LOG_EXPANDED_BOTTOM_MARGIN
+		event_log_scroll.custom_minimum_size = Vector2(160, 0)
+	else:
+		event_log_panel.anchor_bottom = 0.0
+		event_log_panel.offset_bottom = LOG_COLLAPSED_BOTTOM
+		event_log_scroll.custom_minimum_size = Vector2(160, 200)
+
+
+func _save_log_scroll() -> void:
+	var bar := event_log_scroll.get_v_scroll_bar()
+	if bar:
+		_log_scroll_position = int(bar.value)
+
+
+func _restore_log_scroll() -> void:
+	var bar := event_log_scroll.get_v_scroll_bar()
+	if bar:
+		bar.value = _log_scroll_position
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _log_expanded:
+		return
+	if event is InputEventKey and event.is_pressed() and not event.is_echo():
+		if event.keycode == KEY_ESCAPE:
+			_collapse_log_panel()
+			get_viewport().set_input_as_handled()
 
 
 func _setup_camera() -> void:
@@ -114,12 +245,18 @@ func _refresh_event_log(_text: String = "") -> void:
 
 
 func _scroll_event_log_to_bottom() -> void:
-	var scroll: ScrollContainer = event_log_label.get_parent()
-	if scroll.get_v_scroll_bar():
-		scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+	var bar := event_log_scroll.get_v_scroll_bar()
+	if not bar:
+		return
+	if _log_expanded and bar.value < bar.max_value - 4.0:
+		return
+	bar.value = bar.max_value
 
 
 func _on_action(action: GameAction) -> void:
+	if action.type == GameAction.Type.CLOSE_LOG:
+		_collapse_log_panel()
+		return
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
 		return
 	if session.phase == GameSession.Phase.ROUTE_CHOICE:
@@ -143,6 +280,13 @@ func _on_action(action: GameAction) -> void:
 		GameAction.Type.BUY_EXP:
 			if session.try_buy_exp():
 				_log("経験値を購入した (+%d)" % GameSession.EXP_GAIN)
+		GameAction.Type.SELL_UNDER_CURSOR:
+			if not session.is_prep() or drag_controller.is_dragging():
+				return
+			var hover_unit := drag_controller.pick_unit_at_screen(action.screen_position)
+			if hover_unit != null:
+				_on_sell_requested(hover_unit)
+				_update_ui()
 		GameAction.Type.START_BATTLE:
 			_start_battle()
 		GameAction.Type.GO_BACK:
@@ -162,6 +306,9 @@ func _buy_from_shop(slot_index: int) -> void:
 
 func _start_battle() -> void:
 	if not session.is_prep():
+		return
+	if board.get_board_unit_count() <= 0:
+		_log("盤面に1体以上配置してください")
 		return
 	_log("戦闘開始 (ラウンド %d)" % session.round_number)
 	session.start_battle()
@@ -212,12 +359,26 @@ func _animate_camera(to_battle: bool) -> void:
 	else:
 		focus = board.get_camera_focus_prep()
 		target_pos = _get_prep_camera_position()
+	var start_transform := camera.global_transform
+	var end_transform := _camera_transform_looking_at(target_pos, focus)
+	_camera_tween_start = start_transform
+	_camera_tween_end = end_transform
 	var tween := create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(camera, "global_position", target_pos, CAMERA_TWEEN_DURATION)
+	tween.tween_method(_apply_camera_tween, 0.0, 1.0, CAMERA_TWEEN_DURATION)
 	await tween.finished
-	camera.look_at(focus, Vector3.UP)
+
+
+func _camera_transform_looking_at(pos: Vector3, focus: Vector3) -> Transform3D:
+	var forward := focus - pos
+	if forward.length_squared() < 0.0001:
+		forward = Vector3.FORWARD
+	return Transform3D(Basis.looking_at(forward, Vector3.UP), pos)
+
+
+func _apply_camera_tween(weight: float) -> void:
+	camera.global_transform = _camera_tween_start.interpolate_with(_camera_tween_end, weight)
 
 
 func _on_extension_choice_required() -> void:
@@ -412,6 +573,9 @@ func _update_ui() -> void:
 		exp_status_label.text = "Lv.%d  経験値 %d/%d" % [level, xp_into, xp_need]
 	else:
 		exp_status_label.text = "Lv.%d  経験値 MAX" % level
+	if shop_odds_tooltip.visible:
+		ShopOdds.populate_odds_grid(shop_odds_grid, level)
+		call_deferred("_position_shop_odds_tooltip")
 	var round_cap := session.max_round
 	round_label.text = "ラウンド: %d / %d" % [mini(session.round_number, round_cap), round_cap]
 	board_label.text = "盤面: %d / %d" % [board.get_board_unit_count(), session.get_board_unit_cap()]
@@ -428,7 +592,7 @@ func _update_ui() -> void:
 	)
 	exp_button.text = "経験値+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
 	exp_button.disabled = not session.is_prep() or session.coins < GameSession.EXP_COST
-	battle_button.disabled = not session.is_prep()
+	battle_button.disabled = not session.is_prep() or board.get_board_unit_count() <= 0
 	input_handler.set_enabled(session.is_prep())
 	shop_panel.visible = session.is_prep()
 	coin_label.visible = session.is_prep()
@@ -437,6 +601,7 @@ func _update_ui() -> void:
 		if index >= session.shop_unit_ids.size() or session.shop_unit_ids[index] < 0:
 			slot_button.text = "売り切れ"
 			slot_button.disabled = true
+			_apply_shop_slot_style(slot_button, 0)
 			continue
 		var unit_id: int = session.shop_unit_ids[index]
 		var data := UnitCatalog.get_unit(unit_id)
@@ -444,4 +609,14 @@ func _update_ui() -> void:
 		slot_button.text = "%s ★\n%d コイン\n%s" % [data["name"], data["cost"], synergy_text]
 		var cost: int = data["cost"]
 		slot_button.disabled = not session.is_prep() or session.coins < cost or board.bench_is_full()
+		_apply_shop_slot_style(slot_button, cost)
 	_update_synergy_panel()
+
+
+func _apply_shop_slot_style(button: Button, cost: int) -> void:
+	var style := CostColors.get_empty_shop_stylebox() if cost <= 0 else CostColors.get_shop_stylebox(cost)
+	button.add_theme_stylebox_override("normal", style)
+	button.add_theme_stylebox_override("hover", style)
+	button.add_theme_stylebox_override("pressed", style)
+	button.add_theme_stylebox_override("disabled", style)
+	button.add_theme_stylebox_override("focus", style)

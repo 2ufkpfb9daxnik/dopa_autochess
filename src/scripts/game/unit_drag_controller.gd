@@ -59,6 +59,10 @@ func handle_drag_release(screen_pos: Vector2, shop_ui_blocks: Callable) -> void:
 		unit.global_position = _original_position
 
 
+func pick_unit_at_screen(screen_pos: Vector2) -> GameUnit:
+	return _raycast_unit(screen_pos)
+
+
 func is_dragging() -> bool:
 	return _dragging_unit != null
 

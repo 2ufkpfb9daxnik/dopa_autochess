@@ -1,0 +1,394 @@
+[gd_scene load_steps=8 format=3 uid="uid://game_scene"]
+
+[ext_resource type="Script" path="res://scripts/game.gd" id="1_game"]
+[ext_resource type="Script" path="res://scripts/board_controller.gd" id="2_board"]
+[ext_resource type="Script" path="res://scripts/game/game_session.gd" id="3_session"]
+[ext_resource type="Script" path="res://scripts/input/game_input_handler.gd" id="4_input"]
+[ext_resource type="Script" path="res://scripts/game/unit_drag_controller.gd" id="5_drag"]
+[ext_resource type="Script" path="res://scripts/game/event_log.gd" id="6_log"]
+
+[node name="Game" type="Node3D"]
+script = ExtResource("1_game")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 12, 7)
+current = true
+fov = 50.0
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 4, 8, 2)
+shadow_enabled = true
+
+[node name="Board" type="Node3D" parent="."]
+script = ExtResource("2_board")
+
+[node name="Units" type="Node3D" parent="."]
+
+[node name="GameSession" type="Node" parent="."]
+script = ExtResource("3_session")
+
+[node name="GameInputHandler" type="Node" parent="."]
+script = ExtResource("4_input")
+
+[node name="UnitDragController" type="Node" parent="."]
+script = ExtResource("5_drag")
+
+[node name="EventLog" type="Node" parent="."]
+script = ExtResource("6_log")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="UI" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TopBar" type="HBoxContainer" parent="CanvasLayer/UI"]
+layout_mode = 0
+offset_left = 200.0
+offset_top = 12.0
+offset_right = 1100.0
+offset_bottom = 44.0
+theme_override_constants/separation = 12
+
+[node name="RoundLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "ラウンド: 1 / 20"
+
+[node name="BoardLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "盤面: 0 / 1"
+
+[node name="BenchLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "ベンチ: 0 / 15"
+
+[node name="BattleButton" type="Button" parent="CanvasLayer/UI/TopBar"]
+custom_minimum_size = Vector2(100, 32)
+layout_mode = 2
+text = "戦闘開始"
+
+[node name="BackButton" type="Button" parent="CanvasLayer/UI/TopBar"]
+custom_minimum_size = Vector2(72, 32)
+layout_mode = 2
+text = "戻る"
+
+[node name="EventLogPanel" type="PanelContainer" parent="CanvasLayer/UI"]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 56.0
+offset_right = 188.0
+offset_bottom = 280.0
+
+[node name="EventLogVBox" type="VBoxContainer" parent="CanvasLayer/UI/EventLogPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="EventLogTitle" type="Label" parent="CanvasLayer/UI/EventLogPanel/EventLogVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "ログ"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/UI/EventLogPanel/EventLogVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(160, 200)
+
+[node name="EventLogLabel" type="RichTextLabel" parent="CanvasLayer/UI/EventLogPanel/EventLogVBox/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(150, 0)
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+
+[node name="SynergyPanel" type="PanelContainer" parent="CanvasLayer/UI"]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 288.0
+offset_right = 188.0
+offset_bottom = 520.0
+
+[node name="SynergyVBox" type="VBoxContainer" parent="CanvasLayer/UI/SynergyPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="SynergyTitle" type="Label" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "シナジー"
+
+[node name="SynergyLabel" type="RichTextLabel" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(160, 200)
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+text = "発動中なし"
+
+[node name="BottomUI" type="VBoxContainer" parent="CanvasLayer/UI"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -148.0
+offset_right = 300.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 4
+
+[node name="CoinLabel" type="Label" parent="CanvasLayer/UI/BottomUI"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "コイン: 20"
+horizontal_alignment = 1
+
+[node name="BottomBar" type="HBoxContainer" parent="CanvasLayer/UI/BottomUI"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="ActionColumn" type="VBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar"]
+custom_minimum_size = Vector2(120, 112)
+layout_mode = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="ExpStatusLabel" type="Label" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "経験値 0/2"
+horizontal_alignment = 1
+
+[node name="ExpButton" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
+custom_minimum_size = Vector2(120, 48)
+layout_mode = 2
+size_flags_vertical = 3
+text = "経験値+4
+(4)"
+
+[node name="RerollButton" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
+custom_minimum_size = Vector2(120, 48)
+layout_mode = 2
+size_flags_vertical = 3
+text = "更新 (2)"
+
+[node name="ShopPanel" type="VBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar"]
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+alignment = 1
+
+[node name="ShopSlots" type="HBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel"]
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="ShopSlot0" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots"]
+custom_minimum_size = Vector2(108, 112)
+layout_mode = 2
+size_flags_vertical = 3
+text = "空き"
+
+[node name="ShopSlot1" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots"]
+custom_minimum_size = Vector2(108, 112)
+layout_mode = 2
+size_flags_vertical = 3
+text = "空き"
+
+[node name="ShopSlot2" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots"]
+custom_minimum_size = Vector2(108, 112)
+layout_mode = 2
+size_flags_vertical = 3
+text = "空き"
+
+[node name="ShopSlot3" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots"]
+custom_minimum_size = Vector2(108, 112)
+layout_mode = 2
+size_flags_vertical = 3
+text = "空き"
+
+[node name="ShopSlot4" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots"]
+custom_minimum_size = Vector2(108, 112)
+layout_mode = 2
+size_flags_vertical = 3
+text = "空き"
+
+[node name="SellDragHintLeft" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+mouse_filter = 2
+layout_mode = 0
+
+[node name="SellDragLabelLeft" type="Label" parent="CanvasLayer/UI/SellDragHintLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "← 売却"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SellDragHintRight" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+mouse_filter = 2
+layout_mode = 0
+
+[node name="SellDragLabelRight" type="Label" parent="CanvasLayer/UI/SellDragHintRight"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "売却 →"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BattleOverlay" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -40.0
+offset_right = 120.0
+offset_bottom = 40.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="BattleLabel" type="Label" parent="CanvasLayer/UI/BattleOverlay"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "戦闘"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="IncomeOverlay" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = -50.0
+offset_right = 160.0
+offset_bottom = 50.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="IncomeLabel" type="Label" parent="CanvasLayer/UI/IncomeOverlay"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "収入 +0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="PrepBlocker" type="Control" parent="CanvasLayer/UI"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="RouteOverlay" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -320.0
+offset_top = -100.0
+offset_right = 320.0
+offset_bottom = 100.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="RouteVBox" type="VBoxContainer" parent="CanvasLayer/UI/RouteOverlay"]
+layout_mode = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="RouteTitle" type="Label" parent="CanvasLayer/UI/RouteOverlay/RouteVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "ルートを選択"
+horizontal_alignment = 1
+
+[node name="RouteButtons" type="HBoxContainer" parent="CanvasLayer/UI/RouteOverlay/RouteVBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="RouteButton0" type="Button" parent="CanvasLayer/UI/RouteOverlay/RouteVBox/RouteButtons"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+text = "弱"
+
+[node name="RouteButton1" type="Button" parent="CanvasLayer/UI/RouteOverlay/RouteVBox/RouteButtons"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+text = "中"
+
+[node name="RouteButton2" type="Button" parent="CanvasLayer/UI/RouteOverlay/RouteVBox/RouteButtons"]
+custom_minimum_size = Vector2(180, 96)
+layout_mode = 2
+text = "強"
+
+[node name="ExtensionOverlay" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -80.0
+offset_right = 200.0
+offset_bottom = 80.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ExtensionVBox" type="VBoxContainer" parent="CanvasLayer/UI/ExtensionOverlay"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="ExtensionTitle" type="Label" parent="CanvasLayer/UI/ExtensionOverlay/ExtensionVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "20ラウンド達成！
+あと5ラウンド続けますか？"
+horizontal_alignment = 1
+
+[node name="ContinueButton" type="Button" parent="CanvasLayer/UI/ExtensionOverlay/ExtensionVBox"]
+custom_minimum_size = Vector2(200, 40)
+layout_mode = 2
+size_flags_horizontal = 4
+text = "続ける (+5)"
+
+[node name="EndRunButton" type="Button" parent="CanvasLayer/UI/ExtensionOverlay/ExtensionVBox"]
+custom_minimum_size = Vector2(200, 40)
+layout_mode = 2
+size_flags_horizontal = 4
+text = "終了する"

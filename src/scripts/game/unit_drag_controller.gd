@@ -6,6 +6,7 @@ signal sell_requested(unit: GameUnit)
 signal drag_state_changed(is_dragging: bool, sell_zone_side: int)
 
 const DRAG_LIFT := 0.35
+const PICK_SCREEN_RADIUS := 56.0
 
 var drag_plane_y: float = 0.4
 
@@ -74,6 +75,13 @@ func _get_sell_zone_side(screen_pos: Vector2) -> int:
 
 
 func _raycast_unit(screen_pos: Vector2) -> GameUnit:
+	var hit := _raycast_unit_direct(screen_pos)
+	if hit != null:
+		return hit
+	return _pick_nearest_unit_on_screen(screen_pos)
+
+
+func _raycast_unit_direct(screen_pos: Vector2) -> GameUnit:
 	var origin := _camera.project_ray_origin(screen_pos)
 	var direction := _camera.project_ray_normal(screen_pos)
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * 200.0)
@@ -82,9 +90,29 @@ func _raycast_unit(screen_pos: Vector2) -> GameUnit:
 	if hit.is_empty():
 		return null
 	var collider: Object = hit.collider
-	if collider is GameUnit:
+	if collider is GameUnit and not (collider as GameUnit).is_enemy:
 		return collider
 	return null
+
+
+func _pick_nearest_unit_on_screen(screen_pos: Vector2) -> GameUnit:
+	var best_unit: GameUnit = null
+	var best_score := INF
+	for unit in _board.get_all_units():
+		if unit.is_enemy:
+			continue
+		var pick_center := unit.global_position + Vector3(0.0, 0.75, 0.0)
+		var unit_screen := _camera.unproject_position(pick_center)
+		if unit_screen.z < 0.01:
+			continue
+		var screen_dist := Vector2(unit_screen.x, unit_screen.y).distance_to(screen_pos)
+		if screen_dist > PICK_SCREEN_RADIUS:
+			continue
+		var score := screen_dist + unit_screen.z * 0.002
+		if score < best_score:
+			best_score = score
+			best_unit = unit
+	return best_unit
 
 
 func _world_point_on_plane(screen_pos: Vector2) -> Vector3:

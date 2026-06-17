@@ -7,6 +7,7 @@ const TARGET_MODEL_HEIGHT := 0.78
 
 var unit_id: int = -1
 var stars: int = 1
+var is_enemy: bool = false
 var board_hex: Vector2i = Vector2i(-1, -1)
 var bench_index: int = -1
 
@@ -35,8 +36,14 @@ func refresh_visuals() -> void:
 	var data := UnitCatalog.get_unit(unit_id)
 	var synergy_text := UnitCatalog.get_synergy_names(unit_id)
 	label.text = "%s\n%d\n%s" % ["★".repeat(stars), data["cost"], synergy_text]
-	label.modulate = Color.WHITE if stars <= 2 else Color(1.0, 0.95, 0.7)
+	if is_enemy:
+		label.modulate = Color(1.0, 0.78, 0.78)
+	elif stars <= 2:
+		label.modulate = Color.WHITE
+	else:
+		label.modulate = Color(1.0, 0.95, 0.7)
 	_apply_model_star_scale()
+	_apply_enemy_model_tint()
 	_refresh_cost_border()
 
 
@@ -54,6 +61,24 @@ func _apply_model_star_scale() -> void:
 	var scale := _base_model_scale * star_scale
 	model_root.scale = Vector3.ONE * scale
 	model_root.position.y = _model_ground_y * star_scale
+
+
+func _apply_enemy_model_tint() -> void:
+	_set_mesh_overlay(model_root, is_enemy)
+
+
+func _set_mesh_overlay(node: Node, enemy: bool) -> void:
+	if node is GeometryInstance3D:
+		var instance := node as GeometryInstance3D
+		if enemy:
+			var overlay := StandardMaterial3D.new()
+			overlay.albedo_color = Color(0.88, 0.22, 0.24, 0.42)
+			overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			instance.material_overlay = overlay
+		else:
+			instance.material_overlay = null
+	for child in node.get_children():
+		_set_mesh_overlay(child, enemy)
 
 
 func _compute_visual_aabb(root: Node3D) -> AABB:

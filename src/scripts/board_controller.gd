@@ -14,6 +14,7 @@ var board_max_x: float = 0.0
 var bench_min_x: float = 0.0
 var bench_max_x: float = 0.0
 var board_units: Dictionary = {}
+var enemy_units: Dictionary = {}
 var bench_units: Array = []
 var board_unit_limit: int = 1
 
@@ -130,6 +131,7 @@ func set_battle_mode(active: bool) -> void:
 		_build_hex_tiles(true, enemy_origin, _enemy_hex_markers)
 	else:
 		_clear_enemy_tiles()
+		clear_enemy_units()
 
 
 func _clear_enemy_tiles() -> void:
@@ -213,6 +215,37 @@ func get_all_units() -> Array[GameUnit]:
 		if unit != null:
 			units.append(unit)
 	return units
+
+
+func get_enemy_unit_global_pos(cell: Vector2i) -> Vector3:
+	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
+	return to_global(HexMath.enemy_cell_to_world(cell.x, cell.y, enemy_origin))
+
+
+func get_enemy_unit_count() -> int:
+	return enemy_units.size()
+
+
+func place_enemy_unit(unit: GameUnit, cell: Vector2i) -> bool:
+	if not HexMath.is_in_bounds(cell):
+		return false
+	if enemy_units.has(cell):
+		return false
+	unit.clear_location()
+	unit.is_enemy = true
+	unit.board_hex = cell
+	enemy_units[cell] = unit
+	unit.global_position = get_enemy_unit_global_pos(cell)
+	if unit.is_node_ready():
+		unit.refresh_visuals()
+	return true
+
+
+func clear_enemy_units() -> void:
+	for unit in enemy_units.values():
+		if is_instance_valid(unit):
+			unit.queue_free()
+	enemy_units.clear()
 
 
 func get_board_world_pos(cell: Vector2i) -> Vector3:

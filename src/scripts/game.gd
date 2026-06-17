@@ -346,6 +346,13 @@ func _start_battle() -> void:
 	shop_panel.visible = false
 	coin_label.visible = false
 	board.set_battle_mode(true)
+	var enemy_count := EnemySpawn.spawn_for_battle(
+		board,
+		units_root,
+		session.round_number,
+		session.selected_route
+	)
+	_log("敵 %d 体出現" % enemy_count)
 	await _animate_camera(true)
 	_update_ui()
 	await get_tree().create_timer(session.get_battle_duration()).timeout

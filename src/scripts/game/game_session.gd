@@ -5,8 +5,11 @@ signal state_changed
 signal extension_choice_required
 signal route_choice_required
 signal run_completed
+signal run_failed
 
 enum Phase { PREP, BATTLE, ROUTE_CHOICE, EXTENSION_CHOICE }
+
+enum RunEndReason { NONE, DEFEAT, CLEAR, VOLUNTARY_END }
 
 const REROLL_COST := 2
 const EXP_COST := 4
@@ -20,6 +23,7 @@ const ROUND_END_FREE_XP := 2
 
 var coins: int = INITIAL_COINS
 var experience: int = 0
+var player_hp: int = PlayerHp.INITIAL_HP
 var round_number: int = 1
 var phase: Phase = Phase.PREP
 var shop_unit_ids: Array[int] = []
@@ -33,6 +37,7 @@ var last_income_breakdown: Dictionary = {}
 var route_options: Array[Dictionary] = []
 var selected_route: Dictionary = {}
 var free_rerolls: int = 0
+var run_end_reason: RunEndReason = RunEndReason.NONE
 
 
 func _ready() -> void:
@@ -118,7 +123,7 @@ func start_battle() -> void:
 	state_changed.emit()
 
 
-func finish_battle(won: bool = true) -> void:
+func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 	coins_at_last_round_end = coins
 	experience += ROUND_END_FREE_XP
 
@@ -128,8 +133,14 @@ func finish_battle(won: bool = true) -> void:
 	else:
 		loss_streak += 1
 		win_streak = 0
+		var damage := PlayerHp.calc_loss_damage(round_number, remaining_enemy_units)
+		player_hp = maxi(0, player_hp - damage)
 
 	round_number += 1
+
+	if not won and player_hp <= 0:
+		finish_run(RunEndReason.DEFEAT)
+		return
 
 	if not extended_mode and round_number == NORMAL_MAX_ROUND + 1:
 		phase = Phase.EXTENSION_CHOICE
@@ -138,9 +149,7 @@ func finish_battle(won: bool = true) -> void:
 		return
 
 	if round_number > max_round:
-		phase = Phase.PREP
-		run_completed.emit()
-		state_changed.emit()
+		finish_run(RunEndReason.CLEAR)
 		return
 
 	_generate_route_options()
@@ -179,7 +188,7 @@ func _apply_route_reward(route: Dictionary) -> void:
 
 func choose_extension(continue_run: bool) -> void:
 	if not continue_run:
-		run_completed.emit()
+		finish_run(RunEndReason.VOLUNTARY_END)
 		return
 	extended_mode = true
 	max_round = NORMAL_MAX_ROUND + EXTENSION_ROUNDS
@@ -209,3 +218,20 @@ func get_active_streak() -> int:
 
 func get_battle_duration() -> float:
 	return BATTLE_DURATION
+
+
+func is_run_over() -> bool:
+	return run_end_reason != RunEndReason.NONE
+
+
+func finish_run(reason: RunEndReason) -> void:
+	if run_end_reason != RunEndReason.NONE:
+		return
+	run_end_reason = reason
+	phase = Phase.PREP
+	match reason:
+		RunEndReason.DEFEAT:
+			run_failed.emit()
+		_:
+			run_completed.emit()
+	state_changed.emit()

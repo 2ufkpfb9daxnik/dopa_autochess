@@ -7,11 +7,16 @@ const CAMERA_TWEEN_DURATION := 0.55
 const LOG_COLLAPSED_TOP := 56.0
 const LOG_COLLAPSED_BOTTOM := 280.0
 const LOG_EXPANDED_BOTTOM_MARGIN := 168.0
+const SYNERGY_PANEL_NORMAL_BOTTOM := 520.0
+
+enum RunReviewMode { MENU, BOARD, SYNERGY, LOG, STATS }
 
 var _camera_tween_start: Transform3D
 var _camera_tween_end: Transform3D
 var _log_expanded := false
 var _log_scroll_position := 0
+var _run_end_active := false
+var _run_review_mode := RunReviewMode.MENU
 
 @onready var camera: Camera3D = $Camera3D
 @onready var board: BoardController = $Board
@@ -22,6 +27,7 @@ var _log_scroll_position := 0
 @onready var event_log: EventLog = $EventLog
 
 @onready var round_label: Label = $CanvasLayer/UI/TopBar/RoundLabel
+@onready var hp_label: Label = $CanvasLayer/UI/TopBar/HpLabel
 @onready var board_label: Label = $CanvasLayer/UI/TopBar/BoardLabel
 @onready var bench_label: Label = $CanvasLayer/UI/TopBar/BenchLabel
 @onready var coin_label: Label = $CanvasLayer/UI/BottomUI/CoinLabel
@@ -43,6 +49,19 @@ var _log_scroll_position := 0
 @onready var income_overlay: PanelContainer = $CanvasLayer/UI/IncomeOverlay
 @onready var extension_overlay: PanelContainer = $CanvasLayer/UI/ExtensionOverlay
 @onready var route_overlay: PanelContainer = $CanvasLayer/UI/RouteOverlay
+@onready var run_end_overlay: PanelContainer = $CanvasLayer/UI/RunEndOverlay
+@onready var run_end_title: Label = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/RunEndTitle
+@onready var run_end_summary: Label = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/RunEndSummary
+@onready var run_end_review_bar: PanelContainer = $CanvasLayer/UI/RunEndReviewBar
+@onready var review_bar_label: Label = $CanvasLayer/UI/RunEndReviewBar/RunEndReviewHBox/ReviewBarLabel
+@onready var run_stats_panel: PanelContainer = $CanvasLayer/UI/RunStatsPanel
+@onready var run_stats_label: Label = $CanvasLayer/UI/RunStatsPanel/RunStatsVBox/RunStatsScroll/RunStatsLabel
+@onready var review_board_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons/ReviewBoardButton
+@onready var review_synergy_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons/ReviewSynergyButton
+@onready var review_log_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons/ReviewLogButton
+@onready var review_stats_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons/ReviewStatsButton
+@onready var title_return_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/TitleReturnButton
+@onready var back_to_run_end_button: Button = $CanvasLayer/UI/RunEndReviewBar/RunEndReviewHBox/BackToRunEndButton
 @onready var synergy_panel: PanelContainer = $CanvasLayer/UI/SynergyPanel
 @onready var prep_blocker: Control = $CanvasLayer/UI/PrepBlocker
 @onready var event_log_panel: PanelContainer = $CanvasLayer/UI/EventLogPanel
@@ -73,12 +92,19 @@ func _ready() -> void:
 	session.extension_choice_required.connect(_on_extension_choice_required)
 	session.route_choice_required.connect(_on_route_choice_required)
 	session.run_completed.connect(_on_run_completed)
+	session.run_failed.connect(_on_run_failed)
 	reroll_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.REROLL)))
 	exp_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.BUY_EXP)))
 	battle_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.START_BATTLE)))
 	back_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.GO_BACK)))
 	continue_button.pressed.connect(_on_continue_extension)
 	end_run_button.pressed.connect(_on_end_run)
+	review_board_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.BOARD))
+	review_synergy_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.SYNERGY))
+	review_log_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.LOG))
+	review_stats_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.STATS))
+	title_return_button.pressed.connect(_leave_to_title)
+	back_to_run_end_button.pressed.connect(_return_to_run_end_menu)
 	for index in route_buttons.size():
 		route_buttons[index].pressed.connect(func() -> void: _on_route_selected(index))
 	for index in shop_slots.get_child_count():
@@ -257,6 +283,8 @@ func _on_action(action: GameAction) -> void:
 	if action.type == GameAction.Type.CLOSE_LOG:
 		_collapse_log_panel()
 		return
+	if _run_end_active:
+		return
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
 		return
 	if session.phase == GameSession.Phase.ROUTE_CHOICE:
@@ -321,11 +349,21 @@ func _start_battle() -> void:
 	await _animate_camera(true)
 	_update_ui()
 	await get_tree().create_timer(session.get_battle_duration()).timeout
-	session.finish_battle(true)
-	_log("戦闘終了 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
+	var battle_won := true
+	var remaining_enemies := 0
+	session.finish_battle(battle_won, remaining_enemies)
+	if battle_won:
+		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
+	else:
+		var fought_round := session.round_number - 1
+		var damage := PlayerHp.calc_loss_damage(fought_round, remaining_enemies)
+		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
 	board.set_battle_mode(false)
 	await _animate_camera(false)
 	battle_overlay.visible = false
+	if session.is_run_over():
+		_show_run_end_screen()
+		return
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
 		input_handler.set_enabled(false)
 		prep_blocker.visible = true
@@ -446,19 +484,189 @@ func _on_route_selected(index: int) -> void:
 
 func _on_end_run() -> void:
 	extension_overlay.visible = false
-	prep_blocker.visible = false
 	_log("ランを終了した")
 	session.choose_extension(false)
+	_show_run_end_screen()
 
 
 func _on_run_completed() -> void:
-	input_handler.set_enabled(false)
+	pass
+
+
+func _on_run_failed() -> void:
+	pass
+
+
+func _show_run_end_screen() -> void:
+	if _run_end_active:
+		return
+	_run_end_active = true
+	_run_review_mode = RunReviewMode.MENU
+	battle_overlay.visible = false
+	extension_overlay.visible = false
+	route_overlay.visible = false
+	income_overlay.visible = false
+	run_stats_panel.visible = false
+	run_end_review_bar.visible = false
+	run_end_title.text = _get_run_end_title()
+	run_end_summary.text = _build_run_end_summary()
+	run_stats_label.text = _build_run_stats_text()
+	run_end_overlay.visible = true
 	prep_blocker.visible = true
-	battle_overlay.visible = true
-	battle_overlay.get_node("BattleLabel").text = "クリア"
-	_log("ゲームクリア")
-	await get_tree().create_timer(2.5).timeout
+	input_handler.set_enabled(false)
+	shop_panel.visible = false
+	coin_label.visible = false
+	_collapse_log_panel()
+	_set_synergy_panel_review_mode(false)
+	match session.run_end_reason:
+		GameSession.RunEndReason.DEFEAT:
+			_log("HPが0になった")
+		GameSession.RunEndReason.CLEAR:
+			_log("ゲームクリア")
+		GameSession.RunEndReason.VOLUNTARY_END:
+			pass
+	_update_ui()
+
+
+func _enter_run_review(mode: RunReviewMode) -> void:
+	if not _run_end_active:
+		return
+	_run_review_mode = mode
+	run_end_overlay.visible = false
+	run_end_review_bar.visible = true
+	prep_blocker.visible = false
+	run_stats_panel.visible = false
+	_set_synergy_panel_review_mode(false)
+	if _log_expanded:
+		_log_expanded = false
+		_apply_log_panel_layout()
+	match mode:
+		RunReviewMode.BOARD:
+			review_bar_label.text = "ラン終了 — 編成を確認中"
+			_setup_camera()
+		RunReviewMode.SYNERGY:
+			review_bar_label.text = "ラン終了 — シナジーを確認中"
+			_set_synergy_panel_review_mode(true)
+			_update_synergy_panel()
+		RunReviewMode.LOG:
+			review_bar_label.text = "ラン終了 — ログを確認中"
+			_log_expanded = true
+			_apply_log_panel_layout()
+			_refresh_event_log()
+		RunReviewMode.STATS:
+			review_bar_label.text = "ラン終了 — 戦績詳細"
+			run_stats_label.text = _build_run_stats_text()
+			run_stats_panel.visible = true
+
+
+func _return_to_run_end_menu() -> void:
+	if not _run_end_active:
+		return
+	_run_review_mode = RunReviewMode.MENU
+	run_end_overlay.visible = true
+	run_end_review_bar.visible = false
+	run_stats_panel.visible = false
+	prep_blocker.visible = true
+	_set_synergy_panel_review_mode(false)
+	if _log_expanded:
+		_log_expanded = false
+		_apply_log_panel_layout()
+
+
+func _leave_to_title() -> void:
 	get_tree().change_scene_to_file("res://scenes/title.tscn")
+
+
+func _get_run_end_title() -> String:
+	match session.run_end_reason:
+		GameSession.RunEndReason.DEFEAT:
+			return "敗北"
+		GameSession.RunEndReason.CLEAR:
+			return "完全クリア"
+		GameSession.RunEndReason.VOLUNTARY_END:
+			return "クリア"
+	return "ラン終了"
+
+
+func _get_reached_round() -> int:
+	if session.run_end_reason == GameSession.RunEndReason.DEFEAT:
+		return maxi(1, session.round_number - 1)
+	return mini(session.round_number - 1, session.max_round)
+
+
+func _build_run_end_summary() -> String:
+	var reached := _get_reached_round()
+	return "到達ラウンド: %d / %d\nHP: %d  Lv.%d  コイン: %d" % [
+		reached,
+		session.max_round,
+		session.player_hp,
+		session.get_level(),
+		session.coins,
+	]
+
+
+func _build_run_stats_text() -> String:
+	var lines: PackedStringArray = []
+	var reached := _get_reached_round()
+	lines.append("結果: %s" % _get_run_end_title())
+	lines.append("到達ラウンド: %d / %d" % [reached, session.max_round])
+	lines.append("HP: %d / %d" % [session.player_hp, PlayerHp.INITIAL_HP])
+	lines.append("レベル: %d" % session.get_level())
+	lines.append("経験値: %d" % session.experience)
+	lines.append("コイン: %d" % session.coins)
+	lines.append("連勝: %d  連敗: %d" % [session.win_streak, session.loss_streak])
+	lines.append("延長モード: %s" % ("あり" if session.extended_mode else "なし"))
+	lines.append("")
+	lines.append("盤面 (%d / %d)" % [
+		board.get_board_unit_count(),
+		session.get_board_unit_cap(),
+	])
+	for unit in board.get_all_units():
+		if not unit.is_on_board():
+			continue
+		lines.append("  %s %s (%dコスト)" % [
+			unit.get_display_name(),
+			unit.get_star_text(),
+			unit.get_cost(),
+		])
+	var bench_count := 0
+	for slot in board.bench_units:
+		if slot == null:
+			continue
+		bench_count += 1
+	lines.append("")
+	lines.append("ベンチ (%d)" % bench_count)
+	for slot in board.bench_units:
+		var unit: GameUnit = slot as GameUnit
+		if unit == null:
+			continue
+		lines.append("  %s %s (%dコスト)" % [
+			unit.get_display_name(),
+			unit.get_star_text(),
+			unit.get_cost(),
+		])
+	var synergies := SynergyTracker.get_active_synergies(board.get_all_units())
+	if synergies.is_empty():
+		lines.append("")
+		lines.append("シナジー: 発動なし")
+	else:
+		lines.append("")
+		lines.append("シナジー:")
+		for entry in synergies:
+			lines.append("  %s Lv.%d (%d体)" % [
+				entry["name"],
+				entry["tier"],
+				entry["count"],
+			])
+	return "\n".join(lines)
+
+
+func _set_synergy_panel_review_mode(active: bool) -> void:
+	if active:
+		var height := get_viewport().get_visible_rect().size.y
+		synergy_panel.offset_bottom = height - 8.0
+	else:
+		synergy_panel.offset_bottom = SYNERGY_PANEL_NORMAL_BOTTOM
 
 
 func _on_sell_requested(unit: GameUnit) -> void:
@@ -565,6 +773,20 @@ func _update_synergy_panel() -> void:
 
 func _update_ui() -> void:
 	board.board_unit_limit = session.get_board_unit_cap()
+	if _run_end_active:
+		battle_button.disabled = true
+		back_button.disabled = true
+		reroll_button.disabled = true
+		exp_button.disabled = true
+		input_handler.set_enabled(false)
+		shop_panel.visible = false
+		coin_label.visible = false
+		for index in shop_slots.get_child_count():
+			var slot_button: Button = shop_slots.get_child(index) as Button
+			slot_button.disabled = true
+		_update_synergy_panel()
+		return
+	back_button.disabled = false
 	coin_label.text = "コイン: %d" % session.coins
 	var level := session.get_level()
 	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience)
@@ -578,6 +800,7 @@ func _update_ui() -> void:
 		call_deferred("_position_shop_odds_tooltip")
 	var round_cap := session.max_round
 	round_label.text = "ラウンド: %d / %d" % [mini(session.round_number, round_cap), round_cap]
+	hp_label.text = "HP: %d" % session.player_hp
 	board_label.text = "盤面: %d / %d" % [board.get_board_unit_count(), session.get_board_unit_cap()]
 	var bench_count := 0
 	for slot in board.bench_units:

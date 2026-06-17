@@ -1,24 +1,22 @@
-[gd_scene load_steps=4 format=3 uid="uid://unit_scene"]
+[gd_scene load_steps=3 format=3 uid="uid://unit_scene"]
 
 [ext_resource type="Script" path="res://scripts/unit.gd" id="1_unit"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_unit"]
-size = Vector3(0.55, 0.75, 0.55)
+[ext_resource type="PackedScene" path="res://models/businessman/businessman.glb" id="2_businessman"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_unit"]
-size = Vector3(0.55, 0.75, 0.55)
+size = Vector3(0.5, 0.78, 0.5)
 
 [node name="Unit" type="StaticBody3D"]
 collision_layer = 2
 collision_mask = 0
 script = ExtResource("1_unit")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
-mesh = SubResource("BoxMesh_unit")
+[node name="ModelRoot" type="Node3D" parent="."]
+
+[node name="Businessman" parent="ModelRoot" instance=ExtResource("2_businessman")]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.375, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.39, 0)
 shape = SubResource("BoxShape_unit")
 
 [node name="Label3D" type="Label3D" parent="."]

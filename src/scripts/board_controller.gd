@@ -6,6 +6,8 @@ signal merges_applied(messages: Array[String])
 
 const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
 const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
+const BOARD_COUNT_LABEL_NORTH_OFFSET := HexMath.ROW_SPACING * 0.95
+const BOARD_COUNT_LABEL_FONT_SIZE := 96
 
 var board_origin: Vector3 = Vector3.ZERO
 var board_center_x: float = 0.0
@@ -21,6 +23,7 @@ var board_unit_limit: int = 1
 var _bench_markers: Array[MeshInstance3D] = []
 var _hex_markers: Array[MeshInstance3D] = []
 var _enemy_hex_markers: Array[MeshInstance3D] = []
+var _board_count_label: Label3D
 var _in_battle: bool = false
 
 
@@ -40,6 +43,7 @@ func _build_visuals() -> void:
 	_cache_bench_extents()
 	_build_hex_tiles(false, board_origin, _hex_markers)
 	_build_bench_slots()
+	_build_board_count_label()
 
 
 func _cache_bench_extents() -> void:
@@ -85,6 +89,30 @@ func _build_bench_slots() -> void:
 		marker.name = "BenchSlot_%d" % slot
 		add_child(marker)
 		_bench_markers.append(marker)
+
+
+func _build_board_count_label() -> void:
+	_board_count_label = Label3D.new()
+	_board_count_label.name = "BoardCountLabel"
+	_board_count_label.font_size = BOARD_COUNT_LABEL_FONT_SIZE
+	_board_count_label.outline_size = 14
+	_board_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_board_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_board_count_label.text = "0/1"
+	var extents := HexMath.compute_board_extents(board_origin)
+	_board_count_label.position = Vector3(
+		extents["center_x"],
+		0.45,
+		float(extents["min_z"]) - BOARD_COUNT_LABEL_NORTH_OFFSET
+	)
+	add_child(_board_count_label)
+
+
+func set_board_count_display(count: int, cap: int) -> void:
+	if _board_count_label == null:
+		return
+	_board_count_label.text = "%d/%d" % [count, cap]
 
 
 func _bench_local_pos(slot_index: int) -> Vector3:

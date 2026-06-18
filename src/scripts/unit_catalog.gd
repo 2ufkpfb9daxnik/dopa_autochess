@@ -28,6 +28,13 @@ static func get_synergy_names(unit_id: int) -> String:
 	return " ".join(names)
 
 
+static func get_synergy_lines(unit_id: int) -> String:
+	var names: PackedStringArray = []
+	for synergy_id in get_synergies(unit_id):
+		names.append(SynergyCatalog.get_synergy_name(int(synergy_id)))
+	return "\n".join(names)
+
+
 static func get_unit_ids_by_cost(cost: int) -> Array[int]:
 	var ids: Array[int] = []
 	for unit in UNITS:

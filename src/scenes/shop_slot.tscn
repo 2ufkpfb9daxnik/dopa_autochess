@@ -1,0 +1,128 @@
+[gd_scene load_steps=3 format=3 uid="uid://shop_slot_panel"]
+
+[ext_resource type="Script" path="res://scripts/game/shop_slot_panel.gd" id="1_slot"]
+[ext_resource type="Texture2D" path="res://images/placeholder.png" id="2_placeholder"]
+
+[node name="ShopSlotPanel" type="Button"]
+custom_minimum_size = Vector2(148, 170)
+offset_right = 148.0
+offset_bottom = 170.0
+flat = true
+text = ""
+script = ExtResource("1_slot")
+
+[node name="ContentRoot" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = 3.0
+offset_right = -3.0
+offset_bottom = -41.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Illustration" type="TextureRect" parent="ContentRoot"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 132.0
+grow_horizontal = 2
+mouse_filter = 2
+texture = ExtResource("2_placeholder")
+expand_mode = 4
+stretch_mode = 5
+
+[node name="SynergyLabel" type="Label" parent="ContentRoot"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = 128.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.95, 0.97, 1, 0.92)
+theme_override_font_sizes/font_size = 12
+text = "赤"
+modulate = Color(1, 1, 1, 0.78)
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="StarsLabel" type="Label" parent="ContentRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -28.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = 24.0
+grow_horizontal = 0
+theme_override_font_sizes/font_size = 16
+text = "★"
+horizontal_alignment = 2
+
+[node name="BottomBarPanel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = -41.0
+offset_right = -3.0
+offset_bottom = -3.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="BottomBar" type="HBoxContainer" parent="BottomBarPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 2.0
+offset_right = -4.0
+offset_bottom = -2.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 6
+
+[node name="CostLabel" type="Label" parent="BottomBarPanel/BottomBar"]
+custom_minimum_size = Vector2(34, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "3"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="NameLabel" type="Label" parent="BottomBarPanel/BottomBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+text = "見習い"
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="EmptyLabel" type="Label" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 3.0
+offset_top = 3.0
+offset_right = -3.0
+offset_bottom = -3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 15
+text = "売り切れ"
+horizontal_alignment = 1
+vertical_alignment = 1

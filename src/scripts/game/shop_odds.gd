@@ -78,8 +78,8 @@ static func roll_cost(level: int) -> int:
 static func populate_odds_grid(grid: GridContainer, highlight_level: int) -> void:
 	for child in grid.get_children():
 		child.queue_free()
-	const LV_WIDTH := 32
-	const CELL_WIDTH := 40
+	const LV_WIDTH := 36
+	const CELL_WIDTH := 44
 	_add_grid_label(grid, "Lv", true, false, LV_WIDTH)
 	for cost in range(1, MAX_COST + 1):
 		_add_grid_label(grid, str(cost), true, false, CELL_WIDTH)
@@ -111,15 +111,15 @@ static func _add_grid_label(
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.custom_minimum_size = Vector2(min_width, 0)
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	if is_header:
-		label.add_theme_font_size_override("font_size", 13)
+		label.add_theme_font_size_override("font_size", 14)
 		label.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
 	elif is_highlight:
-		label.add_theme_font_size_override("font_size", 12)
+		label.add_theme_font_size_override("font_size", 13)
 		label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	else:
-		label.add_theme_font_size_override("font_size", 12)
+		label.add_theme_font_size_override("font_size", 13)
 	grid.add_child(label)
 
 

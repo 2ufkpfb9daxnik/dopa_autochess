@@ -102,13 +102,17 @@ func _pick_nearest_unit_on_screen(screen_pos: Vector2) -> GameUnit:
 		if unit.is_enemy:
 			continue
 		var pick_center := unit.global_position + Vector3(0.0, 0.75, 0.0)
-		var unit_screen := _camera.unproject_position(pick_center)
-		if unit_screen.z < 0.01:
+		if _camera.is_position_behind(pick_center):
 			continue
-		var screen_dist := Vector2(unit_screen.x, unit_screen.y).distance_to(screen_pos)
+		var cam_local := _camera.global_transform.affine_inverse() * pick_center
+		var depth := -cam_local.z
+		if depth < 0.01:
+			continue
+		var unit_screen := _camera.unproject_position(pick_center)
+		var screen_dist := unit_screen.distance_to(screen_pos)
 		if screen_dist > PICK_SCREEN_RADIUS:
 			continue
-		var score := screen_dist + unit_screen.z * 0.002
+		var score := screen_dist + depth * 0.002
 		if score < best_score:
 			best_score = score
 			best_unit = unit

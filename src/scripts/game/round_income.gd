@@ -12,24 +12,23 @@ static func calc_holding_bonus(coins_held: int, player_level: int) -> int:
 
 
 static func calc_streak_bonus(streak_count: int) -> int:
-	if streak_count < 2:
-		return 0
-	if streak_count <= 5:
-		return 1
-	return 3
+	return maxi(0, streak_count)
 
 
 static func calc_round_start_income(
 	coins_held: int,
 	player_level: int,
-	streak_count: int
+	streak_count: int,
+	round_number: int
 ) -> Dictionary:
 	var base := BASE_INCOME
 	var holding := calc_holding_bonus(coins_held, player_level)
 	var streak := calc_streak_bonus(streak_count)
+	var round_bonus := maxi(0, round_number)
 	return {
-		"total": base + holding + streak,
+		"total": base + holding + streak + round_bonus,
 		"base": base,
 		"holding": holding,
 		"streak": streak,
+		"round": round_bonus,
 	}

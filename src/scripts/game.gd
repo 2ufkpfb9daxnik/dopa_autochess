@@ -859,15 +859,16 @@ func _show_income_feedback() -> void:
 	if breakdown.is_empty():
 		return
 	var label: Label = income_overlay.get_node("IncomeLabel")
-	label.text = "収入 +%d\n(基本 %d / 所持 %d / 連勝敗 %d)" % [
+	label.text = "収入 +%d\n(基本 %d / 所持 %d / 連勝敗 %d / ラウンド %d)" % [
 		breakdown["total"],
 		breakdown["base"],
 		breakdown["holding"],
 		breakdown["streak"],
+		breakdown["round"],
 	]
 	income_overlay.visible = true
-	_log("収入 +%d (基本 %d / 所持 %d / 連勝 %d)" % [
-		breakdown["total"], breakdown["base"], breakdown["holding"], breakdown["streak"]
+	_log("収入 +%d (基本 %d / 所持 %d / 連勝 %d / ラウンド %d)" % [
+		breakdown["total"], breakdown["base"], breakdown["holding"], breakdown["streak"], breakdown["round"]
 	])
 	await get_tree().create_timer(INCOME_FEEDBACK_DURATION).timeout
 	income_overlay.visible = false

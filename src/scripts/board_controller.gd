@@ -7,7 +7,8 @@ signal merges_applied(messages: Array[String])
 const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
 const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
 const BOARD_COUNT_LABEL_NORTH_OFFSET := HexMath.ROW_SPACING * 0.95
-const BOARD_COUNT_LABEL_FONT_SIZE := 96
+const BOARD_COUNT_LABEL_FONT_SIZE := 480
+const BOARD_COUNT_LABEL_OUTLINE_SIZE := 70
 
 var board_origin: Vector3 = Vector3.ZERO
 var board_center_x: float = 0.0
@@ -95,7 +96,7 @@ func _build_board_count_label() -> void:
 	_board_count_label = Label3D.new()
 	_board_count_label.name = "BoardCountLabel"
 	_board_count_label.font_size = BOARD_COUNT_LABEL_FONT_SIZE
-	_board_count_label.outline_size = 14
+	_board_count_label.outline_size = BOARD_COUNT_LABEL_OUTLINE_SIZE
 	_board_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_board_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -154,6 +155,8 @@ func set_battle_mode(active: bool) -> void:
 	if _in_battle == active:
 		return
 	_in_battle = active
+	if _board_count_label != null:
+		_board_count_label.visible = not active
 	if active:
 		var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
 		_build_hex_tiles(true, enemy_origin, _enemy_hex_markers)

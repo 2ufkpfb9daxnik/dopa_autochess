@@ -202,18 +202,15 @@ func _apply_round_start_income() -> void:
 	last_income_breakdown = RoundIncome.calc_round_start_income(
 		coins_at_last_round_end,
 		get_level(),
-		get_active_streak()
+		get_active_streak(),
+		round_number
 	)
 	coins += last_income_breakdown["total"]
 	state_changed.emit()
 
 
 func get_active_streak() -> int:
-	if win_streak >= 2:
-		return win_streak
-	if loss_streak >= 2:
-		return loss_streak
-	return 0
+	return maxi(win_streak, loss_streak)
 
 
 func get_battle_duration() -> float:

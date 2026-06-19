@@ -4,6 +4,7 @@ extends StaticBody3D
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
 const MAX_STARS := 4
 const TARGET_MODEL_HEIGHT := 0.78
+const UNIT_RENDER_PRIORITY := 2
 
 var unit_id: int = -1
 var stars: int = 1
@@ -27,6 +28,7 @@ static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
 
 
 func _ready() -> void:
+	_apply_render_priority_to_visuals(self, UNIT_RENDER_PRIORITY)
 	_fit_model_to_board()
 	if unit_id >= 0:
 		refresh_visuals()
@@ -138,7 +140,9 @@ func _refresh_cost_border() -> void:
 		_cost_border.visible = false
 		return
 	_cost_border.visible = true
-	_cost_border.material_override = CostColors.make_border_material(get_cost())
+	var material := CostColors.make_border_material(get_cost())
+	material.render_priority = UNIT_RENDER_PRIORITY
+	_cost_border.material_override = material
 
 
 func get_cost() -> int:
@@ -164,3 +168,31 @@ func is_on_bench() -> bool:
 func clear_location() -> void:
 	board_hex = Vector2i(-1, -1)
 	bench_index = -1
+
+
+func _apply_render_priority_to_visuals(node: Node, priority: int) -> void:
+	if node is MeshInstance3D:
+		_set_mesh_material_render_priority(node as MeshInstance3D, priority)
+	elif node is Label3D:
+		var label := node as Label3D
+		label.outline_render_priority = priority - 1
+	for child in node.get_children():
+		_apply_render_priority_to_visuals(child, priority)
+
+
+func _set_mesh_material_render_priority(mesh_instance: MeshInstance3D, priority: int) -> void:
+	if mesh_instance.material_override != null:
+		var override_mat := mesh_instance.material_override.duplicate()
+		override_mat.render_priority = priority
+		mesh_instance.material_override = override_mat
+	if mesh_instance.mesh == null:
+		return
+	for surface_idx in mesh_instance.mesh.get_surface_count():
+		var surface_mat := mesh_instance.get_surface_override_material(surface_idx)
+		if surface_mat == null:
+			surface_mat = mesh_instance.mesh.surface_get_material(surface_idx)
+		if surface_mat == null:
+			continue
+		var mat := surface_mat.duplicate()
+		mat.render_priority = priority
+		mesh_instance.set_surface_override_material(surface_idx, mat)

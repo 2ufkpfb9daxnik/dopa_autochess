@@ -6,9 +6,11 @@ signal merges_applied(messages: Array[String])
 
 const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
 const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
-const BOARD_COUNT_LABEL_NORTH_OFFSET := HexMath.ROW_SPACING * 0.95
-const BOARD_COUNT_LABEL_FONT_SIZE := 480
-const BOARD_COUNT_LABEL_OUTLINE_SIZE := 70
+const BOARD_COUNT_LABEL_SOUTH_OFFSET := HexMath.ROW_SPACING * 0.95
+const BOARD_COUNT_LABEL_FONT_SIZE := 384
+const BOARD_COUNT_LABEL_OUTLINE_SIZE := 56
+const BOARD_RENDER_PRIORITY := 0
+const BOARD_COUNT_LABEL_RENDER_PRIORITY := 1
 
 var board_origin: Vector3 = Vector3.ZERO
 var board_center_x: float = 0.0
@@ -100,12 +102,13 @@ func _build_board_count_label() -> void:
 	_board_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_board_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_board_count_label.outline_render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY - 1
 	_board_count_label.text = "0/1"
 	var extents := HexMath.compute_board_extents(board_origin)
 	_board_count_label.position = Vector3(
 		extents["center_x"],
 		0.45,
-		float(extents["min_z"]) - BOARD_COUNT_LABEL_NORTH_OFFSET
+		float(extents["min_z"]) - BOARD_COUNT_LABEL_SOUTH_OFFSET
 	)
 	add_child(_board_count_label)
 
@@ -134,6 +137,7 @@ func _create_hex_tile(is_light: bool, enemy: bool) -> MeshInstance3D:
 		material.albedo_color = Color(0.42, 0.22, 0.24) if is_light else Color(0.34, 0.18, 0.2)
 	else:
 		material.albedo_color = Color(0.28, 0.34, 0.42) if is_light else Color(0.22, 0.27, 0.34)
+	material.render_priority = BOARD_RENDER_PRIORITY
 	mesh_instance.material_override = material
 	return mesh_instance
 
@@ -147,6 +151,7 @@ func _create_bench_slot() -> MeshInstance3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(0.18, 0.22, 0.28, 0.65)
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.render_priority = BOARD_RENDER_PRIORITY
 	mesh_instance.material_override = material
 	return mesh_instance
 

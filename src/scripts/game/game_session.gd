@@ -37,6 +37,7 @@ var last_income_breakdown: Dictionary = {}
 var route_options: Array[Dictionary] = []
 var selected_route: Dictionary = {}
 var free_rerolls: int = 0
+var shop_locked: bool = false
 var run_end_reason: RunEndReason = RunEndReason.NONE
 
 
@@ -68,6 +69,21 @@ func refresh_shop() -> void:
 	state_changed.emit()
 
 
+func apply_round_start_shop() -> void:
+	if shop_locked:
+		shop_locked = false
+		state_changed.emit()
+		return
+	refresh_shop()
+
+
+func toggle_shop_lock() -> void:
+	if not is_prep():
+		return
+	shop_locked = not shop_locked
+	state_changed.emit()
+
+
 func try_buy_shop_slot(slot_index: int, bench_full: bool) -> int:
 	if not is_prep() or slot_index >= shop_unit_ids.size():
 		return -1
@@ -84,7 +100,7 @@ func try_buy_shop_slot(slot_index: int, bench_full: bool) -> int:
 
 
 func try_reroll() -> bool:
-	if not is_prep():
+	if not is_prep() or shop_locked:
 		return false
 	if free_rerolls > 0:
 		free_rerolls -= 1
@@ -165,7 +181,7 @@ func select_route(index: int) -> Dictionary:
 	_apply_route_reward(selected_route)
 	_apply_round_start_income()
 	phase = Phase.PREP
-	refresh_shop()
+	apply_round_start_shop()
 	state_changed.emit()
 	return selected_route
 

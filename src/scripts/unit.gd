@@ -3,7 +3,7 @@ extends StaticBody3D
 
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
 const MAX_STARS := 4
-const TARGET_MODEL_HEIGHT := 0.78
+const TARGET_MODEL_HEIGHT := HexMath.HEX_SIZE * 0.03
 const UNIT_RENDER_PRIORITY := 2
 
 var unit_id: int = -1
@@ -18,6 +18,11 @@ var bench_index: int = -1
 var _cost_border: MeshInstance3D
 var _base_model_scale := 1.0
 var _model_ground_y := 0.0
+var _animation_player: AnimationPlayer
+var _armature_root: Node3D
+var _armature_rest := Transform3D.IDENTITY
+var _walk_anim_name := ""
+var _battle_walking := false
 
 
 static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
@@ -29,9 +34,87 @@ static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
 
 func _ready() -> void:
 	_apply_render_priority_to_visuals(self, UNIT_RENDER_PRIORITY)
+	_setup_model_animation()
 	_fit_model_to_board()
 	if unit_id >= 0:
 		refresh_visuals()
+	_apply_battle_walking_state()
+
+
+func set_battle_walking(active: bool) -> void:
+	if _battle_walking == active:
+		return
+	_battle_walking = active
+	if is_node_ready():
+		_apply_battle_walking_state()
+
+
+func _setup_model_animation() -> void:
+	_animation_player = _find_animation_player(model_root)
+	_armature_root = _find_armature_root(model_root)
+	if _armature_root != null:
+		_armature_rest = _armature_root.transform
+	if _animation_player != null:
+		_walk_anim_name = _resolve_walk_animation_name()
+		_animation_player.stop()
+
+
+func _apply_battle_walking_state() -> void:
+	if _animation_player == null or _walk_anim_name.is_empty():
+		return
+	if _battle_walking:
+		_animation_player.play(_walk_anim_name)
+	else:
+		_animation_player.stop()
+		if _animation_player.has_animation("RESET"):
+			_animation_player.play("RESET")
+		_lock_model_position()
+
+
+func _lock_model_position() -> void:
+	if _armature_root != null:
+		_armature_root.transform = _armature_rest
+
+
+func _resolve_walk_animation_name() -> String:
+	for anim_name in _animation_player.get_animation_list():
+		if anim_name == "RESET":
+			continue
+		if ".001" in anim_name or ".002" in anim_name:
+			continue
+		return anim_name
+	var animations := _animation_player.get_animation_list()
+	return animations[0] if not animations.is_empty() else ""
+
+
+func _find_animation_player(root: Node) -> AnimationPlayer:
+	if root is AnimationPlayer:
+		return root as AnimationPlayer
+	for child in root.get_children():
+		var found := _find_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+
+func _find_armature_root(root: Node) -> Node3D:
+	var skeleton := _find_skeleton3d(root)
+	if skeleton != null and skeleton.get_parent() is Node3D:
+		return skeleton.get_parent() as Node3D
+	for child in root.get_children():
+		if child is Node3D and "Armature" in child.name:
+			return child as Node3D
+	return null
+
+
+func _find_skeleton3d(root: Node) -> Skeleton3D:
+	if root is Skeleton3D:
+		return root as Skeleton3D
+	for child in root.get_children():
+		var found := _find_skeleton3d(child)
+		if found != null:
+			return found
+	return null
 
 
 func refresh_visuals() -> void:
@@ -51,9 +134,10 @@ func refresh_visuals() -> void:
 
 func _fit_model_to_board() -> void:
 	var aabb := _compute_visual_aabb(model_root)
-	if aabb.size.y <= 0.001:
+	var model_height := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
+	if model_height <= 0.001:
 		return
-	_base_model_scale = TARGET_MODEL_HEIGHT / aabb.size.y
+	_base_model_scale = TARGET_MODEL_HEIGHT / model_height
 	_model_ground_y = -aabb.position.y * _base_model_scale
 	_apply_model_star_scale()
 
@@ -175,6 +259,7 @@ func _apply_render_priority_to_visuals(node: Node, priority: int) -> void:
 		_set_mesh_material_render_priority(node as MeshInstance3D, priority)
 	elif node is Label3D:
 		var label := node as Label3D
+		label.render_priority = priority
 		label.outline_render_priority = priority - 1
 	for child in node.get_children():
 		_apply_render_priority_to_visuals(child, priority)

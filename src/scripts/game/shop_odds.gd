@@ -1,6 +1,9 @@
 class_name ShopOdds
 extends RefCounted
 
+const ODDS_ROW_SEPARATION := 5
+const ODDS_LABEL_FONT_SIZE := 13
+const ODDS_LABEL_OUTLINE_SIZE := 3
 const MAX_COST := 7
 const TABLE_LEVELS := 20
 
@@ -18,18 +21,18 @@ const BASE_ODDS: Array[Array] = [
 	[5, 10, 20, 40, 25],
 ]
 
-## Lv11〜20（6・7 コスト含む、高レベルほど高コスト寄り）
+## Lv11〜20（6・7 コスト含む。Lv15 のみコスト5=40%、Lv20 はコスト6最多）
 const HIGH_LEVEL_ODDS: Array[Array] = [
-	[4, 8, 18, 35, 20, 10, 5],
-	[3, 6, 15, 32, 20, 15, 9],
-	[2, 5, 12, 28, 22, 18, 13],
-	[2, 4, 10, 25, 22, 20, 17],
-	[1, 3, 8, 22, 23, 22, 21],
-	[1, 2, 6, 18, 24, 24, 25],
-	[1, 2, 5, 15, 24, 26, 27],
-	[0, 1, 4, 12, 24, 28, 31],
-	[0, 1, 3, 10, 23, 30, 33],
-	[0, 0, 2, 8, 22, 32, 36],
+	[3, 6, 14, 28, 26, 18, 5],   # Lv11
+	[2, 5, 12, 26, 30, 17, 8],   # Lv12
+	[2, 4, 10, 23, 34, 20, 7],   # Lv13
+	[1, 4, 9, 21, 37, 21, 7],    # Lv14
+	[1, 3, 8, 20, 40, 20, 8],    # Lv15
+	[1, 3, 7, 16, 35, 26, 12],   # Lv16
+	[1, 2, 6, 14, 30, 30, 17],   # Lv17
+	[0, 2, 5, 12, 26, 34, 21],   # Lv18
+	[0, 1, 4, 10, 22, 38, 25],   # Lv19
+	[0, 1, 4, 10, 20, 40, 25],   # Lv20
 ]
 
 ## Lv8〜10 の 6・7 コスト（5 コスト表から按分）
@@ -75,28 +78,72 @@ static func roll_cost(level: int) -> int:
 	return MAX_COST
 
 
+static func populate_current_odds_row(row: HBoxContainer, level: int) -> void:
+	for child in row.get_children():
+		child.queue_free()
+	row.add_theme_constant_override("separation", ODDS_ROW_SEPARATION)
+	var odds := get_odds(level)
+	for cost_index in odds.size():
+		var pct := int(round(float(odds[cost_index])))
+		if pct <= 0:
+			continue
+		var label := Label.new()
+		label.text = "%d%%" % pct
+		label.add_theme_color_override("font_color", Color.WHITE)
+		label.add_theme_color_override("font_outline_color", CostColors.get_color(cost_index + 1))
+		label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
+		label.add_theme_font_size_override("font_size", ODDS_LABEL_FONT_SIZE)
+		row.add_child(label)
+
+
+static func measure_current_odds_row_width(level: int) -> float:
+	var font := ThemeDB.fallback_font
+	var odds := get_odds(level)
+	var total := 0.0
+	var count := 0
+	for cost_index in odds.size():
+		var pct := int(round(float(odds[cost_index])))
+		if pct <= 0:
+			continue
+		total += font.get_string_size(
+			"%d%%" % pct,
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			ODDS_LABEL_FONT_SIZE
+		).x
+		count += 1
+	if count == 0:
+		return 0.0
+	if count == 1:
+		return total
+	return total + ODDS_ROW_SEPARATION * float(count - 1)
+
+
 static func populate_odds_grid(grid: GridContainer, highlight_level: int) -> void:
 	for child in grid.get_children():
 		child.queue_free()
 	const LV_WIDTH := 36
 	const CELL_WIDTH := 44
-	_add_grid_label(grid, "Lv", true, false, LV_WIDTH)
+	_add_grid_label(grid, "Lv", true, false, LV_WIDTH, 0)
 	for cost in range(1, MAX_COST + 1):
-		_add_grid_label(grid, str(cost), true, false, CELL_WIDTH)
+		_add_grid_label(grid, str(cost), true, false, CELL_WIDTH, cost)
 	for level in range(1, TABLE_LEVELS + 1):
 		var is_current := level == highlight_level
 		var level_text := str(level)
 		if is_current:
 			level_text += " ▶"
-		_add_grid_label(grid, level_text, false, is_current, LV_WIDTH)
+		_add_grid_label(grid, level_text, false, is_current, LV_WIDTH, 0)
 		var odds := get_odds(level)
 		for cost_index in MAX_COST:
+			var pct := int(round(float(odds[cost_index])))
+			var cell_text := str(pct) if pct > 0 else "-"
 			_add_grid_label(
 				grid,
-				str(int(round(float(odds[cost_index])))),
+				cell_text,
 				false,
 				is_current,
-				CELL_WIDTH
+				CELL_WIDTH,
+				cost_index + 1
 			)
 
 
@@ -105,7 +152,8 @@ static func _add_grid_label(
 	text: String,
 	is_header: bool,
 	is_highlight: bool,
-	min_width: int
+	min_width: int,
+	cost: int = 0
 ) -> void:
 	var label := Label.new()
 	label.text = text
@@ -114,12 +162,28 @@ static func _add_grid_label(
 	label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	if is_header:
 		label.add_theme_font_size_override("font_size", 14)
-		label.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+		if cost > 0:
+			label.add_theme_color_override("font_color", Color.WHITE)
+			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
+			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
+		else:
+			label.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
 	elif is_highlight:
-		label.add_theme_font_size_override("font_size", 13)
-		label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
+		label.add_theme_font_size_override("font_size", 14)
+		if cost > 0 and text != "-":
+			label.add_theme_color_override("font_color", Color.WHITE)
+			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
+			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE + 1)
+		else:
+			label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	else:
 		label.add_theme_font_size_override("font_size", 13)
+		if cost > 0 and text != "-":
+			label.add_theme_color_override("font_color", Color.WHITE)
+			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
+			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
+		else:
+			label.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
 	grid.add_child(label)
 
 

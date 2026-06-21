@@ -6,9 +6,11 @@ signal merges_applied(messages: Array[String])
 
 const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
 const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
-const BOARD_COUNT_LABEL_SOUTH_OFFSET := HexMath.ROW_SPACING * 0.95
 const BOARD_COUNT_LABEL_FONT_SIZE := 384
 const BOARD_COUNT_LABEL_OUTLINE_SIZE := 56
+const BOARD_HEX_SURFACE_Y := 0.0
+const BOARD_COUNT_LABEL_SURFACE_OFFSET := 0.08
+const BOARD_COUNT_LABEL_PITCH_DEG := -68.0
 const BOARD_RENDER_PRIORITY := 0
 const BOARD_COUNT_LABEL_RENDER_PRIORITY := 1
 
@@ -45,6 +47,8 @@ func _build_visuals() -> void:
 	board_max_x = extents["max_x"]
 	_cache_bench_extents()
 	_build_hex_tiles(false, board_origin, _hex_markers)
+	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
+	_build_hex_tiles(true, enemy_origin, _enemy_hex_markers)
 	_build_bench_slots()
 	_build_board_count_label()
 
@@ -101,15 +105,22 @@ func _build_board_count_label() -> void:
 	_board_count_label.outline_size = BOARD_COUNT_LABEL_OUTLINE_SIZE
 	_board_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_board_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_board_count_label.outline_render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY - 1
+	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	_board_count_label.no_depth_test = true
+	_board_count_label.render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY
+	_board_count_label.outline_render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY
+	_board_count_label.modulate = Color.WHITE
+	_board_count_label.outline_modulate = Color(0.05, 0.05, 0.08, 1.0)
 	_board_count_label.text = "0/1"
-	var extents := HexMath.compute_board_extents(board_origin)
+	var enemy_extents := HexMath.compute_enemy_board_extents(board_origin)
+	# 画面上部（敵盤面側）の中央付近に、盤面から少し持ち上げて貼り付ける。
 	_board_count_label.position = Vector3(
-		extents["center_x"],
-		0.45,
-		float(extents["min_z"]) - BOARD_COUNT_LABEL_SOUTH_OFFSET
+		float(enemy_extents["center_x"]),
+		BOARD_HEX_SURFACE_Y + BOARD_COUNT_LABEL_SURFACE_OFFSET,
+		float(enemy_extents["min_z"]) + HexMath.ROW_SPACING * 0.55
 	)
+	# 完全に寝かせると見えなくなるため、南側（カメラ方向）へ少し倒す。
+	_board_count_label.rotation_degrees = Vector3(BOARD_COUNT_LABEL_PITCH_DEG, 0.0, 0.0)
 	add_child(_board_count_label)
 
 
@@ -162,18 +173,16 @@ func set_battle_mode(active: bool) -> void:
 	_in_battle = active
 	if _board_count_label != null:
 		_board_count_label.visible = not active
-	if active:
-		var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-		_build_hex_tiles(true, enemy_origin, _enemy_hex_markers)
-	else:
-		_clear_enemy_tiles()
+	_set_all_units_battle_walking(active)
+	if not active:
 		clear_enemy_units()
 
 
-func _clear_enemy_tiles() -> void:
-	for tile in _enemy_hex_markers:
-		tile.queue_free()
-	_enemy_hex_markers.clear()
+func _set_all_units_battle_walking(active: bool) -> void:
+	for unit in get_all_units():
+		unit.set_battle_walking(active)
+	for unit in enemy_units.values():
+		unit.set_battle_walking(active)
 
 
 func get_hex_board_center() -> Vector3:
@@ -186,8 +195,10 @@ func get_camera_focus_prep() -> Vector3:
 
 func get_prep_framing() -> Dictionary:
 	var hex := HexMath.compute_board_extents(board_origin)
+	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
+	var enemy_hex := HexMath.compute_enemy_board_extents(enemy_origin)
 	var hex_min_x: float = float(hex["min_x"])
-	var hex_min_z: float = float(hex["min_z"])
+	var hex_min_z: float = float(enemy_hex["min_z"])
 	var hex_max_z: float = float(hex["max_z"])
 	var left_extent: float = board_center_x - hex_min_x + HexMath.HORIZONTAL_SPACING * 3.5
 	var right_extent: float = bench_max_x - board_center_x + HexMath.HORIZONTAL_SPACING * 1.5
@@ -274,6 +285,8 @@ func place_enemy_unit(unit: GameUnit, cell: Vector2i) -> bool:
 	unit.global_position = get_enemy_unit_global_pos(cell)
 	if unit.is_node_ready():
 		unit.refresh_visuals()
+	if _in_battle:
+		unit.set_battle_walking(true)
 	return true
 
 

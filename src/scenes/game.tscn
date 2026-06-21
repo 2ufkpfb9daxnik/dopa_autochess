@@ -53,19 +53,28 @@ offset_left = 200.0
 offset_top = 12.0
 offset_right = 1100.0
 offset_bottom = 44.0
-theme_override_constants/separation = 12
+theme_override_constants/separation = 8
 
-[node name="RoundLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+[node name="RoundBadge" type="PanelContainer" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+
+[node name="RoundLabel" type="Label" parent="CanvasLayer/UI/TopBar/RoundBadge"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "ラウンド: 1 / 20"
 
-[node name="HpLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+[node name="HpBadge" type="PanelContainer" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+
+[node name="HpLabel" type="Label" parent="CanvasLayer/UI/TopBar/HpBadge"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "HP: 100"
 
-[node name="BenchLabel" type="Label" parent="CanvasLayer/UI/TopBar"]
+[node name="BenchBadge" type="PanelContainer" parent="CanvasLayer/UI/TopBar"]
+layout_mode = 2
+
+[node name="BenchLabel" type="Label" parent="CanvasLayer/UI/TopBar/BenchBadge"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "ベンチ: 0 / 15"
@@ -172,12 +181,31 @@ bbcode_enabled = true
 fit_content = true
 scroll_active = false
 
-[node name="CoinLabel" type="Label" parent="CanvasLayer/UI"]
+[node name="CoinRow" type="HBoxContainer" parent="CanvasLayer/UI"]
 layout_mode = 0
+mouse_filter = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="CoinBadge" type="PanelContainer" parent="CanvasLayer/UI/CoinRow"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="CoinLabel" type="Label" parent="CanvasLayer/UI/CoinRow/CoinBadge"]
+layout_mode = 2
 mouse_filter = 2
 theme_override_font_sizes/font_size = 22
 text = "コイン: 20"
-horizontal_alignment = 1
+
+[node name="StreakBadge" type="PanelContainer" parent="CanvasLayer/UI/CoinRow"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="StreakLabel" type="Label" parent="CanvasLayer/UI/CoinRow/StreakBadge"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 18
+text = "連勝1回"
 
 [node name="BottomUI" type="VBoxContainer" parent="CanvasLayer/UI"]
 layout_mode = 1
@@ -205,11 +233,25 @@ layout_mode = 2
 theme_override_constants/separation = 6
 alignment = 1
 
-[node name="ExpStatusLabel" type="Label" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
+[node name="ExpHudBadge" type="PanelContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
+layout_mode = 2
+
+[node name="ExpHudVBox" type="VBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ExpStatusLabel" type="Label" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge/ExpHudVBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 17
-text = "経験値 0/2"
+text = "Lv.1  経験値 0/2"
 horizontal_alignment = 1
+
+[node name="ExpProgressBar" type="ProgressBar" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge/ExpHudVBox"]
+custom_minimum_size = Vector2(128, 10)
+layout_mode = 2
+max_value = 2.0
+step = 1.0
+show_percentage = false
 
 [node name="ExpButton" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ActionColumn"]
 custom_minimum_size = Vector2(140, 48)
@@ -226,7 +268,33 @@ text = "更新 (2)"
 
 [node name="ShopPanel" type="VBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar"]
 layout_mode = 2
+theme_override_constants/separation = 4
 alignment = 1
+
+[node name="ShopHeaderRow" type="HBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ShopOddsBadge" type="PanelContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 0
+
+[node name="ShopOddsRow" type="HBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow/ShopOddsBadge"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="ShopHeaderSpacer" type="Control" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="ShopLockButton" type="Button" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow"]
+custom_minimum_size = Vector2(36, 24)
+layout_mode = 2
+size_flags_horizontal = 8
+theme_override_font_sizes/font_size = 16
+text = "🔓"
 
 [node name="ShopSlots" type="HBoxContainer" parent="CanvasLayer/UI/BottomUI/BottomBar/ShopPanel"]
 layout_mode = 2

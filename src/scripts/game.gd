@@ -13,6 +13,8 @@ const BOTTOM_UI_FONT_COIN := 22
 const BOTTOM_UI_FONT_EXP_STATUS := 17
 const BOTTOM_UI_FONT_BUTTON := 16
 const BOTTOM_UI_FONT_SHOP := 15
+const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
+const HUD_BADGE_MARGIN_X := 8.0
 const CAMERA_TWEEN_DURATION := 0.55
 
 const LOG_COLLAPSED_TOP := 56.0
@@ -41,18 +43,30 @@ var _last_reroll_button_text := ""
 @onready var drag_controller: UnitDragController = $UnitDragController
 @onready var event_log: EventLog = $EventLog
 
-@onready var round_label: Label = $CanvasLayer/UI/TopBar/RoundLabel
-@onready var hp_label: Label = $CanvasLayer/UI/TopBar/HpLabel
-@onready var bench_label: Label = $CanvasLayer/UI/TopBar/BenchLabel
-@onready var coin_label: Label = $CanvasLayer/UI/CoinLabel
-@onready var exp_status_label: Label = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpStatusLabel
-@onready var shop_odds_tooltip: PanelContainer = $CanvasLayer/UI/ShopOddsTooltip
-@onready var shop_odds_tooltip_vbox: VBoxContainer = $CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox
-@onready var shop_odds_grid: GridContainer = $CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox/ShopOddsGrid
+@onready var round_badge: PanelContainer = $CanvasLayer/UI/TopBar/RoundBadge
+@onready var round_label: Label = $CanvasLayer/UI/TopBar/RoundBadge/RoundLabel
+@onready var hp_badge: PanelContainer = $CanvasLayer/UI/TopBar/HpBadge
+@onready var hp_label: Label = $CanvasLayer/UI/TopBar/HpBadge/HpLabel
+@onready var bench_badge: PanelContainer = $CanvasLayer/UI/TopBar/BenchBadge
+@onready var bench_label: Label = $CanvasLayer/UI/TopBar/BenchBadge/BenchLabel
+@onready var coin_row: HBoxContainer = $CanvasLayer/UI/CoinRow
+@onready var coin_badge: PanelContainer = $CanvasLayer/UI/CoinRow/CoinBadge
+@onready var coin_label: Label = $CanvasLayer/UI/CoinRow/CoinBadge/CoinLabel
+@onready var streak_badge: PanelContainer = $CanvasLayer/UI/CoinRow/StreakBadge
+@onready var streak_label: Label = $CanvasLayer/UI/CoinRow/StreakBadge/StreakLabel
+@onready var exp_hud_badge: PanelContainer = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge
+@onready var exp_status_label: Label = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge/ExpHudVBox/ExpStatusLabel
+@onready var exp_progress_bar: ProgressBar = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpHudBadge/ExpHudVBox/ExpProgressBar
 @onready var shop_slots: HBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopSlots
 @onready var bottom_ui: Control = $CanvasLayer/UI/BottomUI
 @onready var bottom_bar: HBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar
 @onready var shop_panel: VBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel
+@onready var shop_odds_badge: PanelContainer = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow/ShopOddsBadge
+@onready var shop_odds_row: HBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow/ShopOddsBadge/ShopOddsRow
+@onready var shop_odds_tooltip: PanelContainer = $CanvasLayer/UI/ShopOddsTooltip
+@onready var shop_odds_tooltip_vbox: VBoxContainer = $CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox
+@onready var shop_odds_grid: GridContainer = $CanvasLayer/UI/ShopOddsTooltip/ShopOddsTooltipVBox/ShopOddsGrid
+@onready var shop_lock_button: Button = $CanvasLayer/UI/BottomUI/BottomBar/ShopPanel/ShopHeaderRow/ShopLockButton
 @onready var action_column: VBoxContainer = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn
 @onready var reroll_button: Button = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/RerollButton
 @onready var exp_button: Button = $CanvasLayer/UI/BottomUI/BottomBar/ActionColumn/ExpButton
@@ -114,6 +128,7 @@ func _ready() -> void:
 	session.run_failed.connect(_on_run_failed)
 	reroll_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.REROLL)))
 	exp_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.BUY_EXP)))
+	shop_lock_button.pressed.connect(_on_shop_lock_pressed)
 	battle_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.START_BATTLE)))
 	back_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.GO_BACK)))
 	continue_button.pressed.connect(_on_continue_extension)
@@ -127,7 +142,7 @@ func _ready() -> void:
 	for index in route_buttons.size():
 		route_buttons[index].pressed.connect(func() -> void: _on_route_selected(index))
 	_log("準備フェーズ開始")
-	_setup_shop_odds_tooltip()
+	_setup_shop_odds_table()
 	_setup_log_panel()
 	call_deferred("_finish_startup_layout")
 
@@ -161,15 +176,139 @@ func _finish_startup_layout() -> void:
 
 
 func _setup_bottom_ui_fonts() -> void:
-	coin_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	coin_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	coin_label.add_theme_font_size_override("font_size", BOTTOM_UI_FONT_COIN)
+	streak_label.add_theme_font_size_override("font_size", 18)
+	_apply_hud_badge_style(coin_badge)
+	_apply_hud_badge_style(streak_badge)
+	_apply_hud_badge_style(exp_hud_badge)
+	_apply_hud_badge_style(shop_odds_badge)
+	_apply_hud_badge_style(round_badge)
+	_apply_hud_badge_style(hp_badge)
+	_apply_hud_badge_style(bench_badge)
+	_setup_shop_header_layout()
+	shop_odds_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	exp_status_label.add_theme_font_size_override("font_size", BOTTOM_UI_FONT_EXP_STATUS)
-	exp_status_label.custom_minimum_size = Vector2(ACTION_COLUMN_WIDTH, 28)
+	exp_status_label.custom_minimum_size = Vector2(0, 28)
+	exp_progress_bar.custom_minimum_size = Vector2(128, 10)
+	var exp_bar_bg := StyleBoxFlat.new()
+	exp_bar_bg.bg_color = Color(0.12, 0.14, 0.18)
+	exp_bar_bg.set_corner_radius_all(3)
+	var exp_bar_fill := StyleBoxFlat.new()
+	exp_bar_fill.bg_color = Color(0.35, 0.72, 0.95)
+	exp_bar_fill.set_corner_radius_all(3)
+	exp_progress_bar.add_theme_stylebox_override("background", exp_bar_bg)
+	exp_progress_bar.add_theme_stylebox_override("fill", exp_bar_fill)
 	exp_button.add_theme_font_size_override("font_size", BOTTOM_UI_FONT_BUTTON)
 	reroll_button.add_theme_font_size_override("font_size", BOTTOM_UI_FONT_BUTTON)
 	for slot in shop_slots.get_children():
 		if slot is ShopSlotPanel:
 			(slot as ShopSlotPanel).add_theme_font_size_override("font_size", BOTTOM_UI_FONT_SHOP)
+
+
+func _apply_hud_badge_style(badge: PanelContainer) -> void:
+	var box := StyleBoxFlat.new()
+	box.bg_color = HUD_BADGE_BG
+	box.set_corner_radius_all(4)
+	box.content_margin_left = 4
+	box.content_margin_top = 4
+	box.content_margin_right = 4
+	box.content_margin_bottom = 4
+	badge.add_theme_stylebox_override("panel", box)
+
+
+func _setup_shop_header_layout() -> void:
+	shop_odds_badge.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	shop_lock_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+
+
+func _setup_shop_odds_table() -> void:
+	shop_odds_badge.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not shop_odds_badge.gui_input.is_connected(_on_shop_odds_badge_gui_input):
+		shop_odds_badge.gui_input.connect(_on_shop_odds_badge_gui_input)
+	_apply_hud_badge_style(shop_odds_tooltip)
+	shop_odds_tooltip.visible = false
+
+
+func _on_shop_odds_badge_gui_input(event: InputEvent) -> void:
+	if _run_end_active or not session.is_prep():
+		return
+	if not event is InputEventMouseButton:
+		return
+	var mouse_event := event as InputEventMouseButton
+	if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
+		return
+	_toggle_shop_odds_table()
+	get_viewport().set_input_as_handled()
+
+
+func _toggle_shop_odds_table() -> void:
+	if shop_odds_tooltip.visible:
+		_hide_shop_odds_table()
+	else:
+		_show_shop_odds_table()
+
+
+func _show_shop_odds_table() -> void:
+	ShopOdds.populate_odds_grid(shop_odds_grid, session.get_level())
+	shop_odds_tooltip.visible = true
+	shop_odds_tooltip.move_to_front()
+	call_deferred("_fit_shop_odds_tooltip_size")
+
+
+func _hide_shop_odds_table() -> void:
+	shop_odds_tooltip.visible = false
+
+
+func _get_panel_content_margins(panel: PanelContainer) -> Vector4:
+	var style := panel.get_theme_stylebox("panel")
+	if style == null:
+		return Vector4(8.0, 8.0, 8.0, 8.0)
+	return Vector4(
+		style.content_margin_left,
+		style.content_margin_top,
+		style.content_margin_right,
+		style.content_margin_bottom
+	)
+
+
+func _fit_shop_odds_tooltip_size() -> void:
+	shop_odds_tooltip_vbox.reset_size()
+	shop_odds_grid.reset_size()
+	await get_tree().process_frame
+	var content_size := shop_odds_tooltip_vbox.get_minimum_size()
+	var margins := _get_panel_content_margins(shop_odds_tooltip)
+	var fitted := content_size + Vector2(margins.x + margins.z, margins.y + margins.w)
+	shop_odds_tooltip.custom_minimum_size = fitted
+	shop_odds_tooltip.size = fitted
+	_position_shop_odds_tooltip()
+
+
+func _position_shop_odds_tooltip() -> void:
+	var anchor_rect := shop_odds_badge.get_global_rect()
+	var tooltip_size := shop_odds_tooltip.size
+	var x := anchor_rect.position.x
+	var y := anchor_rect.position.y - tooltip_size.y - 4.0
+	var viewport_size := get_viewport().get_visible_rect().size
+	x = clampf(x, 8.0, viewport_size.x - tooltip_size.x - 8.0)
+	y = clampf(y, 8.0, viewport_size.y - tooltip_size.y - 8.0)
+	shop_odds_tooltip.global_position = Vector2(x, y)
+
+
+func _fit_shop_odds_badge_width() -> void:
+	var content_w := ShopOdds.measure_current_odds_row_width(session.get_level())
+	var badge_w := content_w + HUD_BADGE_MARGIN_X if content_w > 0.0 else 0.0
+	shop_odds_badge.custom_minimum_size.x = badge_w
+	shop_odds_badge.size.x = badge_w
+	_position_coin_row_over_shop()
+
+
+func _format_streak_text() -> String:
+	if session.win_streak > 0:
+		return "連勝%d回" % session.win_streak
+	if session.loss_streak > 0:
+		return "連敗%d回" % session.loss_streak
+	return ""
 
 
 func _setup_log_panel() -> void:
@@ -186,93 +325,14 @@ func _bind_log_panel_input(control: Control) -> void:
 			_bind_log_panel_input(child as Control)
 
 
-func _setup_shop_odds_tooltip() -> void:
-	action_column.mouse_filter = Control.MOUSE_FILTER_STOP
-	if not action_column.gui_input.is_connected(_on_shop_odds_zone_gui_input):
-		action_column.gui_input.connect(_on_shop_odds_zone_gui_input)
-	exp_status_label.mouse_filter = Control.MOUSE_FILTER_STOP
-	if not exp_status_label.gui_input.is_connected(_on_shop_odds_zone_gui_input):
-		exp_status_label.gui_input.connect(_on_shop_odds_zone_gui_input)
-	shop_odds_tooltip.mouse_filter = Control.MOUSE_FILTER_STOP
-	if not shop_odds_tooltip.gui_input.is_connected(_on_shop_odds_zone_gui_input):
-		shop_odds_tooltip.gui_input.connect(_on_shop_odds_zone_gui_input)
-	shop_odds_tooltip.visible = false
-
-
-func _on_shop_odds_zone_gui_input(event: InputEvent) -> void:
-	if _run_end_active or not session.is_prep():
-		return
-	if not event is InputEventMouseButton:
-		return
-	var mouse_event := event as InputEventMouseButton
-	if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
-		return
-	var click_pos := mouse_event.global_position
-	if exp_button.get_global_rect().has_point(click_pos) or reroll_button.get_global_rect().has_point(click_pos):
-		return
-	if not _is_shop_odds_click_zone(click_pos):
-		return
-	_toggle_shop_odds_tooltip()
-	get_viewport().set_input_as_handled()
-
-
-func _is_shop_odds_click_zone(screen_pos: Vector2) -> bool:
-	if shop_odds_tooltip.visible and shop_odds_tooltip.get_global_rect().has_point(screen_pos):
-		return true
-	return action_column.get_global_rect().has_point(screen_pos)
-
-
-func _toggle_shop_odds_tooltip() -> void:
-	if shop_odds_tooltip.visible:
-		_hide_shop_odds_tooltip()
-	else:
-		_show_shop_odds_tooltip()
-
-
-func _show_shop_odds_tooltip() -> void:
-	ShopOdds.populate_odds_grid(shop_odds_grid, session.get_level())
-	shop_odds_tooltip.visible = true
-	call_deferred("_fit_shop_odds_tooltip_size")
-	call_deferred("_position_shop_odds_tooltip")
-
-
-func _hide_shop_odds_tooltip() -> void:
-	shop_odds_tooltip.visible = false
-
-
-func _fit_shop_odds_tooltip_size() -> void:
-	shop_odds_tooltip_vbox.reset_size()
-	shop_odds_grid.reset_size()
-	await get_tree().process_frame
-	var content_size := shop_odds_tooltip_vbox.get_minimum_size()
-	var margins := _get_panel_content_margins(shop_odds_tooltip)
-	var fitted := content_size + Vector2(margins.x + margins.z, margins.y + margins.w)
-	shop_odds_tooltip.custom_minimum_size = fitted
-	shop_odds_tooltip.size = fitted
-	_position_shop_odds_tooltip()
-
-
-func _get_panel_content_margins(panel: PanelContainer) -> Vector4:
-	var style := panel.get_theme_stylebox("panel")
-	if style == null:
-		return Vector4(8.0, 8.0, 8.0, 8.0)
-	return Vector4(style.content_margin_left, style.content_margin_top, style.content_margin_right, style.content_margin_bottom)
-
-
-func _position_shop_odds_tooltip() -> void:
-	var anchor_rect := action_column.get_global_rect()
-	var tooltip_size := shop_odds_tooltip.size
-	var x := anchor_rect.position.x + anchor_rect.size.x * 0.5 - tooltip_size.x * 0.5
-	var y := anchor_rect.position.y - tooltip_size.y - 2.0
-	var viewport_size := get_viewport().get_visible_rect().size
-	x = clampf(x, 8.0, viewport_size.x - tooltip_size.x - 8.0)
-	y = clampf(y, 8.0, viewport_size.y - tooltip_size.y - 8.0)
-	shop_odds_tooltip.global_position = Vector2(x, y)
+func _on_shop_lock_pressed() -> void:
+	session.toggle_shop_lock()
+	_update_ui()
 
 
 func _fit_bottom_ui_layout() -> void:
 	await get_tree().process_frame
-	coin_label.reset_size()
+	coin_row.reset_size()
 	bottom_bar.reset_size()
 	shop_panel.reset_size()
 	for slot in shop_slots.get_children():
@@ -281,37 +341,39 @@ func _fit_bottom_ui_layout() -> void:
 	await get_tree().process_frame
 	var shop_width := _get_shop_panel_width()
 	shop_panel.custom_minimum_size.x = shop_width
-	var coin_height := coin_label.get_minimum_size().y
+	var coin_height := coin_row.get_minimum_size().y
 	var total_height := bottom_bar.get_minimum_size().y + coin_height + COIN_ABOVE_SHOP_GAP
 	var half_width := _get_bottom_ui_width() * 0.5
 	var new_top := -total_height - BOTTOM_UI_MARGIN
 	if is_equal_approx(total_height, _bottom_ui_layout_height):
-		_position_coin_label_over_shop()
+		_position_coin_row_over_shop()
 		if shop_odds_tooltip.visible:
-			_position_shop_odds_tooltip()
+			call_deferred("_fit_shop_odds_tooltip_size")
 		return
 	_bottom_ui_layout_height = total_height
 	bottom_ui.offset_left = -half_width
 	bottom_ui.offset_right = half_width
 	bottom_ui.offset_top = new_top
 	bottom_ui.offset_bottom = -BOTTOM_UI_MARGIN
-	_position_coin_label_over_shop()
+	_position_coin_row_over_shop()
 	if _log_expanded:
 		_apply_log_panel_layout()
 	if shop_odds_tooltip.visible:
-		_position_shop_odds_tooltip()
+		call_deferred("_fit_shop_odds_tooltip_size")
+	if session.is_prep() and not _run_end_active:
+		_fit_shop_odds_badge_width()
 
 
-func _position_coin_label_over_shop() -> void:
-	if not coin_label.visible:
+func _position_coin_row_over_shop() -> void:
+	if not coin_row.visible:
 		return
-	coin_label.reset_size()
+	coin_row.reset_size()
 	var slots_rect := shop_slots.get_global_rect()
 	if slots_rect.size.x <= 1.0:
 		return
-	coin_label.global_position = Vector2(
-		slots_rect.position.x + (slots_rect.size.x - coin_label.size.x) * 0.5,
-		slots_rect.position.y - coin_label.size.y - COIN_ABOVE_SHOP_GAP
+	coin_row.global_position = Vector2(
+		slots_rect.position.x + (slots_rect.size.x - coin_row.size.x) * 0.5,
+		slots_rect.position.y - coin_row.size.y - COIN_ABOVE_SHOP_GAP
 	)
 
 
@@ -501,13 +563,14 @@ func _start_battle() -> void:
 	if board.get_board_unit_count() <= 0:
 		_log("盤面に1体以上配置してください")
 		return
+	_hide_shop_odds_table()
 	_log("戦闘開始 (ラウンド %d)" % session.round_number)
 	session.start_battle()
 	input_handler.set_enabled(false)
 	prep_blocker.visible = true
 	battle_overlay.visible = true
 	shop_panel.visible = false
-	coin_label.visible = false
+	coin_row.visible = false
 	board.set_battle_mode(true)
 	var enemy_count := EnemySpawn.spawn_for_battle(
 		board,
@@ -543,13 +606,13 @@ func _start_battle() -> void:
 		prep_blocker.visible = true
 		input_handler.set_enabled(false)
 		shop_panel.visible = false
-		coin_label.visible = false
+		coin_row.visible = false
 		_show_route_choice()
 		_update_ui()
 		return
 	prep_blocker.visible = false
 	shop_panel.visible = true
-	coin_label.visible = true
+	coin_row.visible = true
 	if session.phase == GameSession.Phase.PREP:
 		_log("ラウンド %d 開始" % session.round_number)
 		if not session.last_income_breakdown.is_empty():
@@ -632,7 +695,7 @@ func _on_route_selected(index: int) -> void:
 	route_overlay.visible = false
 	prep_blocker.visible = false
 	shop_panel.visible = true
-	coin_label.visible = true
+	coin_row.visible = true
 	_log("ルート選択: %s (%s)" % [
 		RouteChoice.format_option(route),
 		route["strength_label"],
@@ -685,7 +748,7 @@ func _show_run_end_screen() -> void:
 	prep_blocker.visible = true
 	input_handler.set_enabled(false)
 	shop_panel.visible = false
-	coin_label.visible = false
+	coin_row.visible = false
 	_collapse_log_panel()
 	_set_synergy_panel_review_mode(false)
 	match session.run_end_reason:
@@ -953,7 +1016,7 @@ func _update_ui() -> void:
 		bottom_ui.visible = false
 		action_column.visible = false
 		shop_panel.visible = false
-		coin_label.visible = false
+		coin_row.visible = false
 		for index in shop_slots.get_child_count():
 			var slot := shop_slots.get_child(index) as ShopSlotPanel
 			slot.disabled = true
@@ -962,18 +1025,36 @@ func _update_ui() -> void:
 		return
 	back_button.disabled = false
 	coin_label.text = "コイン: %d" % session.coins
+	var streak_text := _format_streak_text()
+	streak_label.text = streak_text
+	var streak_visible := not streak_text.is_empty()
+	if streak_badge.visible != streak_visible:
+		streak_badge.visible = streak_visible
+		_request_bottom_ui_refit()
+	else:
+		streak_badge.visible = streak_visible
 	var level := session.get_level()
 	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience)
 	var xp_need := PlayerLevel.get_xp_needed_for_next_level(level)
 	if xp_need > 0:
 		exp_status_label.text = "Lv.%d  経験値 %d/%d" % [level, xp_into, xp_need]
+		exp_progress_bar.visible = true
+		exp_progress_bar.max_value = float(xp_need)
+		exp_progress_bar.value = float(xp_into)
 	else:
 		exp_status_label.text = "Lv.%d  経験値 MAX" % level
-	if shop_odds_tooltip.visible:
+		exp_progress_bar.visible = true
+		exp_progress_bar.max_value = 1.0
+		exp_progress_bar.value = 1.0
+	ShopOdds.populate_current_odds_row(shop_odds_row, level)
+	_fit_shop_odds_badge_width()
+	if not session.is_prep() or _run_end_active:
+		_hide_shop_odds_table()
+	elif shop_odds_tooltip.visible:
 		ShopOdds.populate_odds_grid(shop_odds_grid, level)
 		call_deferred("_fit_shop_odds_tooltip_size")
-	elif not session.is_prep():
-		_hide_shop_odds_tooltip()
+	shop_lock_button.text = "🔒" if session.shop_locked else "🔓"
+	shop_lock_button.disabled = not session.is_prep()
 	var round_cap := session.max_round
 	round_label.text = "ラウンド: %d / %d" % [mini(session.round_number, round_cap), round_cap]
 	hp_label.text = "HP: %d" % session.player_hp
@@ -990,7 +1071,7 @@ func _update_ui() -> void:
 	var reroll_text_changed := reroll_text != _last_reroll_button_text
 	if reroll_text_changed:
 		_last_reroll_button_text = reroll_text
-	reroll_button.disabled = not session.is_prep() or (
+	reroll_button.disabled = not session.is_prep() or session.shop_locked or (
 		session.free_rerolls <= 0 and session.coins < GameSession.REROLL_COST
 	)
 	exp_button.text = "経験値+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
@@ -1001,7 +1082,7 @@ func _update_ui() -> void:
 	bottom_ui.visible = show_prep_shop_ui
 	action_column.visible = show_prep_shop_ui
 	shop_panel.visible = show_prep_shop_ui
-	coin_label.visible = show_prep_shop_ui
+	coin_row.visible = show_prep_shop_ui
 	if show_prep_shop_ui != _last_prep_shop_ui_visible:
 		_last_prep_shop_ui_visible = show_prep_shop_ui
 		_bottom_ui_layout_height = -1.0
@@ -1022,4 +1103,4 @@ func _update_ui() -> void:
 		if reroll_text_changed:
 			_request_bottom_ui_refit()
 		else:
-			call_deferred("_position_coin_label_over_shop")
+			call_deferred("_position_coin_row_over_shop")

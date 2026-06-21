@@ -23,10 +23,15 @@ func _ready() -> void:
 
 
 func set_sold_out() -> void:
-	_content_root.visible = false
-	_bottom_bar_panel.visible = false
-	_empty_label.visible = true
-	_empty_label.text = "売り切れ"
+	_content_root.visible = true
+	_bottom_bar_panel.visible = true
+	_empty_label.visible = false
+	_illustration.texture = PLACEHOLDER_TEXTURE
+	_illustration.modulate = Color(1.0, 1.0, 1.0, 0.22)
+	_synergy_label.text = ""
+	_stars_label.text = ""
+	_cost_label.text = ""
+	_name_label.text = "売り切れ"
 	apply_cost_style(0)
 
 
@@ -35,6 +40,8 @@ func set_unit(unit_id: int) -> void:
 	_content_root.visible = true
 	_bottom_bar_panel.visible = true
 	_empty_label.visible = false
+	_illustration.texture = PLACEHOLDER_TEXTURE
+	_illustration.modulate = Color.WHITE
 	_cost_label.text = str(data["cost"])
 	_name_label.text = data["name"]
 	_stars_label.text = "★"

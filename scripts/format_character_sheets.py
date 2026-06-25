@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""dump/characters/*.md を 0001{name}.md 形式で characters.md 一覧から生成する。"""
+"""dump/characters.md 一覧から src/characters/{4桁ID}/character.md を生成する。"""
 
-import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CHAR_DIR = ROOT / "dump" / "characters"
+CHAR_DIR = ROOT / "src" / "characters"
 CHARACTERS_LIST = ROOT / "dump" / "characters.md"
 
 SECTIONS_TAIL = """
@@ -81,23 +80,24 @@ def main() -> None:
     if not regular and not special:
         raise SystemExit("characters.md に名前がありません")
 
-    for old_path in CHAR_DIR.glob("*.md"):
-        old_path.unlink()
-
     created = 0
     for idx, name in enumerate(regular, start=1):
         id_str = f"{idx:04d}"
-        path = CHAR_DIR / f"{id_str}{name}.md"
+        dest_dir = CHAR_DIR / id_str
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        path = dest_dir / "character.md"
         path.write_text(make_content(id_str, name), encoding="utf-8")
         created += 1
 
     for name in special:
         id_str = f"{len(regular) + len(special):04d}"
-        path = CHAR_DIR / f"{id_str}{name}.md"
+        dest_dir = CHAR_DIR / id_str
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        path = dest_dir / "character.md"
         path.write_text(make_content(id_str, name), encoding="utf-8")
         created += 1
 
-    print(f"Created {created} files in {CHAR_DIR}")
+    print(f"Created {created} sheets in {CHAR_DIR}")
 
 
 if __name__ == "__main__":

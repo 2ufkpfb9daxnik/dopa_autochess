@@ -1,0 +1,1212 @@
+[
+  {
+    "id": "0001",
+    "name": "アイジス",
+    "cost": "2",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0001/0001.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'アイジス', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: armor engraved with musical notation lines. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0002",
+    "name": "アエロムント",
+    "cost": "5",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0002/0002.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'アエロムント', 回復, balanced fantasy palette. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0003",
+    "name": "アトレフ",
+    "cost": "4",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0003/0003.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'アトレフ', バフ, balanced fantasy palette. Unique visual identity: pet small fox spirit peeking from hood. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0004",
+    "name": "アベルト",
+    "cost": "1",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0004/0004.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'アベルト', デバフ, balanced fantasy palette. Unique visual identity: goggles with multiple colored lenses stacked. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0005",
+    "name": "アルヴィン",
+    "cost": "7",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0005/0005.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'アルヴィン', バフ, balanced fantasy palette. Unique visual identity: coral-shaped shoulder armor with seafoam green trim. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0006",
+    "name": "イザベラ",
+    "cost": "1",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0006/0006.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'イザベラ', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0007",
+    "name": "イリヤ",
+    "cost": "7",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0007/0007.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'イリヤ', バフ, balanced fantasy palette. Unique visual identity: carries a crystal staff topped with a floating geometric orb. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0008",
+    "name": "イーゴリ",
+    "cost": "1",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0008/0008.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'イーゴリ', 回復, balanced fantasy palette. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0009",
+    "name": "ウルリーク",
+    "cost": "2",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0009/0009.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ウルリーク', バフ, balanced fantasy palette. Unique visual identity: oversized ornate pauldrons shaped like lion heads. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0010",
+    "name": "エルヴィス",
+    "cost": "6",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0010/0010.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'エルヴィス', デバフ, balanced fantasy palette. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0011",
+    "name": "エレナ",
+    "cost": "2",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0011/0011.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'エレナ', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0012",
+    "name": "エート",
+    "cost": "7",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0012/0012.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'エート', 回復, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0013",
+    "name": "オクタヴィア",
+    "cost": "6",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0013/0013.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'オクタヴィア', 回復, balanced fantasy palette. Unique visual identity: carries a book chained to wrist, pages fluttering. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0014",
+    "name": "オステール",
+    "cost": "4",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0014/0014.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'オステール', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: one-eyed scar across the left cheek, eyepatch with rune. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0015",
+    "name": "オレンザミル",
+    "cost": "5",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0015/0015.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'オレンザミル', 防御, balanced fantasy palette. Unique visual identity: spiked gauntlets with magma cracks glowing orange. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0016",
+    "name": "カエリカ",
+    "cost": "1",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0016/0016.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カエリカ', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0017",
+    "name": "カストラ",
+    "cost": "4",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0017/0017.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カストラ', 回復, balanced fantasy palette. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0018",
+    "name": "カズマ",
+    "cost": "4",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0018/0018.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カズマ', バフ, balanced fantasy palette. Unique visual identity: goggles with multiple colored lenses stacked. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0019",
+    "name": "カミリア",
+    "cost": "5",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0019/0019.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カミリア', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0020",
+    "name": "カヨサキ",
+    "cost": "4",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0020/0020.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カヨサキ', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: pet small fox spirit peeking from hood. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0021",
+    "name": "カレドリオン",
+    "cost": "5",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0021/0021.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カレドリオン', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0022",
+    "name": "カロリナ",
+    "cost": "3",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0022/0022.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'カロリナ', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: giant scissors used as off-hand weapon. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0023",
+    "name": "ガレス",
+    "cost": "5",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0023/0023.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ガレス', バフ, balanced fantasy palette. Unique visual identity: stone golem fist gauntlet on right arm only. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0024",
+    "name": "キアラ",
+    "cost": "7",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0024/0024.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'キアラ', デバフ, balanced fantasy palette. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0025",
+    "name": "キリアン",
+    "cost": "1",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0025/0025.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'キリアン', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: giant scissors used as off-hand weapon. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0026",
+    "name": "クレイン",
+    "cost": "6",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0026/0026.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'クレイン', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: goggles with multiple colored lenses stacked. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0027",
+    "name": "クヴァル",
+    "cost": "6",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0027/0027.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'クヴァル', 回復, balanced fantasy palette. Unique visual identity: spiked gauntlets with magma cracks glowing orange. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0028",
+    "name": "グント",
+    "cost": "1",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0028/0028.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'グント', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: armor engraved with musical notation lines. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0029",
+    "name": "ケストール",
+    "cost": "6",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0029/0029.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ケストール', 防御, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0030",
+    "name": "ケルドリン",
+    "cost": "5",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0030/0030.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ケルドリン', 回復, balanced fantasy palette. Unique visual identity: bubble-like glass armor spheres on shoulders. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0031",
+    "name": "コルネル",
+    "cost": "7",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0031/0031.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'コルネル', 防御, balanced fantasy palette. Unique visual identity: dual daggers with mismatched blade shapes. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0032",
+    "name": "コルヴェス",
+    "cost": "3",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0032/0032.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'コルヴェス', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: cape made of layered feather scales in teal gradient. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0033",
+    "name": "サマリエフ",
+    "cost": "7",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0033/0033.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'サマリエフ', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: coral-shaped shoulder armor with seafoam green trim. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0034",
+    "name": "サラメイン",
+    "cost": "6",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0034/0034.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'サラメイン', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: armor engraved with musical notation lines. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0035",
+    "name": "サントロ",
+    "cost": "3",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0035/0035.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'サントロ', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0036",
+    "name": "シャティーヌ",
+    "cost": "1",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0036/0036.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'シャティーヌ', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0037",
+    "name": "シルバラ",
+    "cost": "3",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0037/0037.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'シルバラ', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0038",
+    "name": "ジュリアーヌ",
+    "cost": "4",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0038/0038.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ジュリアーヌ', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: long asymmetrical white hair with a single red streak. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0039",
+    "name": "ジラカデオ",
+    "cost": "2",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0039/0039.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ジラカデオ', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0040",
+    "name": "ステレス",
+    "cost": "4",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0040/0040.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ステレス', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0041",
+    "name": "ストラーヴィン",
+    "cost": "1",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0041/0041.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ストラーヴィン', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: giant scissors used as off-hand weapon. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0042",
+    "name": "セラフィック",
+    "cost": "6",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0042/0042.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'セラフィック', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: long asymmetrical white hair with a single red streak. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0043",
+    "name": "セラフィム",
+    "cost": "6",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0043/0043.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'セラフィム', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0044",
+    "name": "セレーナ",
+    "cost": "3",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0044/0044.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'セレーナ', 防御, balanced fantasy palette. Unique visual identity: goggles with multiple colored lenses stacked. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0045",
+    "name": "ゼノビア",
+    "cost": "5",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0045/0045.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ゼノビア', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0046",
+    "name": "ソラハネ",
+    "cost": "7",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0046/0046.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ソラハネ', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0047",
+    "name": "ゾルヴァン",
+    "cost": "2",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0047/0047.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ゾルヴァン', 防御, balanced fantasy palette. Unique visual identity: bubble-like glass armor spheres on shoulders. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0048",
+    "name": "タリン",
+    "cost": "5",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0048/0048.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'タリン', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: giant scissors used as off-hand weapon. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0049",
+    "name": "タヴィスト",
+    "cost": "1",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0049/0049.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'タヴィスト', バフ, balanced fantasy palette. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0050",
+    "name": "ダレス",
+    "cost": "7",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0050/0050.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ダレス', デバフ, balanced fantasy palette. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0051",
+    "name": "チェザレ",
+    "cost": "6",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0051/0051.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'チェザレ', 防御, balanced fantasy palette. Unique visual identity: chain whip coiled around both arms. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0052",
+    "name": "チェラミオン",
+    "cost": "3",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0052/0052.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'チェラミオン', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0053",
+    "name": "ツェリオ",
+    "cost": "7",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0053/0053.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ツェリオ', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0054",
+    "name": "ツヴィ",
+    "cost": "6",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0054/0054.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ツヴィ', 回復, balanced fantasy palette. Unique visual identity: carries a crystal staff topped with a floating geometric orb. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0055",
+    "name": "ティグラネリオ",
+    "cost": "5",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0055/0055.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ティグラネリオ', 防御, balanced fantasy palette. Unique visual identity: giant scissors used as off-hand weapon. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0056",
+    "name": "テレマンドラ",
+    "cost": "5",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0056/0056.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'テレマンドラ', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: distinctive mechanical wing backpack with brass gears. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0057",
+    "name": "トニア",
+    "cost": "2",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0057/0057.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'トニア', デバフ, balanced fantasy palette. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0058",
+    "name": "ドミトル",
+    "cost": "2",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0058/0058.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ドミトル', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: distinctive mechanical wing backpack with brass gears. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0059",
+    "name": "ドラスク",
+    "cost": "3",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0059/0059.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ドラスク', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: carries a crystal staff topped with a floating geometric orb. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0060",
+    "name": "ナザリオ",
+    "cost": "7",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0060/0060.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ナザリオ', バフ, balanced fantasy palette. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0061",
+    "name": "ナレシア",
+    "cost": "2",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0061/0061.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ナレシア', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: carries a crystal staff topped with a floating geometric orb. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0062",
+    "name": "ニコレット",
+    "cost": "5",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0062/0062.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ニコレット', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: stone golem fist gauntlet on right arm only. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0063",
+    "name": "ニリエラ",
+    "cost": "7",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0063/0063.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ニリエラ', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0064",
+    "name": "ヌリア",
+    "cost": "5",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0064/0064.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヌリア', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: cape made of layered feather scales in teal gradient. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0065",
+    "name": "ネスター",
+    "cost": "1",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0065/0065.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ネスター', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0066",
+    "name": "ネリダ",
+    "cost": "5",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0066/0066.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ネリダ', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0067",
+    "name": "ノエル",
+    "cost": "3",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0067/0067.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ノエル', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: coral-shaped shoulder armor with seafoam green trim. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0068",
+    "name": "ノリス",
+    "cost": "4",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0068/0068.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ノリス', 防御, balanced fantasy palette. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0069",
+    "name": "ハディア",
+    "cost": "1",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0069/0069.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ハディア', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: stone golem fist gauntlet on right arm only. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0070",
+    "name": "ハルバレス",
+    "cost": "1",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0070/0070.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ハルバレス', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0071",
+    "name": "パトリシオ",
+    "cost": "3",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0071/0071.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'パトリシオ', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0072",
+    "name": "ヒフミ",
+    "cost": "7",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0072/0072.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヒフミ', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: crown of frozen thorns with soft blue glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0073",
+    "name": "ヒューゴ",
+    "cost": "7",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0073/0073.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヒューゴ', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: boots with spring-loaded stilts. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0074",
+    "name": "ファビアン",
+    "cost": "3",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0074/0074.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ファビアン', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: cape made of layered feather scales in teal gradient. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0075",
+    "name": "フェリクス",
+    "cost": "2",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0075/0075.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'フェリクス', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0076",
+    "name": "ブリギッタ",
+    "cost": "1",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0076/0076.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ブリギッタ', バフ, balanced fantasy palette. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0077",
+    "name": "ブレノール",
+    "cost": "2",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0077/0077.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ブレノール', デバフ, balanced fantasy palette. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0078",
+    "name": "ヘルミナ",
+    "cost": "5",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0078/0078.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヘルミナ', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0079",
+    "name": "ベラトリクス",
+    "cost": "1",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0079/0079.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ベラトリクス', バフ, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0080",
+    "name": "ベルカシアン",
+    "cost": "1",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0080/0080.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ベルカシアン', 防御, balanced fantasy palette. Unique visual identity: chain whip coiled around both arms. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0081",
+    "name": "ホシリル",
+    "cost": "6",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0081/0081.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ホシリル', 回復, balanced fantasy palette. Unique visual identity: coral-shaped shoulder armor with seafoam green trim. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0082",
+    "name": "ポリスラフ",
+    "cost": "4",
+    "role": "魔法攻撃(雷)",
+    "attack": "雷",
+    "image_path": "src/characters/0082/0082.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ポリスラフ', 魔法攻撃(雷), lightning yellow purple electric accents. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0083",
+    "name": "マグサシ",
+    "cost": "7",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0083/0083.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'マグサシ', バフ, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0084",
+    "name": "マリック",
+    "cost": "1",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0084/0084.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'マリック', 防御, balanced fantasy palette. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0085",
+    "name": "マルキラ",
+    "cost": "7",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0085/0085.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'マルキラ', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: bubble-like glass armor spheres on shoulders. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0086",
+    "name": "マルセル",
+    "cost": "5",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0086/0086.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'マルセル', デバフ, balanced fantasy palette. Unique visual identity: round shield painted as a smiling sun emblem. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0087",
+    "name": "ミコン",
+    "cost": "7",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0087/0087.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ミコン', デバフ, balanced fantasy palette. Unique visual identity: oversized ornate pauldrons shaped like lion heads. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0088",
+    "name": "ミラヴェル",
+    "cost": "2",
+    "role": "魔法攻撃(氷)",
+    "attack": "氷",
+    "image_path": "src/characters/0088/0088.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ミラヴェル', 魔法攻撃(氷), ice pale blue white frost crystal accents. Unique visual identity: bubble-like glass armor spheres on shoulders. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0089",
+    "name": "ミルナー",
+    "cost": "2",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0089/0089.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ミルナー', デバフ, balanced fantasy palette. Unique visual identity: pet small fox spirit peeking from hood. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0090",
+    "name": "ミレー",
+    "cost": "6",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0090/0090.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ミレー', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: coral-shaped shoulder armor with seafoam green trim. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0091",
+    "name": "ムニール",
+    "cost": "4",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0091/0091.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ムニール', デバフ, balanced fantasy palette. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0092",
+    "name": "ムラト",
+    "cost": "5",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0092/0092.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ムラト', 回復, balanced fantasy palette. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0093",
+    "name": "メリサンド",
+    "cost": "2",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0093/0093.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'メリサンド', 回復, balanced fantasy palette. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0094",
+    "name": "メロシェナ",
+    "cost": "3",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0094/0094.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'メロシェナ', バフ, balanced fantasy palette. Unique visual identity: stone golem fist gauntlet on right arm only. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0095",
+    "name": "モチカモチ",
+    "cost": "5",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0095/0095.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'モチカモチ', 防御, balanced fantasy palette. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0096",
+    "name": "モニカ",
+    "cost": "7",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0096/0096.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'モニカ', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0097",
+    "name": "ヤニス",
+    "cost": "5",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0097/0097.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヤニス', バフ, balanced fantasy palette. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0098",
+    "name": "ヤレシア",
+    "cost": "4",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0098/0098.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヤレシア', 回復, balanced fantasy palette. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0099",
+    "name": "ユキムラ",
+    "cost": "2",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0099/0099.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ユキムラ', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: one-eyed scar across the left cheek, eyepatch with rune. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0100",
+    "name": "ユニ",
+    "cost": "5",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0100/0100.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ユニ', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: round shield painted as a smiling sun emblem. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0101",
+    "name": "ユードリナ",
+    "cost": "7",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0101/0101.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ユードリナ', 防御, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0102",
+    "name": "ヨランダ",
+    "cost": "6",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0102/0102.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヨランダ', デバフ, balanced fantasy palette. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0103",
+    "name": "ヨリス",
+    "cost": "6",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0103/0103.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヨリス', デバフ, balanced fantasy palette. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0104",
+    "name": "ラザール",
+    "cost": "2",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0104/0104.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ラザール', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: twin braids wrapped in golden ribbons and bells. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0105",
+    "name": "ラシェリー",
+    "cost": "6",
+    "role": "魔法攻撃(土)",
+    "attack": "土",
+    "image_path": "src/characters/0105/0105.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ラシェリー', 魔法攻撃(土), earth brown amber stone armor accents. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0106",
+    "name": "リセン",
+    "cost": "3",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0106/0106.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'リセン', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: armor made of layered blue ice plates. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0107",
+    "name": "リャクネー",
+    "cost": "4",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0107/0107.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'リャクネー', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0108",
+    "name": "リュミエール",
+    "cost": "6",
+    "role": "魔法攻撃(風)",
+    "attack": "風",
+    "image_path": "src/characters/0108/0108.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'リュミエール', 魔法攻撃(風), wind yellow-green lime airy flowing fabric. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0109",
+    "name": "ルシアン",
+    "cost": "6",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0109/0109.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ルシアン', デバフ, balanced fantasy palette. Unique visual identity: distinctive mechanical wing backpack with brass gears. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0110",
+    "name": "ルドミラ",
+    "cost": "3",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0110/0110.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ルドミラ', 回復, balanced fantasy palette. Unique visual identity: dual daggers with mismatched blade shapes. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0111",
+    "name": "レオニード",
+    "cost": "4",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0111/0111.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'レオニード', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: wears a hooded cloak covered in constellation embroidery. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0112",
+    "name": "レスヴァルド",
+    "cost": "5",
+    "role": "デバフ",
+    "attack": "",
+    "image_path": "src/characters/0112/0112.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'レスヴァルド', デバフ, balanced fantasy palette. Unique visual identity: one-eyed scar across the left cheek, eyepatch with rune. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0113",
+    "name": "レナータ",
+    "cost": "4",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0113/0113.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'レナータ', 防御, balanced fantasy palette. Unique visual identity: armor engraved with musical notation lines. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0114",
+    "name": "ロドリゴ",
+    "cost": "1",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0114/0114.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ロドリゴ', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: carries a book chained to wrist, pages fluttering. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0115",
+    "name": "ロリス",
+    "cost": "2",
+    "role": "魔法攻撃(炎)",
+    "attack": "炎",
+    "image_path": "src/characters/0115/0115.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ロリス', 魔法攻撃(炎), fire orange red gold color palette, warm glow. Unique visual identity: giant flower-shaped hat with petals that glow. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0116",
+    "name": "ワルダー",
+    "cost": "2",
+    "role": "魔法攻撃(水)",
+    "attack": "水",
+    "image_path": "src/characters/0116/0116.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ワルダー', 魔法攻撃(水), water blue cyan color palette, fluid accents. Unique visual identity: spiked gauntlets with magma cracks glowing orange. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0117",
+    "name": "ヴァリエス",
+    "cost": "1",
+    "role": "バフ",
+    "attack": "",
+    "image_path": "src/characters/0117/0117.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヴァリエス', バフ, balanced fantasy palette. Unique visual identity: hair shaped like sharp lightning bolts standing up. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0118",
+    "name": "ヴァルデマール",
+    "cost": "3",
+    "role": "物理攻撃",
+    "attack": "物理",
+    "image_path": "src/characters/0118/0118.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヴァルデマール', 物理攻撃, steel gray martial weapon focus, neutral metallic tones. Unique visual identity: robe hem dissolving into swirling wind ribbons. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0119",
+    "name": "ヴェイラー",
+    "cost": "1",
+    "role": "防御",
+    "attack": "",
+    "image_path": "src/characters/0119/0119.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヴェイラー', 防御, balanced fantasy palette. Unique visual identity: carries a crystal staff topped with a floating geometric orb. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0120",
+    "name": "ヴェロニカ",
+    "cost": "5",
+    "role": "回復",
+    "attack": "",
+    "image_path": "src/characters/0120/0120.png",
+    "skip_image": false,
+    "prompt": "Original fantasy character 'ヴェロニカ', 回復, balanced fantasy palette. Unique visual identity: serpent-shaped brooch that seems alive. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  },
+  {
+    "id": "0121",
+    "name": "nksy",
+    "cost": "7",
+    "role": "魔法攻撃(吸収)",
+    "attack": "吸収",
+    "image_path": "src/characters/0121/0121.png",
+    "skip_image": true,
+    "prompt": "Original fantasy character 'nksy', 魔法攻撃(吸収), absorption dark purple void mystical aura. Unique visual identity: mask covering lower face, ornate horned helmet. Must look completely different from other game characters. Square fantasy autochess character portrait illustration, full character visible, bold readable silhouette, vibrant colors, mobile game hero icon style, high detail, sharp focus, single character centered, simple gradient background, no text, no watermark, no UI frame, 1024x1024"
+  }
+]

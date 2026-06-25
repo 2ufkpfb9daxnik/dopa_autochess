@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""characters2.md と dump/characters/*.md にランダムな役割・属性・コスト・シナジーを割り当てる。
+"""characters2.md と src/characters/*/character.md にランダムな役割・属性・コスト・シナジーを割り当てる。
 
 属性・シナジー（元素）は synergys.md 先頭7つ（炎水雷土氷風吸収）。
 煉獄・大滝などは技名用（本スクリプトでは属性に使わない）。
@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CHAR_DIR = ROOT / "dump" / "characters"
+CHAR_DIR = ROOT / "src" / "characters"
 CHARACTERS2 = ROOT / "dump" / "characters2.md"
 CHARACTERS_LIST = ROOT / "dump" / "characters.md"
 SYNERGYS = ROOT / "dump" / "synergys.md"
@@ -224,17 +224,42 @@ def assign_roles(names: list[str], rng: random.Random) -> dict[str, str]:
     role_pool = scale_role_pool(len(regular), rng)
     roles = {name: role_pool[i] for i, name in enumerate(regular)}
     for name in special:
-        roles[name] = rng.choice(role_labels)
+        roles[name] = "吸収"
     return roles
 
 
+def extract_flavor_block(text: str) -> str:
+    match = re.search(r"^## フレーバー\s*\n.*?(?=^## |\Z)", text, re.M | re.S)
+    if not match:
+        return ""
+    return match.group(0).rstrip() + "\n\n"
+
+
+def build_name_to_id() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for sheet in CHAR_DIR.glob("*/character.md"):
+        text = sheet.read_text(encoding="utf-8")
+        m_id = re.search(r"^ID:\s*(\S+)", text, re.M)
+        m_name = re.search(r"^名前:\s*(.+)$", text, re.M)
+        if m_id and m_name:
+            mapping[m_name.group(1).strip()] = m_id.group(1).strip()
+    return mapping
+
+
+    for sheet in CHAR_DIR.glob("*/character.md"):
+        text = sheet.read_text(encoding="utf-8")
+        m_name = re.search(r"^名前:\s*(.+)$", text, re.M)
+        if m_name and m_name.group(1).strip() == name:
+            return sheet
+    return None
+
+
 def find_character_file(name: str) -> Path | None:
-    for path in CHAR_DIR.glob("*.md"):
-        stem = path.stem
-        if re.match(r"^\d{4}", stem):
-            stem = stem[4:]
-        if stem == name:
-            return path
+    for sheet in CHAR_DIR.glob("*/character.md"):
+        text = sheet.read_text(encoding="utf-8")
+        m_name = re.search(r"^名前:\s*(.+)$", text, re.M)
+        if m_name and m_name.group(1).strip() == name:
+            return sheet
     return None
 
 
@@ -256,6 +281,11 @@ def update_character_sheet(
     strong_text = "\n".join(f"- {a}" for a in strong) if strong else ""
     weak_text = "\n".join(f"- {a}" for a in weak) if weak else ""
     syn_text = "\n".join(f"- {s}" for s in synergies) if synergies else ""
+    flavor_block = extract_flavor_block(text)
+
+    detail_section = "## 詳細な説明文\n\n"
+    if flavor_block:
+        detail_section += "\n" + flavor_block
 
     body = f"""# {id_str} {name_str}
 
@@ -267,11 +297,7 @@ ID: {id_str}
 
 役割: {role_display(role)}
 
-## 詳細な説明文
-
-
-
-## シナジー
+{detail_section}## シナジー
 
 {syn_text}
 
@@ -312,6 +338,7 @@ def write_characters2(
     syn_map: dict[str, list[str]],
     seed: int,
 ) -> None:
+    name_to_id = build_name_to_id()
     lines = [
         "# キャラクター(小)詳細",
         "",
@@ -319,18 +346,32 @@ def write_characters2(
         "",
         "属性・元素シナジー: 炎・水・雷・土・氷・風・吸収（synergys.md 先頭7つ）",
         "",
-        "| 名前 | コスト | 役割 | 攻撃属性 | 得意属性 | 苦手属性 | シナジー |",
-        "| --- | ---: | --- | --- | --- | --- | --- |",
     ]
+    table_header = (
+        "| ID | 名前 | コスト | 役割 | 攻撃属性 | 得意属性 | 苦手属性 | シナジー |"
+    )
+    table_sep = "| --- | --- | ---: | --- | --- | --- | --- | --- |"
+
+    by_cost: dict[int, list[str]] = {}
     for name in names:
-        strong = "・".join(strong_map[name]) if strong_map[name] else ""
-        weak = "・".join(weak_map[name]) if weak_map[name] else ""
-        syn = "・".join(syn_map[name]) if syn_map[name] else ""
-        lines.append(
-            f"| {name} | {costs[name]} | {role_display(roles[name])} | "
-            f"{attacks[name]} | {strong} | {weak} | {syn} |"
-        )
-    lines.append("")
+        by_cost.setdefault(costs[name], []).append(name)
+
+    for cost in sorted(by_cost.keys()):
+        lines.append(f"## コスト {cost}")
+        lines.append("")
+        lines.append(table_header)
+        lines.append(table_sep)
+        for name in sorted(by_cost[cost], key=lambda n: name_to_id.get(n, n)):
+            char_id = name_to_id.get(name, "")
+            strong = "・".join(strong_map[name]) if strong_map[name] else ""
+            weak = "・".join(weak_map[name]) if weak_map[name] else ""
+            syn = "・".join(syn_map[name]) if syn_map[name] else ""
+            lines.append(
+                f"| {char_id} | {name} | {costs[name]} | {role_display(roles[name])} | "
+                f"{attacks[name]} | {strong} | {weak} | {syn} |"
+            )
+        lines.append("")
+
     CHARACTERS2.write_text("\n".join(lines), encoding="utf-8")
 
 

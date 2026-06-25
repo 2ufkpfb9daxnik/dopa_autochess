@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""dump/characters/*.md を 0001nksy.md 形式に統一する。"""
+"""dump/characters/*.md を 0001{name}.md 形式で characters.md 一覧から生成する。"""
 
 import re
 from pathlib import Path
 
-CHAR_DIR = Path(__file__).resolve().parent.parent / "dump" / "characters"
+ROOT = Path(__file__).resolve().parent.parent
+CHAR_DIR = ROOT / "dump" / "characters"
+CHARACTERS_LIST = ROOT / "dump" / "characters.md"
 
 SECTIONS_TAIL = """
 ## 簡単な説明文
@@ -45,9 +47,22 @@ SECTIONS_TAIL = """
 """
 
 
-def name_from_stem(stem: str) -> str:
-    m = re.match(r"^\d{4}(.+)$", stem)
-    return m.group(1) if m else stem
+def load_names_from_characters_md() -> tuple[list[str], list[str]]:
+    names: list[str] = []
+    started = False
+    for line in CHARACTERS_LIST.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("合計"):
+            started = True
+            continue
+        if not started:
+            continue
+        if not line.startswith("- "):
+            continue
+        names.append(line[2:].strip())
+    special = [n for n in names if n == "nksy"]
+    regular = sorted([n for n in names if n != "nksy"])
+    return regular, special
 
 
 def make_content(id_str: str, name: str) -> str:
@@ -62,28 +77,27 @@ def make_content(id_str: str, name: str) -> str:
 
 
 def main() -> None:
-    files = sorted(CHAR_DIR.glob("*.md"), key=lambda p: name_from_stem(p.stem))
-    entries: list[tuple[str, Path]] = []
-    for path in files:
-        entries.append((name_from_stem(path.stem), path))
+    regular, special = load_names_from_characters_md()
+    if not regular and not special:
+        raise SystemExit("characters.md に名前がありません")
 
-    entries.sort(key=lambda x: x[0])
-
-    new_contents: dict[Path, str] = {}
-    for idx, (name, _old_path) in enumerate(entries, start=1):
-        id_str = f"{idx:04d}"
-        new_path = CHAR_DIR / f"{id_str}{name}.md"
-        new_contents[new_path] = make_content(id_str, name)
-
-    old_paths = {p for _, p in entries}
-    new_paths = set(new_contents.keys())
-    for old_path in old_paths - new_paths:
+    for old_path in CHAR_DIR.glob("*.md"):
         old_path.unlink()
 
-    for new_path, content in new_contents.items():
-        new_path.write_text(content, encoding="utf-8")
+    created = 0
+    for idx, name in enumerate(regular, start=1):
+        id_str = f"{idx:04d}"
+        path = CHAR_DIR / f"{id_str}{name}.md"
+        path.write_text(make_content(id_str, name), encoding="utf-8")
+        created += 1
 
-    print(f"Formatted {len(new_contents)} files in {CHAR_DIR}")
+    for name in special:
+        id_str = f"{len(regular) + len(special):04d}"
+        path = CHAR_DIR / f"{id_str}{name}.md"
+        path.write_text(make_content(id_str, name), encoding="utf-8")
+        created += 1
+
+    print(f"Created {created} files in {CHAR_DIR}")
 
 
 if __name__ == "__main__":

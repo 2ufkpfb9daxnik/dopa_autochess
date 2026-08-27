@@ -3,7 +3,7 @@ extends StaticBody3D
 
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
 const MAX_STARS := 4
-const TARGET_MODEL_HEIGHT := HexMath.HEX_SIZE * 0.03
+const TARGET_MODEL_HEIGHT := HexMath.HEX_SIZE * 0.025
 const UNIT_RENDER_PRIORITY := 2
 
 var unit_id: int = -1

@@ -141,7 +141,7 @@ layout_mode = 2
 size_flags_vertical = 0
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 0
-columns = 8
+columns = 21
 
 [node name="EventLogPanel" type="PanelContainer" parent="CanvasLayer/UI"]
 layout_mode = 1

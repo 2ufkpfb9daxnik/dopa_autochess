@@ -4,319 +4,215 @@ extends Node3D
 signal units_changed
 signal merges_applied(messages: Array[String])
 
-const WORLD_OFFSET := Vector3(0.0, 0.0, -5.5)
-const BATTLE_FOCUS_SOUTH_OFFSET := 1.35
-const BOARD_COUNT_LABEL_FONT_SIZE := 384
-const BOARD_COUNT_LABEL_OUTLINE_SIZE := 56
-const BOARD_HEX_SURFACE_Y := 0.0
-const BOARD_COUNT_LABEL_SURFACE_OFFSET := 0.08
-const BOARD_COUNT_LABEL_PITCH_DEG := -68.0
-const BOARD_RENDER_PRIORITY := 0
-const BOARD_COUNT_LABEL_RENDER_PRIORITY := 1
+const SLOTS_PER_FACE := 6
+const FRONT_COUNT := 3
+const BENCH_SIZE := 15
+const MAX_FACES := 8
 
-var board_origin: Vector3 = Vector3.ZERO
-var board_center_x: float = 0.0
-var board_center_z: float = 0.0
-var board_max_x: float = 0.0
-var bench_min_x: float = 0.0
-var bench_max_x: float = 0.0
-var board_units: Dictionary = {}
-var enemy_units: Dictionary = {}
+const ALLY_STANDS: Array[Vector3] = [
+	Vector3(-0.95, 0.0, 1.05),
+	Vector3(0.0, 0.0, 0.55),
+	Vector3(0.95, 0.0, 1.05),
+]
+const ENEMY_STANDS: Array[Vector3] = [
+	Vector3(-0.95, 0.0, -1.05),
+	Vector3(0.0, 0.0, -0.55),
+	Vector3(0.95, 0.0, -1.05),
+]
+const ALLY_YAW := PI
+const ENEMY_YAW := 0.0
+
 var bench_units: Array = []
 var board_unit_limit: int = 1
+var active_face: int = 0
 
-var _bench_markers: Array[MeshInstance3D] = []
-var _hex_markers: Array[MeshInstance3D] = []
-var _enemy_hex_markers: Array[MeshInstance3D] = []
-var _board_count_label: Label3D
+var _faces: Array = []
+var _slot_numbers: Array = []
+var _enemy_slots: Array = []
+var _unlocked_faces: int = 1
 var _in_battle: bool = false
+var _visual_shift: float = 0.0
+
+
+static func unlocked_face_count_for_level(level: int) -> int:
+	if level <= 6:
+		return 1
+	return mini(MAX_FACES, 1 + int((level - 1) / 6))
 
 
 func _ready() -> void:
-	position = WORLD_OFFSET
-	bench_units.resize(HexMath.BENCH_SIZE)
+	bench_units.resize(BENCH_SIZE)
 	bench_units.fill(null)
-	_build_visuals()
+	_enemy_slots.resize(SLOTS_PER_FACE)
+	_enemy_slots.fill(null)
+	for _face_index in MAX_FACES:
+		_faces.append(_make_face())
+		var numbers: Array = []
+		numbers.resize(SLOTS_PER_FACE)
+		for slot_index in SLOTS_PER_FACE:
+			numbers[slot_index] = slot_index + 1
+		_slot_numbers.append(numbers)
+	_build_stage()
 
 
-func _build_visuals() -> void:
-	board_origin = _compute_board_origin()
-	var extents := HexMath.compute_board_extents(board_origin)
-	board_center_x = extents["center_x"]
-	board_center_z = extents["center_z"]
-	board_max_x = extents["max_x"]
-	_cache_bench_extents()
-	_build_hex_tiles(false, board_origin, _hex_markers)
-	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	_build_hex_tiles(true, enemy_origin, _enemy_hex_markers)
-	_build_bench_slots()
-	_build_board_count_label()
+func get_unlocked_face_count() -> int:
+	return _unlocked_faces
 
 
-func _cache_bench_extents() -> void:
-	bench_min_x = INF
-	bench_max_x = -INF
-	for slot in HexMath.BENCH_SIZE:
-		var pos := HexMath.bench_slot_to_local(slot, board_max_x, board_center_z)
-		bench_min_x = minf(bench_min_x, pos.x)
-		bench_max_x = maxf(bench_max_x, pos.x)
+func set_unlocked_face_count(count: int) -> void:
+	var next := clampi(count, 1, MAX_FACES)
+	if next == _unlocked_faces:
+		return
+	_unlocked_faces = next
+	if active_face >= _unlocked_faces:
+		active_face = _unlocked_faces - 1
+	refresh_presentation()
+	units_changed.emit()
 
 
-func _compute_board_origin() -> Vector3:
-	var min_pos := Vector3(INF, 0.0, INF)
-	var max_pos := Vector3(-INF, 0.0, -INF)
-	for row in HexMath.ROWS:
-		for col in HexMath.COLS:
-			var local := HexMath.cell_to_local(col, row)
-			min_pos.x = minf(min_pos.x, local.x)
-			min_pos.z = minf(min_pos.z, local.z)
-			max_pos.x = maxf(max_pos.x, local.x)
-			max_pos.z = maxf(max_pos.z, local.z)
-	return Vector3(-(min_pos.x + max_pos.x) * 0.5, 0.0, -(min_pos.z + max_pos.z) * 0.5)
+func cycle_face() -> void:
+	if _unlocked_faces <= 1:
+		return
+	active_face = (active_face + 1) % _unlocked_faces
+	refresh_presentation()
+	units_changed.emit()
 
 
-func _build_hex_tiles(enemy: bool, origin: Vector3, storage: Array) -> void:
-	for row in HexMath.ROWS:
-		for col in HexMath.COLS:
-			var grid_row := HexMath.enemy_global_row(row) if enemy else row
-			var tile := _create_hex_tile(HexMath.is_light_hex(col, grid_row), enemy)
-			if enemy:
-				tile.position = HexMath.enemy_cell_to_world(col, row, origin)
-			else:
-				tile.position = HexMath.cell_to_world(col, row, origin)
-			tile.name = ("EnemyHex" if enemy else "Hex") + "_%d_%d" % [col, row]
-			add_child(tile)
-			storage.append(tile)
+func rotate_active_face(steps: int) -> void:
+	var shift := posmod(steps, SLOTS_PER_FACE)
+	if shift == 0:
+		return
+	var face: Array = _faces[active_face]
+	var rotated := _make_face()
+	for slot_index in SLOTS_PER_FACE:
+		var source := posmod(slot_index - shift, SLOTS_PER_FACE)
+		var unit: GameUnit = face[source]
+		rotated[slot_index] = unit
+		if unit != null:
+			unit.circle_face = active_face
+			unit.circle_slot = slot_index
+	var numbers: Array = _slot_numbers[active_face]
+	var rotated_numbers: Array = []
+	rotated_numbers.resize(SLOTS_PER_FACE)
+	for slot_index in SLOTS_PER_FACE:
+		var source := posmod(slot_index - shift, SLOTS_PER_FACE)
+		rotated_numbers[slot_index] = numbers[source]
+	_faces[active_face] = rotated
+	_slot_numbers[active_face] = rotated_numbers
+	refresh_presentation()
+	units_changed.emit()
 
 
-func _build_bench_slots() -> void:
-	for slot in HexMath.BENCH_SIZE:
-		var marker := _create_bench_slot()
-		marker.position = _bench_local_pos(slot)
-		marker.name = "BenchSlot_%d" % slot
-		add_child(marker)
-		_bench_markers.append(marker)
+func set_visual_shift(shift: float) -> void:
+	_visual_shift = shift
+	refresh_presentation()
 
 
-func _build_board_count_label() -> void:
-	_board_count_label = Label3D.new()
-	_board_count_label.name = "BoardCountLabel"
-	_board_count_label.font_size = BOARD_COUNT_LABEL_FONT_SIZE
-	_board_count_label.outline_size = BOARD_COUNT_LABEL_OUTLINE_SIZE
-	_board_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_board_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_board_count_label.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	_board_count_label.no_depth_test = true
-	_board_count_label.render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY
-	_board_count_label.outline_render_priority = BOARD_COUNT_LABEL_RENDER_PRIORITY
-	_board_count_label.modulate = Color.WHITE
-	_board_count_label.outline_modulate = Color(0.05, 0.05, 0.08, 1.0)
-	_board_count_label.text = "0/1"
-	var enemy_extents := HexMath.compute_enemy_board_extents(board_origin)
-	# 画面上部（敵盤面側）の中央付近に、盤面から少し持ち上げて貼り付ける。
-	_board_count_label.position = Vector3(
-		float(enemy_extents["center_x"]),
-		BOARD_HEX_SURFACE_Y + BOARD_COUNT_LABEL_SURFACE_OFFSET,
-		float(enemy_extents["min_z"]) + HexMath.ROW_SPACING * 0.55
+func apply_spin_commit(steps: int) -> void:
+	_visual_shift = 0.0
+	if posmod(steps, SLOTS_PER_FACE) == 0:
+		refresh_presentation()
+		return
+	rotate_active_face(steps)
+
+
+func get_placed_unit(face_index: int, slot_index: int) -> GameUnit:
+	if face_index < 0 or face_index >= _faces.size():
+		return null
+	if slot_index < 0 or slot_index >= SLOTS_PER_FACE:
+		return null
+	return _faces[face_index][slot_index]
+
+
+func get_resolved_unit(face_index: int, slot_index: int) -> GameUnit:
+	var placed := get_placed_unit(face_index, slot_index)
+	if placed != null:
+		return placed
+	if face_index <= 0:
+		return null
+	return get_placed_unit(face_index - 1, slot_index)
+
+
+func get_wheel_slots() -> Array:
+	var result: Array = []
+	for slot_index in SLOTS_PER_FACE:
+		var placed := get_placed_unit(active_face, slot_index)
+		var resolved := get_resolved_unit(active_face, slot_index)
+		result.append({
+			"occupied": placed != null,
+			"fallback": placed == null and resolved != null,
+			"name": resolved.get_display_name() if resolved != null else "",
+			"stars": resolved.get_star_text() if resolved != null else "",
+			"cost": resolved.get_cost() if resolved != null else 0,
+			"number": int(_slot_numbers[active_face][slot_index]),
+		})
+	return result
+
+
+func get_action_order() -> Array:
+	var entries: Array = []
+	var seen: Dictionary = {}
+	for slot_index in SLOTS_PER_FACE:
+		var unit := get_resolved_unit(active_face, slot_index)
+		if unit == null or seen.has(unit):
+			continue
+		seen[unit] = true
+		entries.append(_action_entry(unit, false, slot_index < FRONT_COUNT))
+	if _in_battle:
+		for slot_index in SLOTS_PER_FACE:
+			var enemy: GameUnit = _enemy_slots[slot_index]
+			if enemy == null:
+				continue
+			entries.append(_action_entry(enemy, true, slot_index < FRONT_COUNT))
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["action_value"]) == int(b["action_value"]):
+			return str(a["name"]) < str(b["name"])
+		return int(a["action_value"]) < int(b["action_value"])
 	)
-	# 完全に寝かせると見えなくなるため、南側（カメラ方向）へ少し倒す。
-	_board_count_label.rotation_degrees = Vector3(BOARD_COUNT_LABEL_PITCH_DEG, 0.0, 0.0)
-	add_child(_board_count_label)
-
-
-func set_board_count_display(count: int, cap: int) -> void:
-	if _board_count_label == null:
-		return
-	_board_count_label.text = "%d/%d" % [count, cap]
-
-
-func _bench_local_pos(slot_index: int) -> Vector3:
-	return HexMath.bench_slot_to_local(slot_index, board_max_x, board_center_z)
-
-
-func _create_hex_tile(is_light: bool, enemy: bool) -> MeshInstance3D:
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = HexMath.HEX_SIZE
-	mesh.bottom_radius = HexMath.HEX_SIZE
-	mesh.height = 0.1
-	mesh.radial_segments = 6
-	mesh_instance.mesh = mesh
-	mesh_instance.position.y = -0.05
-	var material := StandardMaterial3D.new()
-	if enemy:
-		material.albedo_color = Color(0.42, 0.22, 0.24) if is_light else Color(0.34, 0.18, 0.2)
-	else:
-		material.albedo_color = Color(0.28, 0.34, 0.42) if is_light else Color(0.22, 0.27, 0.34)
-	material.render_priority = BOARD_RENDER_PRIORITY
-	mesh_instance.material_override = material
-	return mesh_instance
-
-
-func _create_bench_slot() -> MeshInstance3D:
-	var mesh_instance := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(HexMath.HORIZONTAL_SPACING * 0.88, 0.06, HexMath.ROW_SPACING * 0.88)
-	mesh_instance.mesh = mesh
-	mesh_instance.position.y = -0.03
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.18, 0.22, 0.28, 0.65)
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.render_priority = BOARD_RENDER_PRIORITY
-	mesh_instance.material_override = material
-	return mesh_instance
-
-
-func set_battle_mode(active: bool) -> void:
-	if _in_battle == active:
-		return
-	_in_battle = active
-	if _board_count_label != null:
-		_board_count_label.visible = not active
-	_set_all_units_battle_walking(active)
-	if not active:
-		clear_enemy_units()
-
-
-func _set_all_units_battle_walking(active: bool) -> void:
-	for unit in get_all_units():
-		unit.set_battle_walking(active)
-	for unit in enemy_units.values():
-		unit.set_battle_walking(active)
-
-
-func get_hex_board_center() -> Vector3:
-	return global_position + Vector3(board_center_x, 0.0, board_center_z)
-
-
-func get_camera_focus_prep() -> Vector3:
-	return get_hex_board_center()
-
-
-func get_prep_framing() -> Dictionary:
-	var hex := HexMath.compute_board_extents(board_origin)
-	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	var enemy_hex := HexMath.compute_enemy_board_extents(enemy_origin)
-	var hex_min_x: float = float(hex["min_x"])
-	var hex_min_z: float = float(enemy_hex["min_z"])
-	var hex_max_z: float = float(hex["max_z"])
-	var left_extent: float = board_center_x - hex_min_x + HexMath.HORIZONTAL_SPACING * 3.5
-	var right_extent: float = bench_max_x - board_center_x + HexMath.HORIZONTAL_SPACING * 1.5
-	var vertical_half: float = (hex_max_z - hex_min_z) * 0.5 + HexMath.HEX_SIZE * 2.0
-	return {
-		"focus": get_hex_board_center(),
-		"horizontal_half": maxf(left_extent, right_extent),
-		"vertical_half": vertical_half,
-	}
-
-
-func get_camera_focus_battle() -> Vector3:
-	var player_extents := HexMath.compute_board_extents(board_origin)
-	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	var enemy_extents := HexMath.compute_enemy_board_extents(enemy_origin)
-	var center_z: float = (float(player_extents["center_z"]) + float(enemy_extents["center_z"])) * 0.5
-	center_z += BATTLE_FOCUS_SOUTH_OFFSET
-	return global_position + Vector3(board_center_x, 0.0, center_z)
-
-
-func get_battle_board_span() -> float:
-	var player_extents := HexMath.compute_board_extents(board_origin)
-	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	var enemy_extents := HexMath.compute_enemy_board_extents(enemy_origin)
-	return float(player_extents["max_z"]) - float(enemy_extents["min_z"]) + HexMath.HEX_SIZE * 2.0
-
-
-func compute_prep_camera_position(
-	focus: Vector3,
-	horizontal_half: float,
-	vertical_half: float,
-	fov_deg: float,
-	aspect: float
-) -> Vector3:
-	var fov_v_rad := deg_to_rad(fov_deg)
-	var tan_v_half := tan(fov_v_rad * 0.5)
-	var tan_h_half := tan_v_half * maxf(aspect, 0.01)
-	var dist_for_height := vertical_half / tan_v_half
-	var dist_for_width := horizontal_half / tan_h_half
-	var distance := maxf(dist_for_height, dist_for_width) * 1.25
-	var height := distance * 0.62
-	var back := distance * 0.52
-	return Vector3(focus.x, focus.y + height, focus.z + back)
-
-
-func compute_camera_position(focus: Vector3, vertical_span: float, fov_deg: float) -> Vector3:
-	var margin := HexMath.HEX_SIZE * 1.8
-	var half_span := vertical_span * 0.5 + margin
-	var fov_rad := deg_to_rad(fov_deg)
-	var distance := half_span / tan(fov_rad * 0.5)
-	var height := distance * 0.72
-	var back := distance * 0.42
-	return Vector3(focus.x, focus.y + height, focus.z + back)
+	return entries
 
 
 func get_all_units() -> Array[GameUnit]:
 	var units: Array[GameUnit] = []
-	for unit in board_units.values():
-		units.append(unit)
+	for face in _faces:
+		for unit in face:
+			if unit != null:
+				units.append(unit)
 	for unit in bench_units:
 		if unit != null:
 			units.append(unit)
 	return units
 
 
-func get_enemy_unit_global_pos(cell: Vector2i) -> Vector3:
-	var enemy_origin := HexMath.get_enemy_board_origin(board_origin)
-	return to_global(HexMath.enemy_cell_to_world(cell.x, cell.y, enemy_origin))
+func get_front_unit_count() -> int:
+	var count := 0
+	for slot_index in FRONT_COUNT:
+		if get_placed_unit(active_face, slot_index) != null:
+			count += 1
+	return count
+
+
+func get_board_unit_count() -> int:
+	var count := 0
+	for face in _faces:
+		for unit in face:
+			if unit != null:
+				count += 1
+	return count
 
 
 func get_enemy_unit_count() -> int:
-	return enemy_units.size()
-
-
-func place_enemy_unit(unit: GameUnit, cell: Vector2i) -> bool:
-	if not HexMath.is_in_bounds(cell):
-		return false
-	if enemy_units.has(cell):
-		return false
-	unit.clear_location()
-	unit.is_enemy = true
-	unit.board_hex = cell
-	enemy_units[cell] = unit
-	unit.global_position = get_enemy_unit_global_pos(cell)
-	if unit.is_node_ready():
-		unit.refresh_visuals()
-	if _in_battle:
-		unit.set_battle_walking(true)
-	return true
-
-
-func clear_enemy_units() -> void:
-	for unit in enemy_units.values():
-		if is_instance_valid(unit):
-			unit.queue_free()
-	enemy_units.clear()
-
-
-func get_board_world_pos(cell: Vector2i) -> Vector3:
-	return HexMath.cell_to_world(cell.x, cell.y, board_origin)
-
-
-func get_unit_global_pos(cell: Vector2i) -> Vector3:
-	return to_global(get_board_world_pos(cell))
-
-
-func get_bench_global_pos(slot_index: int) -> Vector3:
-	return to_global(_bench_local_pos(slot_index))
-
-
-func has_unit_on_board(cell: Vector2i) -> bool:
-	return board_units.has(cell)
+	var count := 0
+	for unit in _enemy_slots:
+		if unit != null:
+			count += 1
+	return count
 
 
 func find_empty_bench_slot() -> int:
-	for slot in bench_units.size():
-		if bench_units[slot] == null:
-			return slot
+	for slot_index in bench_units.size():
+		if bench_units[slot_index] == null:
+			return slot_index
 	return -1
 
 
@@ -324,26 +220,13 @@ func bench_is_full() -> bool:
 	return find_empty_bench_slot() == -1
 
 
-func get_board_unit_count() -> int:
-	return board_units.size()
-
-
-func place_on_board(unit: GameUnit, cell: Vector2i, trigger_merge: bool = true) -> bool:
-	if not HexMath.is_in_bounds(cell):
-		return false
-	if board_units.has(cell):
-		return false
-	if not unit.is_on_board() and board_units.size() >= board_unit_limit:
-		return false
-	_remove_unit_from_current_location(unit)
-	unit.clear_location()
-	unit.board_hex = cell
-	board_units[cell] = unit
-	unit.global_position = get_unit_global_pos(cell)
-	units_changed.emit()
-	if trigger_merge:
-		_run_merges()
-	return true
+func find_empty_circle_slot(face_index: int) -> int:
+	if face_index < 0 or face_index >= _unlocked_faces:
+		return -1
+	for slot_index in SLOTS_PER_FACE:
+		if _faces[face_index][slot_index] == null:
+			return slot_index
+	return -1
 
 
 func place_on_bench(unit: GameUnit, slot_index: int, trigger_merge: bool = true) -> bool:
@@ -351,141 +234,237 @@ func place_on_bench(unit: GameUnit, slot_index: int, trigger_merge: bool = true)
 		return false
 	if bench_units[slot_index] != null:
 		return false
-	_remove_unit_from_current_location(unit)
-	unit.clear_location()
-	unit.bench_index = slot_index
-	bench_units[slot_index] = unit
-	unit.global_position = get_bench_global_pos(slot_index)
-	units_changed.emit()
+	_detach(unit)
+	_attach_bench(unit, slot_index)
 	if trigger_merge:
-		_run_merges()
+		_finish_mutation()
+	else:
+		refresh_presentation()
+		units_changed.emit()
+	return true
+
+
+func place_on_circle(unit: GameUnit, face_index: int, slot_index: int, trigger_merge: bool = true) -> bool:
+	if not _can_address(face_index, slot_index):
+		return false
+	if _faces[face_index][slot_index] != null:
+		return false
+	_detach(unit)
+	_attach_circle(unit, face_index, slot_index)
+	if trigger_merge:
+		_finish_mutation()
+	else:
+		refresh_presentation()
+	return true
+
+
+func try_move_unit_to_circle(unit: GameUnit, face_index: int, slot_index: int) -> bool:
+	if unit == null or unit.is_enemy or not _can_address(face_index, slot_index):
+		return false
+	var occupant: GameUnit = _faces[face_index][slot_index]
+	if occupant == unit:
+		return true
+	var from_bench := unit.is_on_bench()
+	if occupant == null and from_bench and get_board_unit_count() >= board_unit_limit:
+		return false
+	var src_face := unit.circle_face
+	var src_slot := unit.circle_slot
+	var src_bench := unit.bench_index
+	_detach(unit)
+	if occupant != null:
+		_detach(occupant)
+	_attach_circle(unit, face_index, slot_index)
+	if occupant != null:
+		if from_bench:
+			_attach_bench(occupant, src_bench)
+		else:
+			_attach_circle(occupant, src_face, src_slot)
+	_finish_mutation()
+	return true
+
+
+func try_move_unit_to_bench(unit: GameUnit, slot_index: int) -> bool:
+	if unit == null or unit.is_enemy:
+		return false
+	if slot_index < 0 or slot_index >= bench_units.size():
+		return false
+	var occupant: GameUnit = bench_units[slot_index]
+	if occupant == unit:
+		return true
+	var from_circle := unit.is_on_board()
+	var src_face := unit.circle_face
+	var src_slot := unit.circle_slot
+	var src_bench := unit.bench_index
+	_detach(unit)
+	if occupant != null:
+		_detach(occupant)
+	_attach_bench(unit, slot_index)
+	if occupant != null:
+		if from_circle:
+			_attach_circle(occupant, src_face, src_slot)
+		else:
+			_attach_bench(occupant, src_bench)
+	_finish_mutation()
 	return true
 
 
 func remove_unit(unit: GameUnit) -> void:
-	_remove_unit_from_current_location(unit)
-	unit.clear_location()
+	_detach(unit)
+	refresh_presentation()
 	units_changed.emit()
 
 
-func swap_board_cells(from_cell: Vector2i, to_cell: Vector2i) -> void:
-	if not board_units.has(from_cell):
-		return
-	var moving: GameUnit = board_units[from_cell]
-	board_units.erase(from_cell)
-	moving.board_hex = Vector2i(-1, -1)
-	if board_units.has(to_cell):
-		var other: GameUnit = board_units[to_cell]
-		board_units.erase(to_cell)
-		other.board_hex = from_cell
-		board_units[from_cell] = other
-		other.global_position = get_unit_global_pos(from_cell)
-	moving.board_hex = to_cell
-	board_units[to_cell] = moving
-	moving.global_position = get_unit_global_pos(to_cell)
-	units_changed.emit()
-	_run_merges()
-
-
-func move_board_to_bench(from_cell: Vector2i, slot_index: int) -> bool:
-	if not board_units.has(from_cell):
+func place_enemy_unit(unit: GameUnit, slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= SLOTS_PER_FACE:
 		return false
-	if bench_units[slot_index] != null:
+	if _enemy_slots[slot_index] != null:
 		return false
-	var unit: GameUnit = board_units[from_cell]
-	board_units.erase(from_cell)
-	unit.board_hex = Vector2i(-1, -1)
-	unit.bench_index = slot_index
-	bench_units[slot_index] = unit
-	unit.global_position = get_bench_global_pos(slot_index)
-	units_changed.emit()
-	_run_merges()
-	return true
-
-
-func move_bench_to_board(slot_index: int, cell: Vector2i) -> bool:
-	if bench_units[slot_index] == null:
-		return false
-	if not HexMath.is_in_bounds(cell):
-		return false
-	if board_units.has(cell):
-		return false
-	if board_units.size() >= board_unit_limit:
-		return false
-	var unit: GameUnit = bench_units[slot_index]
-	bench_units[slot_index] = null
+	unit.is_enemy = true
+	unit.circle_face = -1
+	unit.circle_slot = slot_index
 	unit.bench_index = -1
-	unit.board_hex = cell
-	board_units[cell] = unit
-	unit.global_position = get_unit_global_pos(cell)
-	units_changed.emit()
-	_run_merges()
+	_enemy_slots[slot_index] = unit
+	refresh_presentation()
 	return true
 
 
-func resolve_drop(unit: GameUnit, world_pos: Vector3) -> bool:
-	var hex_origin := global_position + board_origin
-	var cell := HexMath.world_to_cell(world_pos, hex_origin)
-	if HexMath.is_in_bounds(cell):
-		return _drop_on_board(unit, cell)
-	var bench_slot := HexMath.nearest_bench_slot(
-		world_pos,
-		global_position,
-		board_max_x,
-		board_center_z
-	)
-	if bench_slot >= 0:
-		return _drop_on_bench(unit, bench_slot)
-	return false
+func clear_enemy_units() -> void:
+	for unit in _enemy_slots:
+		if unit != null and is_instance_valid(unit):
+			unit.queue_free()
+	for slot_index in _enemy_slots.size():
+		_enemy_slots[slot_index] = null
+	refresh_presentation()
 
 
-func _drop_on_board(unit: GameUnit, cell: Vector2i) -> bool:
-	if unit.is_on_board() and unit.board_hex == cell:
-		unit.global_position = get_unit_global_pos(cell)
-		return true
-	if unit.is_on_board():
-		if has_unit_on_board(cell):
-			swap_board_cells(unit.board_hex, cell)
-			return true
-		board_units.erase(unit.board_hex)
-		unit.board_hex = cell
-		board_units[cell] = unit
-		unit.global_position = get_unit_global_pos(cell)
-		units_changed.emit()
-		_run_merges()
-		return true
-	if unit.is_on_bench():
-		return move_bench_to_board(unit.bench_index, cell)
-	return place_on_board(unit, cell)
+func set_battle_mode(active: bool) -> void:
+	var changed := _in_battle != active
+	_in_battle = active
+	if changed and not active:
+		clear_enemy_units()
+		return
+	refresh_presentation()
 
 
-func _drop_on_bench(unit: GameUnit, slot_index: int) -> bool:
-	if unit.is_on_bench() and unit.bench_index == slot_index:
-		unit.global_position = get_bench_global_pos(slot_index)
-		return true
-	if unit.is_on_bench():
-		if bench_units[slot_index] != null:
-			return false
-		bench_units[unit.bench_index] = null
-		unit.bench_index = slot_index
-		bench_units[slot_index] = unit
-		unit.global_position = get_bench_global_pos(slot_index)
-		units_changed.emit()
-		_run_merges()
-		return true
-	if unit.is_on_board():
-		return move_board_to_bench(unit.board_hex, slot_index)
-	return place_on_bench(unit, slot_index)
+func refresh_presentation() -> void:
+	for unit in get_all_units():
+		unit.visible = false
+		unit.set_battle_walking(false)
+	for enemy in _enemy_slots:
+		if enemy != null and is_instance_valid(enemy):
+			enemy.visible = false
+			enemy.set_battle_walking(false)
+	if absf(_visual_shift) > 0.001:
+		_show_sliding_allies()
+	else:
+		for slot_index in FRONT_COUNT:
+			var ally := get_resolved_unit(active_face, slot_index)
+			if ally == null:
+				continue
+			_show_unit(ally, ALLY_STANDS[slot_index], ALLY_YAW)
+	if _in_battle:
+		for slot_index in FRONT_COUNT:
+			var enemy: GameUnit = _enemy_slots[slot_index]
+			if enemy == null:
+				continue
+			_show_unit(enemy, ENEMY_STANDS[slot_index], ENEMY_YAW)
+
+
+func _show_unit(unit: GameUnit, stand: Vector3, yaw: float) -> void:
+	unit.visible = true
+	unit.global_position = stand
+	unit.rotation = Vector3(0.0, yaw, 0.0)
+	unit.set_battle_walking(_in_battle)
+
+
+func _show_sliding_allies() -> void:
+	var shown: Dictionary = {}
+	for slot_index in SLOTS_PER_FACE:
+		var ally := get_resolved_unit(active_face, slot_index)
+		if ally == null or shown.has(ally):
+			continue
+		var from_center := wrapf(float(slot_index - 1) + _visual_shift + 3.0, 0.0, 6.0) - 3.0
+		if absf(from_center) > 2.35:
+			continue
+		shown[ally] = true
+		var depth := 0.55 + 0.50 * minf(absf(from_center), 1.0)
+		_show_unit(ally, Vector3(from_center * 0.95, 0.0, depth), ALLY_YAW)
+
+
+func _finish_mutation() -> void:
+	refresh_presentation()
+	units_changed.emit()
+	_run_merges()
 
 
 func _run_merges() -> void:
 	var messages := UnitMerge.try_merge_all(self)
-	if not messages.is_empty():
-		merges_applied.emit(messages)
+	if messages.is_empty():
+		return
+	refresh_presentation()
+	merges_applied.emit(messages)
+	units_changed.emit()
 
 
-func _remove_unit_from_current_location(unit: GameUnit) -> void:
-	if unit.is_on_board() and board_units.get(unit.board_hex) == unit:
-		board_units.erase(unit.board_hex)
-	if unit.is_on_bench() and unit.bench_index >= 0 and bench_units[unit.bench_index] == unit:
+func _detach(unit: GameUnit) -> void:
+	if unit == null:
+		return
+	if unit.is_on_board() and get_placed_unit(unit.circle_face, unit.circle_slot) == unit:
+		_faces[unit.circle_face][unit.circle_slot] = null
+	if unit.is_on_bench() and unit.bench_index < bench_units.size() and bench_units[unit.bench_index] == unit:
 		bench_units[unit.bench_index] = null
+	unit.clear_location()
+
+
+func _attach_circle(unit: GameUnit, face_index: int, slot_index: int) -> void:
+	_faces[face_index][slot_index] = unit
+	unit.circle_face = face_index
+	unit.circle_slot = slot_index
+	unit.bench_index = -1
+
+
+func _attach_bench(unit: GameUnit, slot_index: int) -> void:
+	bench_units[slot_index] = unit
+	unit.bench_index = slot_index
+	unit.circle_face = -1
+	unit.circle_slot = -1
+
+
+func _can_address(face_index: int, slot_index: int) -> bool:
+	return face_index >= 0 and face_index < _unlocked_faces and slot_index >= 0 and slot_index < SLOTS_PER_FACE
+
+
+func _make_face() -> Array:
+	var slots: Array = []
+	slots.resize(SLOTS_PER_FACE)
+	slots.fill(null)
+	return slots
+
+
+func _action_entry(unit: GameUnit, enemy: bool, front: bool) -> Dictionary:
+	return {
+		"name": unit.get_display_name(),
+		"stars": unit.get_star_text(),
+		"cost": unit.get_cost(),
+		"action_value": unit.action_value,
+		"enemy": enemy,
+		"front": front,
+	}
+
+
+func _build_stage() -> void:
+	_add_pad(Vector3(0.0, -0.06, 0.0), Vector3(4.2, 0.08, 3.6), Color(0.14, 0.15, 0.18))
+	_add_pad(Vector3(0.0, -0.01, 0.8), Vector3(2.8, 0.04, 1.15), Color(0.22, 0.3, 0.4))
+	_add_pad(Vector3(0.0, -0.01, -0.8), Vector3(2.8, 0.04, 1.15), Color(0.38, 0.2, 0.22))
+
+
+func _add_pad(pad_position: Vector3, pad_size: Vector3, color: Color) -> void:
+	var mesh_instance := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = pad_size
+	mesh_instance.mesh = mesh
+	mesh_instance.position = pad_position
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	mesh_instance.material_override = material
+	add_child(mesh_instance)

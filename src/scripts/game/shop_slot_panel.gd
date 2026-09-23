@@ -49,6 +49,12 @@ func set_unit(unit_id: int) -> void:
 	apply_cost_style(int(data["cost"]))
 
 
+func set_card_size(card_size: Vector2) -> void:
+	custom_minimum_size = card_size
+	var illustration_height := maxf(40.0, card_size.y - 44.0)
+	_illustration.custom_minimum_size = Vector2(0.0, illustration_height)
+
+
 func apply_cost_style(cost: int) -> void:
 	var style := CostColors.get_empty_shop_stylebox() if cost <= 0 else CostColors.get_shop_stylebox(cost)
 	add_theme_stylebox_override("normal", style)

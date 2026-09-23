@@ -44,7 +44,8 @@ static func _merge_trio(board: BoardController, units: Array[GameUnit]) -> Strin
 	var unit_id := anchor.unit_id
 	var old_stars := anchor.stars
 	var new_stars := old_stars + 1
-	var anchor_cell := anchor.board_hex
+	var anchor_face := anchor.circle_face
+	var anchor_slot := anchor.circle_slot
 	var anchor_bench := anchor.bench_index
 	var was_on_board := anchor.is_on_board()
 	for i in range(1, units.size()):
@@ -56,7 +57,7 @@ static func _merge_trio(board: BoardController, units: Array[GameUnit]) -> Strin
 	anchor.clear_location()
 	anchor.refresh_visuals()
 	if was_on_board:
-		board.place_on_board(anchor, anchor_cell, false)
+		board.place_on_circle(anchor, anchor_face, anchor_slot, false)
 	else:
 		board.place_on_bench(anchor, anchor_bench, false)
 	var name: String = UnitCatalog.get_unit(unit_id)["name"]
@@ -65,7 +66,7 @@ static func _merge_trio(board: BoardController, units: Array[GameUnit]) -> Strin
 
 static func _anchor_priority(unit: GameUnit) -> int:
 	if unit.is_on_board():
-		return 0
+		return unit.circle_face * 10 + unit.circle_slot
 	return 100 + unit.bench_index
 
 

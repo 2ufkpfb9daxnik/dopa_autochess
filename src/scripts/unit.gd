@@ -3,14 +3,17 @@ extends StaticBody3D
 
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
 const MAX_STARS := 4
-const TARGET_MODEL_HEIGHT := HexMath.HEX_SIZE * 0.025
+const TARGET_MODEL_HEIGHT := 1.05
 const UNIT_RENDER_PRIORITY := 2
+const ACTION_VALUE_NUMERATOR := 10000
 
 var unit_id: int = -1
 var stars: int = 1
 var is_enemy: bool = false
-var board_hex: Vector2i = Vector2i(-1, -1)
+var circle_face: int = -1
+var circle_slot: int = -1
 var bench_index: int = -1
+var action_value: int = 1
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D
@@ -33,6 +36,7 @@ static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
 
 
 func _ready() -> void:
+	visible = false
 	_apply_render_priority_to_visuals(self, UNIT_RENDER_PRIORITY)
 	_setup_model_animation()
 	_fit_model_to_board()
@@ -130,16 +134,35 @@ func refresh_visuals() -> void:
 	_apply_model_star_scale()
 	_apply_enemy_model_tint()
 	_refresh_cost_border()
+	_refresh_action_value()
+	var star_scale := 0.85 + float(stars - 1) * 0.08
+	label.position.y = TARGET_MODEL_HEIGHT * star_scale + 0.22
 
 
 func _fit_model_to_board() -> void:
-	var aabb := _compute_visual_aabb(model_root)
-	var model_height := maxf(aabb.size.x, maxf(aabb.size.y, aabb.size.z))
-	if model_height <= 0.001:
-		return
+	var aabb := _bounds_before_scale(model_root)
+	var model_height := maxf(aabb.size.y, 0.001)
 	_base_model_scale = TARGET_MODEL_HEIGHT / model_height
 	_model_ground_y = -aabb.position.y * _base_model_scale
 	_apply_model_star_scale()
+
+
+func _bounds_before_scale(root: Node3D) -> AABB:
+	var mesh_aabb := _compute_visual_aabb(root)
+	var skeleton := _find_skeleton3d(root)
+	if skeleton == null or skeleton.get_bone_count() == 0:
+		return mesh_aabb
+	var min_y := INF
+	var max_y := -INF
+	var to_root := root.global_transform.affine_inverse() * skeleton.global_transform
+	for bone_index in skeleton.get_bone_count():
+		var point: Vector3 = to_root * skeleton.get_bone_global_pose(bone_index).origin
+		min_y = minf(min_y, point.y)
+		max_y = maxf(max_y, point.y)
+	var bone_height := max_y - min_y
+	if bone_height <= mesh_aabb.size.y or bone_height < 0.05:
+		return mesh_aabb
+	return AABB(Vector3(mesh_aabb.position.x, min_y, mesh_aabb.position.z), Vector3(mesh_aabb.size.x, bone_height, mesh_aabb.size.z))
 
 
 func _apply_model_star_scale() -> void:
@@ -212,12 +235,12 @@ func _refresh_cost_border() -> void:
 		_cost_border = MeshInstance3D.new()
 		_cost_border.name = "CostBorder"
 		var mesh := TorusMesh.new()
-		mesh.inner_radius = HexMath.HEX_SIZE * 0.80
-		mesh.outer_radius = HexMath.HEX_SIZE * 0.98
+		mesh.inner_radius = 0.18
+		mesh.outer_radius = 0.28
 		mesh.ring_segments = 6
 		mesh.rings = 3
 		_cost_border.mesh = mesh
-		_cost_border.rotation_degrees = Vector3(0.0, 90.0, 0.0)
+		_cost_border.rotation_degrees = Vector3(90.0, 0.0, 0.0)
 		_cost_border.position.y = 0.01
 		add_child(_cost_border)
 	if unit_id < 0:
@@ -242,7 +265,7 @@ func get_star_text() -> String:
 
 
 func is_on_board() -> bool:
-	return board_hex.x >= 0
+	return circle_face >= 0 and circle_slot >= 0
 
 
 func is_on_bench() -> bool:
@@ -250,8 +273,16 @@ func is_on_bench() -> bool:
 
 
 func clear_location() -> void:
-	board_hex = Vector2i(-1, -1)
+	circle_face = -1
+	circle_slot = -1
 	bench_index = -1
+
+
+func _refresh_action_value() -> void:
+	if unit_id < 0:
+		return
+	var speed := maxi(40, 150 - get_cost() * 8 + (stars - 1) * 10)
+	action_value = maxi(1, int(round(float(ACTION_VALUE_NUMERATOR) / float(speed))))
 
 
 func _apply_render_priority_to_visuals(node: Node, priority: int) -> void:

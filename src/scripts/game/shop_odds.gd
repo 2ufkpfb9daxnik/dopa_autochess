@@ -78,17 +78,18 @@ static func roll_cost(level: int) -> int:
 	return MAX_COST
 
 
-static func populate_current_odds_row(row: HBoxContainer, level: int) -> void:
+static func populate_current_odds_row(row: Container, level: int) -> void:
 	for child in row.get_children():
 		child.queue_free()
-	row.add_theme_constant_override("separation", ODDS_ROW_SEPARATION)
+	row.add_theme_constant_override("separation", 1)
 	var odds := get_odds(level)
 	for cost_index in odds.size():
 		var pct := int(round(float(odds[cost_index])))
 		if pct <= 0:
 			continue
 		var label := Label.new()
-		label.text = "%d%%" % pct
+		label.text = "%d  %d%%" % [cost_index + 1, pct]
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.add_theme_color_override("font_color", Color.WHITE)
 		label.add_theme_color_override("font_outline_color", CostColors.get_color(cost_index + 1))
 		label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
@@ -122,28 +123,25 @@ static func measure_current_odds_row_width(level: int) -> float:
 static func populate_odds_grid(grid: GridContainer, highlight_level: int) -> void:
 	for child in grid.get_children():
 		child.queue_free()
-	const LV_WIDTH := 36
-	const CELL_WIDTH := 44
-	_add_grid_label(grid, "Lv", true, false, LV_WIDTH, 0)
-	for cost in range(1, MAX_COST + 1):
-		_add_grid_label(grid, str(cost), true, false, CELL_WIDTH, cost)
+	const COST_WIDTH := 28
+	const CELL_WIDTH := 32
+	grid.columns = TABLE_LEVELS + 1
+	_add_grid_label(grid, "Lv", true, false, COST_WIDTH, 0)
 	for level in range(1, TABLE_LEVELS + 1):
-		var is_current := level == highlight_level
-		var level_text := str(level)
-		if is_current:
-			level_text += " ▶"
-		_add_grid_label(grid, level_text, false, is_current, LV_WIDTH, 0)
-		var odds := get_odds(level)
-		for cost_index in MAX_COST:
-			var pct := int(round(float(odds[cost_index])))
+		_add_grid_label(grid, str(level), true, level == highlight_level, CELL_WIDTH, 0)
+	for cost in range(1, MAX_COST + 1):
+		_add_grid_label(grid, str(cost), true, false, COST_WIDTH, cost)
+		for level in range(1, TABLE_LEVELS + 1):
+			var odds := get_odds(level)
+			var pct := int(round(float(odds[cost - 1])))
 			var cell_text := str(pct) if pct > 0 else "-"
 			_add_grid_label(
 				grid,
 				cell_text,
 				false,
-				is_current,
+				level == highlight_level,
 				CELL_WIDTH,
-				cost_index + 1
+				cost
 			)
 
 
@@ -162,7 +160,9 @@ static func _add_grid_label(
 	label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	if is_header:
 		label.add_theme_font_size_override("font_size", 14)
-		if cost > 0:
+		if is_highlight:
+			label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
+		elif cost > 0:
 			label.add_theme_color_override("font_color", Color.WHITE)
 			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
 			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)

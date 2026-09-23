@@ -28,23 +28,14 @@ static func spawn_for_battle(
 	var strength: int = int(route.get("strength", RouteChoice.Strength.MEDIUM))
 	var count_range: Vector2i = COUNT_BY_STRENGTH.get(strength, Vector2i(3, 5))
 	var count := randi_range(count_range.x, count_range.y)
-	count = mini(count, HexMath.COLS * HexMath.ROWS)
+	count = mini(count, BoardController.SLOTS_PER_FACE)
 	var shop_level := clampi(round_number, 1, ShopOdds.TABLE_LEVELS)
 	var star_range: Vector2i = STARS_BY_STRENGTH.get(strength, Vector2i(1, 2))
-	for cell in _pick_random_cells(count):
+	for slot_index in count:
 		var unit_id := UnitCatalog.random_unit_id_for_level(shop_level)
 		var stars := randi_range(star_range.x, star_range.y)
 		var unit := GameUnit.create(unit_id, stars)
 		unit.is_enemy = true
 		units_root.add_child(unit)
-		board.place_enemy_unit(unit, cell)
+		board.place_enemy_unit(unit, slot_index)
 	return count
-
-
-static func _pick_random_cells(count: int) -> Array[Vector2i]:
-	var all_cells: Array[Vector2i] = []
-	for row in HexMath.ROWS:
-		for col in HexMath.COLS:
-			all_cells.append(Vector2i(col, row))
-	all_cells.shuffle()
-	return all_cells.slice(0, count)

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://07657e4r1be0"
-path="res://.godot/imported/wind.png-ac97f09eb5196afb42a660e29c7a0e52.ctex"
+uid="uid://ca0rc3yp04kcu"
+path="res://.godot/imported/countryside_river.png-7182d700ea293c21fd3ffe14a4b19648.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/wind.png"
-dest_files=["res://.godot/imported/wind.png-ac97f09eb5196afb42a660e29c7a0e52.ctex"]
+source_file="res://images/backgrounds/countryside_river.png"
+dest_files=["res://.godot/imported/countryside_river.png-7182d700ea293c21fd3ffe14a4b19648.ctex"]
 
 [params]
 

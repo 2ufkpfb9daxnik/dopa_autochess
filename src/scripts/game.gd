@@ -18,6 +18,7 @@ const BOTTOM_UI_FONT_SHOP := 15
 const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
 const HUD_BADGE_MARGIN_X := 8.0
 const BATTLE_BACKGROUND_SCALE := 1.0
+const BATTLE_BACKGROUND_DIR := "res://images/backgrounds"
 
 const LOG_COLLAPSED_TOP := 56.0
 const LOG_COLLAPSED_BOTTOM := 280.0
@@ -39,6 +40,8 @@ var _bench_board: BenchBoard
 var _action_order_bar: ActionOrderBar
 var _battle_viewport: SubViewportContainer
 var _battle_background: TextureRect
+var _battle_background_path := ""
+var _foot_shadow_layer: FootShadowLayer
 var _screen_divider: ColorRect
 var _drag_preview: Control
 var _drag_name_label: Label
@@ -503,7 +506,7 @@ func _setup_camera() -> void:
 	camera.current = true
 	camera.fov = 34.0
 	camera.near = 0.05
-	camera.global_position = Vector3(0.0, 1.4, 4.9)
+	camera.global_position = Vector3(0.0, 1.1, 4.9)
 	camera.look_at(Vector3(0.0, 0.75, 0.0), Vector3.UP)
 
 
@@ -603,6 +606,7 @@ func _start_battle() -> void:
 		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
 	board.set_battle_mode(false)
 	battle_overlay.visible = false
+	_reroll_battle_background()
 	if session.is_run_over():
 		_show_run_end_screen()
 		return
@@ -975,12 +979,16 @@ func _mount_battle_viewport() -> void:
 	layer.move_child(background, 0)
 	_battle_background = TextureRect.new()
 	_battle_background.name = "BattleBackground"
-	_battle_background.texture = preload("res://images/bg1test5.png")
+	_battle_background.texture = _pick_random_background_texture()
 	_battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_battle_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	layer.add_child(_battle_background)
 	layer.move_child(_battle_background, 1)
+	_foot_shadow_layer = FootShadowLayer.new()
+	_foot_shadow_layer.setup(camera, units_root)
+	layer.add_child(_foot_shadow_layer)
+	layer.move_child(_foot_shadow_layer, 2)
 	_battle_viewport = SubViewportContainer.new()
 	_battle_viewport.name = "BattleViewport"
 	_battle_viewport.stretch = true
@@ -988,7 +996,7 @@ func _mount_battle_viewport() -> void:
 	_battle_viewport.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_battle_viewport.offset_bottom = _battle_view_height
 	layer.add_child(_battle_viewport)
-	layer.move_child(_battle_viewport, 2)
+	layer.move_child(_battle_viewport, 3)
 	var viewport := SubViewport.new()
 	viewport.name = "BattleWorld"
 	viewport.own_world_3d = true
@@ -1021,7 +1029,7 @@ func _mount_battle_viewport() -> void:
 	_screen_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_screen_divider.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	layer.add_child(_screen_divider)
-	layer.move_child(_screen_divider, 3)
+	layer.move_child(_screen_divider, 4)
 
 
 func _setup_formation_ui() -> void:
@@ -1106,6 +1114,8 @@ func _layout_formation_ui() -> void:
 	_battle_rect = Rect2(left_x, top, left_w, _battle_view_height)
 	_place_battle_background()
 	_place_control(_battle_viewport, _battle_rect)
+	if _foot_shadow_layer != null:
+		_place_control(_foot_shadow_layer, _battle_rect)
 	if _battle_world != null:
 		_battle_world.size = Vector2i(maxi(8, int(_battle_rect.size.x)), maxi(8, int(_battle_rect.size.y)))
 	_screen_divider.set_anchors_preset(Control.PRESET_TOP_LEFT)
@@ -1164,6 +1174,36 @@ func _layout_formation_ui() -> void:
 	income_overlay.offset_bottom = income_overlay.offset_top + 78.0
 
 
+func _reroll_battle_background() -> void:
+	if _battle_background == null:
+		return
+	_battle_background.texture = _pick_random_background_texture()
+	_place_battle_background()
+
+
+func _pick_random_background_texture() -> Texture2D:
+	var paths := _list_background_paths()
+	if paths.is_empty():
+		return null
+	var candidates: PackedStringArray = []
+	for path in paths:
+		if path != _battle_background_path:
+			candidates.append(path)
+	if candidates.is_empty():
+		candidates = paths
+	_battle_background_path = candidates[randi() % candidates.size()]
+	return load(_battle_background_path)
+
+
+func _list_background_paths() -> PackedStringArray:
+	var paths: PackedStringArray = []
+	for file_name in DirAccess.get_files_at(BATTLE_BACKGROUND_DIR):
+		if file_name.get_extension().to_lower() != "png":
+			continue
+		paths.append(BATTLE_BACKGROUND_DIR.path_join(file_name))
+	return paths
+
+
 func _place_battle_background() -> void:
 	if _battle_background == null or _battle_background.texture == null:
 		return
@@ -1175,7 +1215,7 @@ func _place_battle_background() -> void:
 	var drawn := tex_size * scale
 	var origin := Vector2(
 		_battle_rect.position.x + (view.x - drawn.x) * 0.5,
-		_battle_rect.end.y - drawn.y - 200.0
+		_battle_rect.end.y - drawn.y
 	)
 	_battle_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_place_control(_battle_background, Rect2(origin, drawn))
@@ -1482,3 +1522,83 @@ func _update_ui() -> void:
 			_request_bottom_ui_refit()
 		else:
 			call_deferred("_position_coin_row_over_shop")
+
+
+class FootShadowLayer extends Control:
+	const SHADOW_RADIUS := 0.55
+	const SHADOW_CORE := 0.5
+
+	var _camera: Camera3D
+	var _units_root: Node3D
+	var _texture: Texture2D
+
+	func setup(view_camera: Camera3D, units_root: Node3D) -> void:
+		_camera = view_camera
+		_units_root = units_root
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		var canvas_material := CanvasItemMaterial.new()
+		canvas_material.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
+		material = canvas_material
+		_texture = _make_soft_texture()
+
+	func _process(_delta: float) -> void:
+		queue_redraw()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color.WHITE)
+		if _camera == null or _units_root == null or _texture == null or size.x <= 1.0 or size.y <= 1.0:
+			return
+		var viewport := _camera.get_viewport()
+		if viewport == null:
+			return
+		var viewport_size := Vector2(viewport.size)
+		if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
+			return
+		for child in _units_root.get_children():
+			if not child is GameUnit or not child.visible:
+				continue
+			_draw_unit_shadow(child as GameUnit, viewport_size)
+
+	func _draw_unit_shadow(unit: GameUnit, viewport_size: Vector2) -> void:
+		var feet := unit.global_position
+		feet.y = 0.0
+		if _camera.is_position_behind(feet):
+			return
+		var center := _to_local_point(_camera.unproject_position(feet), viewport_size)
+		var ground_right := _to_local_point(
+			_camera.unproject_position(feet + Vector3(SHADOW_RADIUS, 0.0, 0.0)),
+			viewport_size
+		) - center
+		var ground_forward := _to_local_point(
+			_camera.unproject_position(feet + Vector3(0.0, 0.0, SHADOW_RADIUS)),
+			viewport_size
+		) - center
+		if ground_right.length() < 1.0 or ground_forward.length() < 1.0:
+			return
+		var star_scale := 0.85 + float(unit.stars - 1) * 0.08
+		draw_set_transform(
+			center,
+			ground_right.angle(),
+			Vector2(ground_right.length(), ground_forward.length()) * star_scale
+		)
+		draw_texture_rect(_texture, Rect2(-Vector2.ONE, Vector2(2.0, 2.0)), false, Color.WHITE)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	func _to_local_point(viewport_point: Vector2, viewport_size: Vector2) -> Vector2:
+		return Vector2(viewport_point.x / viewport_size.x, viewport_point.y / viewport_size.y) * size
+
+	func _make_soft_texture() -> Texture2D:
+		var texture_size := 160
+		var image := Image.create(texture_size, texture_size, false, Image.FORMAT_RGBA8)
+		var half := float(texture_size) * 0.5
+		for y in texture_size:
+			for x in texture_size:
+				var px := (float(x) + 0.5 - half) / half
+				var py := (float(y) + 0.5 - half) / half
+				var outside := Vector2(maxf(absf(px) - 0.04, 0.0), maxf(absf(py) - 0.04, 0.0))
+				var dist := clampf(outside.length() / 0.9, 0.0, 1.0)
+				var fade := dist * dist * (3.0 - 2.0 * dist)
+				var shade := lerpf(SHADOW_CORE, 1.0, fade)
+				image.set_pixel(x, y, Color(shade, shade, shade, 1.0))
+		return ImageTexture.create_from_image(image)

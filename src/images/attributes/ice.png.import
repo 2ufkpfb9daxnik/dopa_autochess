@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://0l1ieet7jg0"
-path="res://.godot/imported/absorption.png-31a8a3d9c058796686a2ebab78119537.ctex"
+uid="uid://wqhve4usapx4"
+path="res://.godot/imported/ice.png-2180a0f24804b5acb412bd05666ba49b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/absorption.png"
-dest_files=["res://.godot/imported/absorption.png-31a8a3d9c058796686a2ebab78119537.ctex"]
+source_file="res://images/attributes/ice.png"
+dest_files=["res://.godot/imported/ice.png-2180a0f24804b5acb412bd05666ba49b.ctex"]
 
 [params]
 

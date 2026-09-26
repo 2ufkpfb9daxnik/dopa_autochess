@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bs07ftk6xn2ts"
-path="res://.godot/imported/bg1test4.png-54ab9387ac4964a8bba6d32790910454.ctex"
+uid="uid://ceehhhghau5ds"
+path="res://.godot/imported/waterway.png-6614e4655becb4aa4f986e39d8664542.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/bg1test4.png"
-dest_files=["res://.godot/imported/bg1test4.png-54ab9387ac4964a8bba6d32790910454.ctex"]
+source_file="res://images/backgrounds/waterway.png"
+dest_files=["res://.godot/imported/waterway.png-6614e4655becb4aa4f986e39d8664542.ctex"]
 
 [params]
 

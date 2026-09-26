@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://oygs44udbg1j"
-path="res://.godot/imported/thunder.png-6fbc5442ea8eeb85a77287c4cb59ab29.ctex"
+uid="uid://cdc72gfxyp4ah"
+path="res://.godot/imported/river.png-589e4b93e5bb89bb7f5f1fb1f0e47070.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/thunder.png"
-dest_files=["res://.godot/imported/thunder.png-6fbc5442ea8eeb85a77287c4cb59ab29.ctex"]
+source_file="res://images/backgrounds/river.png"
+dest_files=["res://.godot/imported/river.png-589e4b93e5bb89bb7f5f1fb1f0e47070.ctex"]
 
 [params]
 

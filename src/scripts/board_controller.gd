@@ -468,4 +468,6 @@ func _add_pad(pad_position: Vector3, pad_size: Vector3, color: Color) -> void:
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color = Color(color.r, color.g, color.b, 0.35)
 	mesh_instance.material_override = material
+	# Temporary: hide the standing pads completely.
+	mesh_instance.visible = false
 	add_child(mesh_instance)

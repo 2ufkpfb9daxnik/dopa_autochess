@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://0gsb0ismie37"
-path="res://.godot/imported/bg1test2.png-0bc48e35a2d7166f72b4a3cb3ae79e2d.ctex"
+uid="uid://ogd0r4ichkws"
+path="res://.godot/imported/seaside_torii.png-0b9548faa46622e3445d228180f66668.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/bg1test2.png"
-dest_files=["res://.godot/imported/bg1test2.png-0bc48e35a2d7166f72b4a3cb3ae79e2d.ctex"]
+source_file="res://images/backgrounds/seaside_torii.png"
+dest_files=["res://.godot/imported/seaside_torii.png-0b9548faa46622e3445d228180f66668.ctex"]
 
 [params]
 

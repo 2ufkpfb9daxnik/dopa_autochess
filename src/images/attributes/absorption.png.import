@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dxrv0swp87aee"
-path="res://.godot/imported/sword_cut.png-ced5babf068d6e008276de5cad6efebb.ctex"
+uid="uid://0l1ieet7jg0"
+path="res://.godot/imported/absorption.png-4c6f9eb403668d933d311aca653f4e9a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://images/sword_cut.png"
-dest_files=["res://.godot/imported/sword_cut.png-ced5babf068d6e008276de5cad6efebb.ctex"]
+source_file="res://images/attributes/absorption.png"
+dest_files=["res://.godot/imported/absorption.png-4c6f9eb403668d933d311aca653f4e9a.ctex"]
 
 [params]
 

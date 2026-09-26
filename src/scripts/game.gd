@@ -17,6 +17,7 @@ const BOTTOM_UI_FONT_BUTTON := 16
 const BOTTOM_UI_FONT_SHOP := 15
 const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
 const HUD_BADGE_MARGIN_X := 8.0
+const BATTLE_BACKGROUND_SCALE := 1.0
 
 const LOG_COLLAPSED_TOP := 56.0
 const LOG_COLLAPSED_BOTTOM := 280.0
@@ -37,6 +38,7 @@ var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
 var _action_order_bar: ActionOrderBar
 var _battle_viewport: SubViewportContainer
+var _battle_background: TextureRect
 var _screen_divider: ColorRect
 var _drag_preview: Control
 var _drag_name_label: Label
@@ -971,6 +973,14 @@ func _mount_battle_viewport() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(background)
 	layer.move_child(background, 0)
+	_battle_background = TextureRect.new()
+	_battle_background.name = "BattleBackground"
+	_battle_background.texture = preload("res://images/bg1test5.png")
+	_battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_battle_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	layer.add_child(_battle_background)
+	layer.move_child(_battle_background, 1)
 	_battle_viewport = SubViewportContainer.new()
 	_battle_viewport.name = "BattleViewport"
 	_battle_viewport.stretch = true
@@ -978,11 +988,11 @@ func _mount_battle_viewport() -> void:
 	_battle_viewport.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_battle_viewport.offset_bottom = _battle_view_height
 	layer.add_child(_battle_viewport)
-	layer.move_child(_battle_viewport, 1)
+	layer.move_child(_battle_viewport, 2)
 	var viewport := SubViewport.new()
 	viewport.name = "BattleWorld"
 	viewport.own_world_3d = true
-	viewport.transparent_bg = false
+	viewport.transparent_bg = true
 	viewport.handle_input_locally = false
 	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	viewport.size = Vector2i(640, 480)
@@ -991,7 +1001,7 @@ func _mount_battle_viewport() -> void:
 	var world_environment := WorldEnvironment.new()
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.17, 0.19, 0.23)
+	environment.background_color = Color(0.0, 0.0, 0.0, 0.0)
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.7, 0.73, 0.78)
 	environment.ambient_light_energy = 1.1
@@ -1011,7 +1021,7 @@ func _mount_battle_viewport() -> void:
 	_screen_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_screen_divider.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	layer.add_child(_screen_divider)
-	layer.move_child(_screen_divider, 2)
+	layer.move_child(_screen_divider, 3)
 
 
 func _setup_formation_ui() -> void:
@@ -1094,6 +1104,7 @@ func _layout_formation_ui() -> void:
 	var left_h := viewport_size.y - top - 8.0
 	_battle_view_height = left_h * 0.58
 	_battle_rect = Rect2(left_x, top, left_w, _battle_view_height)
+	_place_battle_background()
 	_place_control(_battle_viewport, _battle_rect)
 	if _battle_world != null:
 		_battle_world.size = Vector2i(maxi(8, int(_battle_rect.size.x)), maxi(8, int(_battle_rect.size.y)))
@@ -1151,6 +1162,23 @@ func _layout_formation_ui() -> void:
 	income_overlay.offset_right = income_overlay.offset_left + 260.0
 	income_overlay.offset_top = _battle_rect.position.y + top_bar.size.y + 10.0
 	income_overlay.offset_bottom = income_overlay.offset_top + 78.0
+
+
+func _place_battle_background() -> void:
+	if _battle_background == null or _battle_background.texture == null:
+		return
+	var view := _battle_rect.size
+	var tex_size := _battle_background.texture.get_size()
+	if tex_size.x <= 0.0 or tex_size.y <= 0.0 or view.x <= 0.0 or view.y <= 0.0:
+		return
+	var scale := minf(view.x / tex_size.x, view.y / tex_size.y) * BATTLE_BACKGROUND_SCALE
+	var drawn := tex_size * scale
+	var origin := Vector2(
+		_battle_rect.position.x + (view.x - drawn.x) * 0.5,
+		_battle_rect.end.y - drawn.y - 200.0
+	)
+	_battle_background.stretch_mode = TextureRect.STRETCH_SCALE
+	_place_control(_battle_background, Rect2(origin, drawn))
 
 
 func _place_control(control: Control, rect: Rect2) -> void:

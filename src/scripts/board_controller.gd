@@ -465,6 +465,7 @@ func _add_pad(pad_position: Vector3, pad_size: Vector3, color: Color) -> void:
 	mesh_instance.mesh = mesh
 	mesh_instance.position = pad_position
 	var material := StandardMaterial3D.new()
-	material.albedo_color = color
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(color.r, color.g, color.b, 0.35)
 	mesh_instance.material_override = material
 	add_child(mesh_instance)

@@ -18,7 +18,6 @@ var action_value: int = 1
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D
 
-var _cost_border: MeshInstance3D
 var _base_model_scale := 1.0
 var _model_ground_y := 0.0
 var _animation_player: AnimationPlayer
@@ -133,7 +132,6 @@ func refresh_visuals() -> void:
 		label.modulate = Color(1.0, 0.95, 0.7)
 	_apply_model_star_scale()
 	_apply_enemy_model_tint()
-	_refresh_cost_border()
 	_refresh_action_value()
 	var star_scale := 0.85 + float(stars - 1) * 0.08
 	label.position.y = TARGET_MODEL_HEIGHT * star_scale + 0.22
@@ -228,28 +226,6 @@ func _mesh_aabb_in_node_space(node: Node3D, parent_xf: Transform3D) -> AABB:
 			merged = child_aabb
 			found = true
 	return merged
-
-
-func _refresh_cost_border() -> void:
-	if _cost_border == null:
-		_cost_border = MeshInstance3D.new()
-		_cost_border.name = "CostBorder"
-		var mesh := TorusMesh.new()
-		mesh.inner_radius = 0.18
-		mesh.outer_radius = 0.28
-		mesh.ring_segments = 6
-		mesh.rings = 3
-		_cost_border.mesh = mesh
-		_cost_border.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-		_cost_border.position.y = 0.01
-		add_child(_cost_border)
-	if unit_id < 0:
-		_cost_border.visible = false
-		return
-	_cost_border.visible = true
-	var material := CostColors.make_border_material(get_cost())
-	material.render_priority = UNIT_RENDER_PRIORITY
-	_cost_border.material_override = material
 
 
 func get_cost() -> int:

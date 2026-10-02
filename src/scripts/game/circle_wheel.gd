@@ -152,12 +152,11 @@ func _drag_motion(mouse_motion: InputEventMouseMotion) -> void:
 	_accum += delta
 	if _mode == _MODE_NONE:
 		var travel := mouse_motion.position.distance_to(_press_pos)
-		var dist := mouse_motion.position.distance_to(_center())
-		if absf(_accum) > 0.28:
-			_mode = _MODE_ROTATE
-		elif _unit_drag_enabled and _press_slot >= 0 and _is_occupied(_press_slot) and travel > 12.0 and dist > _outer_radius() * 0.98:
+		if _unit_drag_enabled and _press_slot >= 0 and _is_occupied(_press_slot) and travel > 12.0:
 			_mode = _MODE_UNIT
 			unit_drag_started.emit(_press_slot)
+		elif absf(_accum) > 0.28:
+			_mode = _MODE_ROTATE
 	if _mode == _MODE_ROTATE:
 		_set_visual_angle(_accum)
 	elif _mode == _MODE_UNIT:

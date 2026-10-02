@@ -17,7 +17,8 @@ const BOTTOM_UI_FONT_BUTTON := 16
 const BOTTOM_UI_FONT_SHOP := 15
 const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
 const HUD_BADGE_MARGIN_X := 8.0
-const BATTLE_BACKGROUND_SCALE := 1.0
+const BATTLE_COLUMN_WIDTH := 640.0
+const SHOP_SLOT_LAYOUT_WIDTH := 112.0
 const BATTLE_BACKGROUND_DIR := "res://images/backgrounds"
 
 const LOG_COLLAPSED_TOP := 56.0
@@ -43,6 +44,8 @@ var _battle_background: TextureRect
 var _battle_background_path := ""
 var _foot_shadow_layer: FootShadowLayer
 var _screen_divider: ColorRect
+var _shop_divider: ColorRect
+var _log_column_rect := Rect2()
 var _drag_preview: Control
 var _drag_name_label: Label
 var _drag_cost_label: Label
@@ -463,18 +466,14 @@ func _apply_log_panel_layout() -> void:
 	event_log_panel.anchor_right = 0.0
 	event_log_panel.anchor_top = 0.0
 	event_log_panel.anchor_bottom = 0.0
-	var panel_right := _battle_rect.end.x - 8.0 if _battle_rect.size.x > 1.0 else 188.0
-	var panel_left := panel_right - 168.0
-	var panel_top := _battle_rect.position.y + top_bar.size.y + 8.0 if _battle_rect.size.y > 1.0 else LOG_COLLAPSED_TOP
-	event_log_panel.offset_left = panel_left
-	event_log_panel.offset_right = panel_right
-	event_log_panel.offset_top = panel_top
-	if _log_expanded:
-		event_log_panel.offset_bottom = _battle_rect.end.y - 8.0 if _battle_rect.size.y > 1.0 else LOG_COLLAPSED_BOTTOM
-		event_log_scroll.custom_minimum_size = Vector2(150, 0)
-	else:
-		event_log_panel.offset_bottom = panel_top + 132.0
-		event_log_scroll.custom_minimum_size = Vector2(150, 80)
+	var rect := _log_column_rect
+	if rect.size.x <= 1.0:
+		rect = Rect2(8.0, LOG_COLLAPSED_TOP, 200.0, 240.0)
+	event_log_panel.offset_left = rect.position.x
+	event_log_panel.offset_right = rect.end.x
+	event_log_panel.offset_top = rect.position.y
+	event_log_panel.offset_bottom = rect.end.y
+	event_log_scroll.custom_minimum_size = Vector2(maxf(120.0, rect.size.x - 24.0), 0.0)
 
 
 func _save_log_scroll() -> void:
@@ -1030,6 +1029,10 @@ func _mount_battle_viewport() -> void:
 	_screen_divider.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	layer.add_child(_screen_divider)
 	layer.move_child(_screen_divider, 4)
+	_shop_divider = ColorRect.new()
+	_shop_divider.color = _screen_divider.color
+	_shop_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_shop_divider)
 
 
 func _setup_formation_ui() -> void:
@@ -1103,33 +1106,35 @@ func _layout_formation_ui() -> void:
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
 	var top := 8.0
-	var slot_w := clampf(viewport_size.x * 0.078, 84.0, 112.0)
-	var cards_w := slot_w * float(SHOP_COLUMNS) + 8.0 * float(SHOP_COLUMNS - 1)
-	var right_w := ACTION_COLUMN_WIDTH + 8.0 + cards_w
-	_split_x = viewport_size.x - right_w - 8.0
-	var left_x := 8.0
-	var left_w := _split_x - 16.0
-	var left_h := viewport_size.y - top - 8.0
+	var bottom := viewport_size.y - 8.0
+	var left_h := bottom - top
 	_battle_view_height = left_h * 0.58
-	_battle_rect = Rect2(left_x, top, left_w, _battle_view_height)
+	var battle_bottom := top + _battle_view_height
+	var battle_w := _battle_column_width(battle_bottom)
+	var cards_w := SHOP_SLOT_LAYOUT_WIDTH * float(SHOP_COLUMNS) + 8.0 * float(SHOP_COLUMNS - 1)
+	var shop_w := ACTION_COLUMN_WIDTH + 8.0 + cards_w
+	var shop_x := viewport_size.x - 8.0 - shop_w
+	var battle_x := shop_x - 8.0 - battle_w
+	var log_x := 8.0
+	var log_w := maxf(0.0, battle_x - 8.0 - log_x)
+	_split_x = shop_x - 8.0
+	_log_column_rect = Rect2(log_x, top, log_w, bottom - top)
+	_battle_rect = Rect2(battle_x, top, battle_w, _battle_view_height)
 	_place_battle_background()
 	_place_control(_battle_viewport, _battle_rect)
 	if _foot_shadow_layer != null:
 		_place_control(_foot_shadow_layer, _battle_rect)
 	if _battle_world != null:
 		_battle_world.size = Vector2i(maxi(8, int(_battle_rect.size.x)), maxi(8, int(_battle_rect.size.y)))
-	_screen_divider.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_screen_divider.offset_left = _split_x - 1.0
-	_screen_divider.offset_right = _split_x + 1.0
-	_screen_divider.offset_top = top
-	_screen_divider.offset_bottom = viewport_size.y - 8.0
+	_place_column_divider(_screen_divider, battle_x - 4.0, top, bottom)
+	_place_column_divider(_shop_divider, shop_x - 4.0, top, bottom)
 	var circle_top := _battle_rect.end.y + 8.0
 	var circle_band := maxf(120.0, viewport_size.y - 8.0 - circle_top)
-	var wheel_size := minf(left_w, circle_band)
-	_circle_wheel.position = Vector2(left_x + (left_w - wheel_size) * 0.5, circle_top + (circle_band - wheel_size) * 0.5)
+	var wheel_size := minf(battle_w, circle_band)
+	_circle_wheel.position = Vector2(battle_x + (battle_w - wheel_size) * 0.5, circle_top + (circle_band - wheel_size) * 0.5)
 	_circle_wheel.size = Vector2(wheel_size, wheel_size)
-	var right_x := _split_x + 8.0
-	var right_bottom := viewport_size.y - 8.0
+	var right_x := shop_x
+	var right_bottom := bottom
 	var right_h := right_bottom - top
 	var shop_area_h := right_h * 0.4
 	var bench_top := top + shop_area_h + 6.0
@@ -1139,7 +1144,7 @@ func _layout_formation_ui() -> void:
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_get_shop_panel_width() + 12.0, bench_h)
 	_place_side_column(right_x)
-	_place_top_bar(Vector2(left_x, top))
+	_place_top_bar(Vector2(battle_x, top))
 	synergy_panel.anchor_left = 0.0
 	synergy_panel.anchor_right = 0.0
 	synergy_panel.anchor_top = 0.0
@@ -1152,9 +1157,11 @@ func _layout_formation_ui() -> void:
 		synergy_panel.offset_bottom = _battle_rect.end.y - 8.0
 	else:
 		synergy_panel.offset_bottom = synergy_panel.offset_top + 118.0
+	var action_bar_width := 78.0
+	var action_bar_y := _battle_rect.position.y
 	_action_order_bar.z_index = 8
-	_action_order_bar.position = Vector2(synergy_panel.offset_right + 6.0, synergy_panel.offset_top)
-	_action_order_bar.size = Vector2(78.0, maxf(120.0, viewport_size.y - 8.0 - synergy_panel.offset_top))
+	_action_order_bar.position = Vector2(_battle_rect.end.x - action_bar_width, action_bar_y)
+	_action_order_bar.size = Vector2(action_bar_width, maxf(120.0, viewport_size.y - 8.0 - action_bar_y))
 	_apply_log_panel_layout()
 	battle_overlay.anchor_left = 0.0
 	battle_overlay.anchor_right = 0.0
@@ -1178,7 +1185,7 @@ func _reroll_battle_background() -> void:
 	if _battle_background == null:
 		return
 	_battle_background.texture = _pick_random_background_texture()
-	_place_battle_background()
+	_layout_formation_ui()
 
 
 func _pick_random_background_texture() -> Texture2D:
@@ -1204,21 +1211,39 @@ func _list_background_paths() -> PackedStringArray:
 	return paths
 
 
+func _battle_column_width(span_height: float) -> float:
+	var texture := _battle_background.texture if _battle_background != null else null
+	if texture == null or span_height <= 0.0:
+		return BATTLE_COLUMN_WIDTH
+	var tex_size := texture.get_size()
+	if tex_size.y <= 0.0:
+		return BATTLE_COLUMN_WIDTH
+	return span_height * tex_size.x / tex_size.y
+
+
 func _place_battle_background() -> void:
 	if _battle_background == null or _battle_background.texture == null:
 		return
-	var view := _battle_rect.size
 	var tex_size := _battle_background.texture.get_size()
-	if tex_size.x <= 0.0 or tex_size.y <= 0.0 or view.x <= 0.0 or view.y <= 0.0:
+	if tex_size.y <= 0.0:
 		return
-	var scale := minf(view.x / tex_size.x, view.y / tex_size.y) * BATTLE_BACKGROUND_SCALE
-	var drawn := tex_size * scale
-	var origin := Vector2(
-		_battle_rect.position.x + (view.x - drawn.x) * 0.5,
-		_battle_rect.end.y - drawn.y
-	)
+	var span := _battle_rect.end.y
+	if span <= 0.0:
+		return
+	var drawn := Vector2(span * tex_size.x / tex_size.y, span)
+	var origin := Vector2(_battle_rect.position.x + (_battle_rect.size.x - drawn.x) * 0.5, 0.0)
 	_battle_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_place_control(_battle_background, Rect2(origin, drawn))
+
+
+func _place_column_divider(divider: ColorRect, center_x: float, top: float, bottom: float) -> void:
+	if divider == null:
+		return
+	divider.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	divider.offset_left = center_x - 1.0
+	divider.offset_right = center_x + 1.0
+	divider.offset_top = top
+	divider.offset_bottom = bottom
 
 
 func _place_control(control: Control, rect: Rect2) -> void:

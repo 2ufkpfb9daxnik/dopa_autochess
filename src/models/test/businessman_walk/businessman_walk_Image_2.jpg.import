@@ -14,7 +14,7 @@ generator_parameters={
 
 [deps]
 
-source_file="res://models/businessman_walk/businessman_walk_Image_2.jpg"
+source_file="res://models/test/businessman_walk/businessman_walk_Image_2.jpg"
 dest_files=["res://.godot/imported/businessman_walk_Image_2.jpg-e343e9657519bfae7c34d265dfb0a904.s3tc.ctex"]
 
 [params]
@@ -28,7 +28,7 @@ compress/channel_pack=0
 mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=1
-roughness/src_normal="res://models/businessman_walk/businessman_walk_Image_2.jpg"
+roughness/src_normal="res://models/test/businessman_walk/businessman_walk_Image_2.jpg"
 process/fix_alpha_border=true
 process/premult_alpha=false
 process/normal_map_invert_y=false

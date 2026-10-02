@@ -14,7 +14,7 @@ generator_parameters={
 
 [deps]
 
-source_file="res://models/businessman_walk/businessman_walk_Image_1.jpg"
+source_file="res://models/test/businessman_walk/businessman_walk_Image_1.jpg"
 dest_files=["res://.godot/imported/businessman_walk_Image_1.jpg-8e4f9d50f460daac0560036700e5b39a.s3tc.ctex"]
 
 [params]

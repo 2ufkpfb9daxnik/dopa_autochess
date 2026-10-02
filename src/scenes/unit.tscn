@@ -1,7 +1,7 @@
 [gd_scene load_steps=3 format=3 uid="uid://unit_scene"]
 
 [ext_resource type="Script" path="res://scripts/unit.gd" id="1_unit"]
-[ext_resource type="PackedScene" uid="uid://ct1dkkci31m0i" path="res://models/businessman_walk/businessman_walk.glb" id="2_businessman_walk"]
+[ext_resource type="PackedScene" uid="uid://ct1dkkci31m0i" path="res://models/test/businessman_walk/businessman_walk.glb" id="2_businessman_walk"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_unit"]
 size = Vector3(0.42, 0.47, 0.42)

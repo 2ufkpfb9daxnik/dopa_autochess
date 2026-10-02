@@ -8,7 +8,7 @@ path="res://.godot/imported/businessman_walk.glb-252f545c251a7adb8f4f9d015c02df1
 
 [deps]
 
-source_file="res://models/businessman_walk/businessman_walk.glb"
+source_file="res://models/test/businessman_walk/businessman_walk.glb"
 dest_files=["res://.godot/imported/businessman_walk.glb-252f545c251a7adb8f4f9d015c02df12.scn"]
 
 [params]

@@ -6,7 +6,7 @@ const SHOP_COLUMNS := 3
 const SHOP_SLOT_WIDTH := 132
 const SHOP_SLOT_HEIGHT := 148
 const SELL_ZONE_WIDTH := 72.0
-const ACTION_COLUMN_WIDTH := 96
+var _action_column_width := 72.0
 const BOTTOM_BUTTON_HEIGHT := 48
 const BOTTOM_BAR_GAP := 12
 const COIN_ABOVE_SHOP_GAP := 4.0
@@ -39,6 +39,7 @@ var _last_reroll_button_text := ""
 var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
 var _action_order_bar: ActionOrderBar
+var _comment_flow: CommentFlow
 var _battle_viewport: SubViewportContainer
 var _battle_background: TextureRect
 var _battle_background_path := ""
@@ -46,6 +47,7 @@ var _foot_shadow_layer: FootShadowLayer
 var _screen_divider: ColorRect
 var _shop_divider: ColorRect
 var _log_column_rect := Rect2()
+var _log_body_rect := Rect2()
 var _drag_preview: Control
 var _drag_name_label: Label
 var _drag_cost_label: Label
@@ -70,7 +72,6 @@ var _shop_slot_size := Vector2(SHOP_SLOT_WIDTH, SHOP_SLOT_HEIGHT)
 @onready var hp_badge: PanelContainer = $CanvasLayer/UI/TopBar/HpBadge
 @onready var hp_label: Label = $CanvasLayer/UI/TopBar/HpBadge/HpLabel
 @onready var bench_badge: PanelContainer = $CanvasLayer/UI/TopBar/BenchBadge
-@onready var bench_label: Label = $CanvasLayer/UI/TopBar/BenchBadge/BenchLabel
 @onready var top_bar: HBoxContainer = $CanvasLayer/UI/TopBar
 @onready var coin_row: HBoxContainer = $CanvasLayer/UI/CoinRow
 @onready var coin_badge: PanelContainer = $CanvasLayer/UI/CoinRow/CoinBadge
@@ -133,9 +134,9 @@ var _shop_slot_size := Vector2(SHOP_SLOT_WIDTH, SHOP_SLOT_HEIGHT)
 func _ready() -> void:
 	_setup_shop_slots()
 	_setup_bottom_ui_fonts()
-	exp_button.custom_minimum_size = Vector2(ACTION_COLUMN_WIDTH, BOTTOM_BUTTON_HEIGHT)
-	reroll_button.custom_minimum_size = Vector2(ACTION_COLUMN_WIDTH, BOTTOM_BUTTON_HEIGHT)
-	action_column.custom_minimum_size.x = ACTION_COLUMN_WIDTH
+	exp_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
+	reroll_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
+	action_column.custom_minimum_size.x = 0
 	_mount_battle_viewport()
 	_setup_formation_ui()
 	_mount_side_controls()
@@ -196,7 +197,7 @@ func _get_shop_panel_width() -> float:
 
 
 func _get_bottom_ui_width() -> float:
-	return ACTION_COLUMN_WIDTH + BOTTOM_BAR_GAP + _get_shop_panel_width()
+	return _action_column_width + BOTTOM_BAR_GAP + _get_shop_panel_width()
 
 
 func _finish_startup_layout() -> void:
@@ -273,9 +274,44 @@ func _mount_side_controls() -> void:
 	exp_box.move_child(coin_badge, 0)
 	coin_label.add_theme_font_size_override("font_size", 14)
 	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	action_column.add_child(shop_lock_button)
-	action_column.add_child(shop_odds_badge)
 	shop_lock_button.custom_minimum_size = Vector2(0, 32)
+	action_column.add_child(shop_odds_badge)
+	action_column.add_child(shop_lock_button)
+	var status_badges: Array[PanelContainer] = [round_badge, hp_badge, streak_badge]
+	for badge in status_badges:
+		var badge_parent := badge.get_parent()
+		if badge_parent != null:
+			badge_parent.remove_child(badge)
+		badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		action_column.add_child(badge)
+		var status_label := badge.get_child(0) as Label
+		if status_label != null:
+			status_label.add_theme_font_size_override("font_size", 14)
+			status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	var side_buttons: Array[Button] = [battle_button, back_button]
+	for button in side_buttons:
+		var button_parent := button.get_parent()
+		if button_parent != null:
+			button_parent.remove_child(button)
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.custom_minimum_size = Vector2(0, 36)
+		action_column.add_child(button)
+	var ordered: Array[Control] = [
+		shop_odds_badge,
+		shop_lock_button,
+		exp_hud_badge,
+		round_badge,
+		hp_badge,
+		streak_badge,
+		exp_button,
+		reroll_button,
+		battle_button,
+		back_button,
+	]
+	for index in ordered.size():
+		action_column.move_child(ordered[index], index)
+	top_bar.visible = false
 	var ui := $CanvasLayer/UI as Control
 	action_column.get_parent().remove_child(action_column)
 	ui.add_child(action_column)
@@ -374,8 +410,8 @@ func _format_streak_text() -> String:
 
 
 func _setup_log_panel() -> void:
-	_bind_log_panel_input(event_log_panel)
-	_apply_log_panel_layout()
+	event_log_panel.visible = false
+	event_log_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func _bind_log_panel_input(control: Control) -> void:
@@ -462,18 +498,7 @@ func _collapse_log_panel() -> void:
 
 
 func _apply_log_panel_layout() -> void:
-	event_log_panel.anchor_left = 0.0
-	event_log_panel.anchor_right = 0.0
-	event_log_panel.anchor_top = 0.0
-	event_log_panel.anchor_bottom = 0.0
-	var rect := _log_column_rect
-	if rect.size.x <= 1.0:
-		rect = Rect2(8.0, LOG_COLLAPSED_TOP, 200.0, 240.0)
-	event_log_panel.offset_left = rect.position.x
-	event_log_panel.offset_right = rect.end.x
-	event_log_panel.offset_top = rect.position.y
-	event_log_panel.offset_bottom = rect.end.y
-	event_log_scroll.custom_minimum_size = Vector2(maxf(120.0, rect.size.x - 24.0), 0.0)
+	event_log_panel.visible = false
 
 
 func _save_log_scroll() -> void:
@@ -513,18 +538,10 @@ func _log(text: String) -> void:
 	event_log.add(text)
 
 
-func _refresh_event_log(_text: String = "") -> void:
-	event_log_label.text = event_log.get_display_text()
-	call_deferred("_scroll_event_log_to_bottom")
-
-
-func _scroll_event_log_to_bottom() -> void:
-	var bar := event_log_scroll.get_v_scroll_bar()
-	if not bar:
+func _refresh_event_log(text: String = "") -> void:
+	if _comment_flow == null or text.is_empty():
 		return
-	if _log_expanded and bar.value < bar.max_value - 4.0:
-		return
-	bar.value = bar.max_value
+	_comment_flow.push(text)
 
 
 func _on_action(action: GameAction) -> void:
@@ -878,14 +895,8 @@ func _build_run_stats_text() -> String:
 	return "\n".join(lines)
 
 
-func _set_synergy_panel_review_mode(active: bool) -> void:
-	if _battle_rect.size.y <= 1.0:
-		return
-	synergy_panel.offset_top = _battle_rect.position.y
-	if active:
-		synergy_panel.offset_bottom = _battle_rect.end.y - 8.0
-	else:
-		synergy_panel.offset_bottom = _battle_rect.position.y + 118.0
+func _set_synergy_panel_review_mode(_active: bool) -> void:
+	_layout_log_column()
 
 
 func _on_sell_requested(unit: GameUnit) -> void:
@@ -1087,6 +1098,10 @@ func _setup_formation_ui() -> void:
 	ui.move_child(_bench_board, insert_at + 1)
 	ui.add_child(_action_order_bar)
 	ui.move_child(_action_order_bar, insert_at + 2)
+	_comment_flow = CommentFlow.new()
+	_comment_flow.name = "CommentFlow"
+	ui.add_child(_comment_flow)
+	ui.move_child(_comment_flow, insert_at + 3)
 	ui.add_child(_drag_preview)
 	_circle_wheel.rotate_steps.connect(func(steps: int) -> void: board.apply_spin_commit(steps))
 	_circle_wheel.visual_shift_changed.connect(func(shift: float) -> void: board.set_visual_shift(shift))
@@ -1111,8 +1126,9 @@ func _layout_formation_ui() -> void:
 	_battle_view_height = left_h * 0.58
 	var battle_bottom := top + _battle_view_height
 	var battle_w := _battle_column_width(battle_bottom)
+	_fit_action_column_width()
 	var cards_w := SHOP_SLOT_LAYOUT_WIDTH * float(SHOP_COLUMNS) + 8.0 * float(SHOP_COLUMNS - 1)
-	var shop_w := ACTION_COLUMN_WIDTH + 8.0 + cards_w
+	var shop_w := _action_column_width + 8.0 + cards_w
 	var shop_x := viewport_size.x - 8.0 - shop_w
 	var battle_x := shop_x - 8.0 - battle_w
 	var log_x := 8.0
@@ -1139,30 +1155,13 @@ func _layout_formation_ui() -> void:
 	var shop_area_h := right_h * 0.4
 	var bench_top := top + shop_area_h + 6.0
 	var bench_h := right_bottom - bench_top
-	var cards_x := right_x + ACTION_COLUMN_WIDTH + 8.0
+	var cards_x := right_x + _action_column_width + 8.0
 	_place_shop(Rect2(cards_x, top, cards_w, shop_area_h))
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_get_shop_panel_width() + 12.0, bench_h)
 	_place_side_column(right_x)
-	_place_top_bar(Vector2(battle_x, top))
-	synergy_panel.anchor_left = 0.0
-	synergy_panel.anchor_right = 0.0
-	synergy_panel.anchor_top = 0.0
-	synergy_panel.anchor_bottom = 0.0
-	var hud_clearance := top_bar.size.y + 8.0
-	synergy_panel.offset_left = _battle_rect.position.x
-	synergy_panel.offset_top = _battle_rect.position.y + hud_clearance
-	synergy_panel.offset_right = _battle_rect.position.x + 148.0
-	if _run_review_mode == RunReviewMode.SYNERGY:
-		synergy_panel.offset_bottom = _battle_rect.end.y - 8.0
-	else:
-		synergy_panel.offset_bottom = synergy_panel.offset_top + 118.0
-	var action_bar_width := 78.0
-	var action_bar_y := _battle_rect.position.y
-	_action_order_bar.z_index = 8
-	_action_order_bar.position = Vector2(_battle_rect.end.x - action_bar_width, action_bar_y)
-	_action_order_bar.size = Vector2(action_bar_width, maxf(120.0, viewport_size.y - 8.0 - action_bar_y))
-	_apply_log_panel_layout()
+	_layout_log_column()
+	_layout_comment_flow()
 	battle_overlay.anchor_left = 0.0
 	battle_overlay.anchor_right = 0.0
 	battle_overlay.anchor_top = 0.0
@@ -1177,8 +1176,46 @@ func _layout_formation_ui() -> void:
 	income_overlay.anchor_bottom = 0.0
 	income_overlay.offset_left = _battle_rect.position.x + _battle_rect.size.x * 0.5 - 130.0
 	income_overlay.offset_right = income_overlay.offset_left + 260.0
-	income_overlay.offset_top = _battle_rect.position.y + top_bar.size.y + 10.0
+	income_overlay.offset_top = _battle_rect.position.y + 10.0
 	income_overlay.offset_bottom = income_overlay.offset_top + 78.0
+
+
+func _layout_log_column() -> void:
+	if synergy_panel == null or _action_order_bar == null:
+		return
+	var column := _log_column_rect
+	if column.size.x <= 1.0 or column.size.y <= 1.0:
+		return
+	var gap := 6.0
+	var review_synergy := _run_review_mode == RunReviewMode.SYNERGY
+	var synergy_ratio := 0.64 if review_synergy else 0.42
+	var synergy_h := maxf(96.0, (column.size.y - gap) * synergy_ratio)
+	synergy_h = minf(synergy_h, column.size.y - gap - 96.0)
+	var action_h := maxf(96.0, column.size.y - gap - synergy_h)
+	var y := column.position.y
+	_action_order_bar.z_index = 8
+	_action_order_bar.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_action_order_bar.position = Vector2(column.position.x, y)
+	_action_order_bar.size = Vector2(column.size.x, action_h)
+	y += action_h + gap
+	_place_control(synergy_panel, Rect2(column.position.x, y, column.size.x, maxf(96.0, column.end.y - y)))
+	var synergy_scroll := synergy_label.get_parent() as ScrollContainer
+	if synergy_scroll != null:
+		synergy_scroll.custom_minimum_size = Vector2(maxf(80.0, column.size.x - 24.0), 0.0)
+
+
+func _layout_comment_flow() -> void:
+	if _comment_flow == null or _battle_rect.size.x <= 1.0:
+		return
+	var top_clear := 8.0
+	var rect := Rect2(
+		_battle_rect.position.x,
+		_battle_rect.position.y + top_clear,
+		_battle_rect.size.x,
+		maxf(48.0, _battle_rect.size.y - top_clear - 8.0)
+	)
+	_comment_flow.z_index = 12
+	_place_control(_comment_flow, rect)
 
 
 func _reroll_battle_background() -> void:
@@ -1264,12 +1301,21 @@ func _place_top_bar(origin: Vector2) -> void:
 	top_bar.size = Vector2(maxf(bar_size.x, 1.0), maxf(bar_size.y, 36.0))
 
 
+func _fit_action_column_width() -> void:
+	var width_buttons: Array[Button] = [exp_button, reroll_button, battle_button, back_button, shop_lock_button]
+	for button in width_buttons:
+		button.custom_minimum_size.x = 0
+	action_column.custom_minimum_size.x = 0
+	var width := action_column.get_combined_minimum_size().x
+	_action_column_width = maxf(36.0, ceil(width))
+
+
 func _place_side_column(column_x: float) -> void:
 	action_column.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	action_column.position = Vector2(column_x, bottom_ui.offset_top)
-	action_column.custom_minimum_size = Vector2(ACTION_COLUMN_WIDTH, 0)
+	action_column.custom_minimum_size = Vector2(_action_column_width, 0)
 	var column_h := action_column.get_combined_minimum_size().y
-	action_column.size = Vector2(ACTION_COLUMN_WIDTH, maxf(column_h, 1.0))
+	action_column.size = Vector2(_action_column_width, maxf(column_h, 1.0))
 
 
 func _place_shop(area: Rect2) -> void:
@@ -1502,7 +1548,9 @@ func _update_ui() -> void:
 	for slot in board.bench_units:
 		if slot != null:
 			bench_count += 1
-	bench_label.text = "ベンチ: %d / %d" % [bench_count, board.bench_units.size()]
+	if _bench_board != null:
+		_bench_board.set_count(bench_count, board.bench_units.size())
+	bench_badge.visible = false
 	reroll_button.text = "更新 (%d)" % GameSession.REROLL_COST
 	if session.free_rerolls > 0:
 		reroll_button.text = "更新 (無料×%d)" % session.free_rerolls

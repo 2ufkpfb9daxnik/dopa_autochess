@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cogfldgg6tvbt"
-path.s3tc="res://.godot/imported/businessman_Image_0.jpg-c0b0047dc264aa62bac5284cdb8804b8.s3tc.ctex"
+path.s3tc="res://.godot/imported/businessman_Image_0.jpg-baf8b146c881464f22274b9ca1a5f2e3.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -14,8 +14,8 @@ generator_parameters={
 
 [deps]
 
-source_file="res://models/businessman/businessman_Image_0.jpg"
-dest_files=["res://.godot/imported/businessman_Image_0.jpg-c0b0047dc264aa62bac5284cdb8804b8.s3tc.ctex"]
+source_file="res://models/test/businessman/businessman_Image_0.jpg"
+dest_files=["res://.godot/imported/businessman_Image_0.jpg-baf8b146c881464f22274b9ca1a5f2e3.s3tc.ctex"]
 
 [params]
 

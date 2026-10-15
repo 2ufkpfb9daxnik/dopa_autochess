@@ -108,7 +108,7 @@ text = "シナジー"
 [node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
 layout_mode = 2
 size_flags_vertical = 3
-custom_minimum_size = Vector2(160, 440)
+custom_minimum_size = Vector2(160, 0)
 
 [node name="SynergyLabel" type="RichTextLabel" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox/ScrollContainer"]
 layout_mode = 2
@@ -144,6 +144,7 @@ theme_override_constants/v_separation = 0
 columns = 21
 
 [node name="EventLogPanel" type="PanelContainer" parent="CanvasLayer/UI"]
+visible = false
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -514,6 +515,7 @@ layout_mode = 2
 text = "シナジーを見る"
 
 [node name="ReviewLogButton" type="Button" parent="CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons"]
+visible = false
 custom_minimum_size = Vector2(200, 36)
 layout_mode = 2
 text = "ログを見る"

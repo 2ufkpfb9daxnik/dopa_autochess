@@ -7,12 +7,11 @@ signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_clicked(slot_index: int)
 
 const COLUMNS := 3
-const TITLE_TAB_WIDTH := 40.0
-const TITLE_TAB_HEIGHT := 92.0
 const TITLE_TAB_OVERLAP := 8.0
 const PLACEHOLDER_TEXTURE := preload("res://images/placeholder.png")
 
 var _title_tab: Panel
+var _count_label: Label
 var _slots: Array = []
 var _input_enabled := true
 var _pressing := false
@@ -46,19 +45,15 @@ func _ready() -> void:
 	tab_style.content_margin_top = 8
 	tab_style.content_margin_bottom = 8
 	_title_tab.add_theme_stylebox_override("panel", tab_style)
-	var title_box := VBoxContainer.new()
-	title_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	title_box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_title_tab.add_child(title_box)
-	for character in "ベンチ":
-		var label := Label.new()
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		label.text = character
-		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.add_theme_font_size_override("font_size", 16)
-		label.add_theme_color_override("font_color", Color(0.95, 0.9, 0.72))
-		title_box.add_child(label)
+	_count_label = Label.new()
+	_count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_count_label.text = "0/15"
+	_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_count_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_count_label.add_theme_font_size_override("font_size", 14)
+	_count_label.add_theme_color_override("font_color", Color(0.95, 0.9, 0.72))
+	_title_tab.add_child(_count_label)
 	add_child(_title_tab)
 	resized.connect(_layout_title_tab)
 	_layout_title_tab()
@@ -67,6 +62,13 @@ func _ready() -> void:
 func set_input_enabled(enabled: bool) -> void:
 	_input_enabled = enabled
 	mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+
+
+func set_count(occupied: int, capacity: int) -> void:
+	if _count_label == null:
+		return
+	_count_label.text = "%d/%d" % [occupied, capacity]
+	_layout_title_tab()
 
 
 func set_slots(slots: Array) -> void:
@@ -115,8 +117,12 @@ func _gui_input(event: InputEvent) -> void:
 func _layout_title_tab() -> void:
 	if _title_tab == null:
 		return
-	_title_tab.position = Vector2(-TITLE_TAB_WIDTH + TITLE_TAB_OVERLAP, size.y - TITLE_TAB_HEIGHT - 6.0)
-	_title_tab.size = Vector2(TITLE_TAB_WIDTH, TITLE_TAB_HEIGHT)
+	var text_width := 52.0
+	if _count_label != null:
+		text_width = maxf(48.0, _count_label.get_minimum_size().x + 12.0)
+	var tab_height := 28.0
+	_title_tab.position = Vector2(-text_width + TITLE_TAB_OVERLAP, size.y - tab_height - 6.0)
+	_title_tab.size = Vector2(text_width, tab_height)
 
 
 func _draw() -> void:

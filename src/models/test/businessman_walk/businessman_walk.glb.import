@@ -4,12 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://ct1dkkci31m0i"
-path="res://.godot/imported/businessman_walk.glb-252f545c251a7adb8f4f9d015c02df12.scn"
+path="res://.godot/imported/businessman_walk.glb-d90ad8839488ebb6f401adca9360b105.scn"
 
 [deps]
 
 source_file="res://models/test/businessman_walk/businessman_walk.glb"
-dest_files=["res://.godot/imported/businessman_walk.glb-252f545c251a7adb8f4f9d015c02df12.scn"]
+dest_files=["res://.godot/imported/businessman_walk.glb-d90ad8839488ebb6f401adca9360b105.scn"]
 
 [params]
 

@@ -85,8 +85,6 @@ static func populate_current_odds_row(row: Container, level: int) -> void:
 	var odds := get_odds(level)
 	for cost_index in odds.size():
 		var pct := int(round(float(odds[cost_index])))
-		if pct <= 0:
-			continue
 		var label := Label.new()
 		label.text = "%d  %d%%" % [cost_index + 1, pct]
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -104,8 +102,6 @@ static func measure_current_odds_row_width(level: int) -> float:
 	var count := 0
 	for cost_index in odds.size():
 		var pct := int(round(float(odds[cost_index])))
-		if pct <= 0:
-			continue
 		total += font.get_string_size(
 			"%d%%" % pct,
 			HORIZONTAL_ALIGNMENT_LEFT,
@@ -134,7 +130,7 @@ static func populate_odds_grid(grid: GridContainer, highlight_level: int) -> voi
 		for level in range(1, TABLE_LEVELS + 1):
 			var odds := get_odds(level)
 			var pct := int(round(float(odds[cost - 1])))
-			var cell_text := str(pct) if pct > 0 else "-"
+			var cell_text := str(pct)
 			_add_grid_label(
 				grid,
 				cell_text,

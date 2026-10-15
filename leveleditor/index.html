@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>編集</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --ink: #1c1a17;
+    --muted: #6d675f;
+    --line: #d9d1c3;
+    --panel: #fffdf8;
+    --accent: #8a5a12;
+    --good: #1d6b3a;
+    --bad: #9a2f2f;
+    --soft: #f7f0e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    font: 14px/1.45 "Yu Gothic UI", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  header {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  .scales { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+  .scales label { display: flex; gap: 4px; align-items: center; }
+  input, select, textarea, button { font: inherit; color: inherit; }
+  input, select, textarea {
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+  button {
+    border: 1px solid #c4ad7a;
+    background: #f3e6c8;
+    border-radius: 4px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  button.primary { background: #8a5a12; color: white; border-color: #6e460c; }
+  #status { color: var(--muted); min-width: 8em; }
+  main { display: grid; grid-template-columns: 280px 1fr 280px; min-height: 0; }
+  aside, section { min-height: 0; overflow: auto; }
+  #list-pane, #compare-pane, #synergy-list-pane, #synergy-summary { background: var(--panel); }
+  #list-pane, #synergy-list-pane { border-right: 1px solid var(--line); padding: 10px; }
+  #compare-pane, #synergy-summary { border-left: 1px solid var(--line); padding: 12px; }
+  #synergy-editor { padding: 14px 16px 40px; }
+  #synergy-query { width: 100%; margin-top: 6px; }
+  #synergy-list-pane .row-actions input { flex: 1; width: auto; margin-top: 0; }
+  #editor { padding: 14px 16px 40px; }
+  .toolbar { display: flex; gap: 6px; margin: 8px 0; }
+  .toolbar select, .toolbar input, #synergy-filter, #query { width: 100%; margin-top: 6px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .checks label { display: flex; gap: 4px; align-items: center; font-size: 13px; }
+  #list, #synergy-list { list-style: none; margin: 8px 0 0; padding: 0; }
+  #list li, #synergy-list li {
+    padding: 7px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #list li:hover, #synergy-list li:hover { background: var(--soft); }
+  #list li.active, #synergy-list li.active { background: #efe2c6; }
+  #list .meta, #synergy-list .meta { color: var(--muted); font-size: 12px; }
+  h2 { font-size: 18px; margin: 0 0 8px; }
+  h3 { font-size: 14px; margin: 18px 0 8px; }
+  .grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 8px; align-items: center; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td input[type="number"] { width: 88px; }
+  .delta { display: block; font-size: 11px; color: var(--muted); min-height: 1.2em; }
+  .delta.plus { color: var(--good); }
+  .delta.minus { color: var(--bad); }
+  .stat-name { white-space: nowrap; }
+  .row-actions { display: flex; gap: 8px; margin-top: 8px; }
+  #compare-pane dl, #synergy-summary dl { margin: 0; }
+  #compare-pane dt, #synergy-summary dt { color: var(--muted); margin-top: 10px; }
+  #compare-pane dd, #synergy-summary dd { margin: 2px 0 0; }
+  .tabbar { display: flex; gap: 8px; flex: 0 0 auto; }
+  #synergy-text { min-height: 120px; }
+  .tabbar button.active { background: #8a5a12; color: white; border-color: #6e460c; }
+  button.link { border: none; background: none; color: var(--accent); padding: 0 2px; text-decoration: underline; }
+  .check-link { display: inline-flex; gap: 3px; align-items: center; }
+  .synergy-line { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+  .synergy-line .meta { color: var(--muted); }
+  .tier-table { width: auto; }
+  .tier-table input[data-tier-count] { width: 88px; }
+  .tier-table input[data-tier-performance] { width: 420px; }
+  main[hidden] { display: none !important; }
+  .clip { max-width: 240px; white-space: normal; }
+  .rel-strong { color: var(--good); font-weight: 700; margin-left: 6px; }
+  .rel-weak { color: var(--bad); font-weight: 700; margin-left: 6px; }
+  #standard-view { display: block; overflow: auto; padding: 16px 18px 48px; }
+  #standard-view table { width: auto; margin-bottom: 18px; }
+  #standard-view td input[type="number"] { width: 72px; }
+</style>
+</head>
+<body>
+<header>
+  <nav class="tabbar">
+    <button id="tab-characters" class="active" type="button">キャラクター</button>
+    <button id="tab-synergies" type="button">シナジー</button>
+    <button id="tab-standards" type="button">基準</button>
+  </nav>
+  <button id="save-char" class="primary char-only" type="button">このキャラを保存</button>
+  <span id="status"></span>
+</header>
+<main id="character-view">
+  <aside id="list-pane">
+    <select id="synergy-filter">
+      <option value="">すべてのシナジー</option>
+    </select>
+    <input id="query" type="search" placeholder="名前・ID">
+    <div class="toolbar">
+      <select id="sort-key">
+        <option value="id">ID</option>
+        <option value="name">名前</option>
+        <option value="cost">コスト</option>
+        <option value="synergy">シナジー</option>
+        <option value="attack">攻撃属性</option>
+        <option value="total">総ステータス</option>
+      </select>
+      <select id="sort-dir">
+        <option value="1">昇順</option>
+        <option value="-1">降順</option>
+      </select>
+    </div>
+    <ul id="list"></ul>
+  </aside>
+  <section id="editor"></section>
+  <aside id="compare-pane">
+    <h2>基準との比較</h2>
+    <p id="compare-note">各星は、そのコストの基準に、そのステータスの星倍率を掛けた値と比べます。平均は同じコストの★1です。属性補正の基準は 0% です。</p>
+    <div id="compare"></div>
+  </aside>
+</main>
+<main id="synergy-view" hidden>
+  <aside id="synergy-list-pane">
+    <input id="synergy-query" type="search" placeholder="シナジー名">
+    <div class="toolbar">
+      <select id="synergy-sort">
+        <option value="count">人数</option>
+        <option value="name">名前</option>
+      </select>
+    </div>
+    <div class="row-actions">
+      <input id="new-synergy" placeholder="新しいシナジー名">
+      <button id="add-synergy" type="button">追加</button>
+    </div>
+    <ul id="synergy-list"></ul>
+  </aside>
+  <section id="synergy-editor"></section>
+  <aside id="synergy-summary"></aside>
+</main>
+<main id="standard-view" hidden>
+  <section>
+    <div id="standard-editor"></div>
+    <button id="save-settings" class="primary" type="button">倍率と基準を保存</button>
+  </section>
+</main>
+<script>
+const STAR_LABELS = ["★1", "★2", "★3", "★4"];
+let characters = [];
+let numericStats = [];
+let textFields = [];
+let totalStats = [];
+const DEFAULT_SCALE = [1, 3.5, 10, 35];
+const RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性"];
+let scales = {};
+let standards = {};
+let attributes = ["炎", "水", "雷", "土", "氷", "風", "吸収"];
+let selectedId = "";
+let draft = null;
+let mode = "characters";
+let selectedSynergy = "";
+let extraSynergies = [];
+let synergyTexts = {};
+let synergyTextDrafts = {};
+
+const statusEl = document.getElementById("status");
+function setStatus(text) { statusEl.textContent = text; }
+
+async function loadAll() {
+  const [charRes, setRes, textRes] = await Promise.all([
+    fetch("/api/characters"),
+    fetch("/api/settings"),
+    fetch("/api/synergy-text"),
+  ]);
+  const payload = await charRes.json();
+  const settings = await setRes.json();
+  characters = payload.characters;
+  numericStats = payload.numericStats;
+  textFields = payload.textFields;
+  totalStats = payload.totalStats;
+  attributes = payload.attributes || attributes;
+  scales = settings.scales || {};
+  standards = settings.standards || {};
+  synergyTexts = await textRes.json();
+  renderSynergyFilter();
+  if (!selectedId && characters.length) selectedId = characters[0].id;
+  select(selectedId);
+}
+
+function scaleRow(name) {
+  const row = scales && !Array.isArray(scales) ? scales[name] : null;
+  return row || (Array.isArray(scales) ? scales : DEFAULT_SCALE);
+}
+
+function scaleAt(name, index) {
+  const value = Number(scaleRow(name)[index]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function ensureScale(name) {
+  if (RETIRED_STATS.includes(name)) return;
+  if (!scales[name]) scales[name] = DEFAULT_SCALE.slice();
+}
+
+function numberOrNull(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function starValue(stats, name, starIndex) {
+  const row = stats[name] || [];
+  return numberOrNull(row[starIndex]);
+}
+
+function expectedValue(stats, name, starIndex) {
+  const base = starValue(stats, name, 0);
+  const origin = scaleAt(name, 0);
+  if (base === null || !origin) return null;
+  return base * scaleAt(name, starIndex) / origin;
+}
+
+function shownValue(stats, name, starIndex) {
+  const actual = starValue(stats, name, starIndex);
+  if (actual !== null) return actual;
+  if (starIndex === 0) return null;
+  return expectedValue(stats, name, starIndex);
+}
+
+function standardBase(cost, name) {
+  const row = standards[String(cost)] || {};
+  return numberOrNull(row[name]);
+}
+
+function standardAt(cost, name, starIndex) {
+  const base = standardBase(cost, name);
+  const origin = scaleAt(name, 0);
+  if (base === null || !origin) return null;
+  return base * scaleAt(name, starIndex) / origin;
+}
+
+function displayValue(stats, name, starIndex) {
+  const actual = starValue(stats, name, starIndex);
+  if (actual !== null) return actual;
+  if (starIndex === 0) return null;
+  return expectedValue(stats, name, starIndex);
+}
+
+function totalOf(character) {
+  return totalStats.reduce((sum, name) => {
+    const value = starValue(character.stats, name, 0);
+    return sum + (value || 0);
+  }, 0);
+}
+
+function allSynergies() {
+  const names = new Set(extraSynergies);
+  characters.forEach((character) => character.synergies.forEach((name) => names.add(name)));
+  if (draft) draft.synergies.forEach((name) => names.add(name));
+  return [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+function renderSynergyFilter() {
+  const select = document.getElementById("synergy-filter");
+  const current = select.value;
+  select.innerHTML = `<option value="">すべてのシナジー</option>` + allSynergies().map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`).join("");
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+function filteredCharacters() {
+  const query = document.getElementById("query").value.trim().toLowerCase();
+  const synergy = document.getElementById("synergy-filter").value;
+  const key = document.getElementById("sort-key").value;
+  const dir = Number(document.getElementById("sort-dir").value);
+  const rows = characters.filter((character) => {
+    if (synergy && !character.synergies.includes(synergy)) return false;
+    if (!query) return true;
+    const hay = `${character.id} ${character.name}`.toLowerCase();
+    return hay.includes(query);
+  });
+  rows.sort((a, b) => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return a.id.localeCompare(b.id);
+  });
+  return rows;
+}
+
+function sortValue(character, key) {
+  if (key === "cost") return character.cost;
+  if (key === "name") return character.name;
+  if (key === "synergy") return character.synergies.join(",");
+  if (key === "attack") return character.attack;
+  if (key === "total") return totalOf(character);
+  return character.id;
+}
+
+function renderList() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  filteredCharacters().forEach((character) => {
+    const item = document.createElement("li");
+    if (character.id === selectedId) item.className = "active";
+    item.innerHTML = `<div>${character.id} ${character.name}</div><div class="meta">コスト${character.cost} / ${character.attack} / 合計 ${totalOf(character)}</div>`;
+    item.addEventListener("click", () => select(character.id));
+    list.appendChild(item);
+  });
+}
+
+function select(id) {
+  if (draft && selectedId && selectedId !== id) syncDraftFromDom();
+  selectedId = id;
+  const source = characters.find((character) => character.id === id);
+  draft = source ? structuredClone(source) : null;
+  if (draft && !draft.attributeMods) draft.attributeMods = {};
+  renderList();
+  renderEditor();
+}
+
+function syncDraftFromDom() {
+  if (!draft || !document.getElementById("f-name")) return;
+  draft.name = valueOf("f-name");
+  draft.cost = Number(valueOf("f-cost")) || 0;
+  draft.attack = valueOf("f-attack");
+  draft.strong = splitComma(valueOf("f-strong"));
+  draft.weak = splitComma(valueOf("f-weak"));
+  draft.brief = valueOf("f-brief");
+  draft.detail = valueOf("f-detail");
+  draft.flavor = valueOf("f-flavor");
+  draft.performance = valueOf("f-performance");
+  document.querySelectorAll("[data-stat]").forEach((input) => {
+    const [name, index] = input.dataset.stat.split("|");
+    if (!draft.stats[name]) draft.stats[name] = [null, null, null, null];
+    draft.stats[name][Number(index)] = numberOrNull(input.value);
+  });
+  if (!draft.attributeMods) draft.attributeMods = {};
+  document.querySelectorAll("[data-attr]").forEach((input) => {
+    const [name, key] = input.dataset.attr.split("|");
+    if (!draft.attributeMods[name]) draft.attributeMods[name] = { damage: null, resist: null };
+    draft.attributeMods[name][key] = numberOrNull(input.value);
+  });
+  document.querySelectorAll("[data-text]").forEach((input) => {
+    draft.texts[input.dataset.text] = input.value;
+  });
+}
+
+function valueOf(id) {
+  const node = document.getElementById(id);
+  return node ? node.value : "";
+}
+
+function splitComma(value) {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function formatDelta(actual, base) {
+  if (actual === null || base === null) return "";
+  const diff = actual - base;
+  const pct = base === 0 ? 0 : (diff / base) * 100;
+  const sign = diff > 0 ? "+" : "";
+  return `${sign}${round(diff)} (${sign}${round(pct)}%)`;
+}
+
+function round(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function costAverage(name) {
+  if (!draft) return null;
+  const values = characters.map((character) => {
+    if (character.id === draft.id) return starValue(draft.stats, name, 0);
+    if (character.cost !== draft.cost) return null;
+    return starValue(character.stats, name, 0);
+  }).filter((value) => value !== null);
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function renderEditor() {
+  const editor = document.getElementById("editor");
+  if (!draft) {
+    editor.innerHTML = "<p>キャラクターがありません。</p>";
+    return;
+  }
+  const names = statNames();
+  editor.innerHTML = `
+    <h2>${draft.id} ${escapeHtml(draft.name)}</h2>
+    <div class="grid">
+      <label>名前</label><input id="f-name" value="${escapeAttr(draft.name)}">
+      <label>コスト</label><input id="f-cost" type="number" min="1" max="7" value="${draft.cost}">
+      <label>攻撃属性</label><input id="f-attack" value="${escapeAttr(draft.attack)}">
+      <label>シナジー</label><div>${draft.synergies.length ? draft.synergies.map((name) => `<div class="synergy-line"><button type="button" class="link" data-open-synergy="${escapeAttr(name)}">${escapeHtml(name)}</button><span class="meta">${escapeHtml(synergyText(name)) || "—"}</span></div>`).join("") : `<span class="meta">所属しているシナジーはありません。</span>`}</div>
+      <label>得意属性</label><input id="f-strong" value="${escapeAttr(draft.strong.join(", "))}">
+      <label>苦手属性</label><input id="f-weak" value="${escapeAttr(draft.weak.join(", "))}">
+    </div>
+    <h3>説明</h3>
+    <div class="grid">
+      <label>簡単な説明</label><textarea id="f-brief">${escapeHtml(draft.brief)}</textarea>
+      <label>詳細</label><textarea id="f-detail">${escapeHtml(draft.detail)}</textarea>
+      <label>フレーバー</label><textarea id="f-flavor">${escapeHtml(draft.flavor)}</textarea>
+      <label>性能</label><textarea id="f-performance">${escapeHtml(draft.performance)}</textarea>
+    </div>
+    <h3>ステータス</h3>
+    <p class="meta">★2以降の空欄は、★1 × そのステータスの星倍率です。欄の下は、星倍率との差と、コスト帯の基準との差です。</p>
+    <table>
+      <thead><tr><th>項目</th>${STAR_LABELS.map((label) => `<th>${label}</th>`).join("")}</tr></thead>
+      <tbody>${names.map((name) => statRow(name)).join("")}</tbody>
+    </table>
+    <div class="row-actions">
+      <input id="extra-stat" placeholder="追加ステータス名">
+      <button id="add-stat" type="button">数値項目を追加</button>
+    </div>
+    <h3>属性ダメージ</h3>
+    <p class="meta">属性ごとに設定します。空欄は 0% です。耐性の横に、このキャラクターの得意・苦手を出します。</p>
+    <table>
+      <thead><tr><th>属性</th><th>ダメージ倍率</th><th>ダメージ耐性</th></tr></thead>
+      <tbody>${attributeNames().map((name) => attributeRow(name)).join("")}</tbody>
+    </table>
+    <h3>テキスト性能</h3>
+    <div class="grid">${textFields.map((name) => textRow(name)).join("")}</div>
+    <div class="row-actions">
+      <input id="extra-text" placeholder="固有説明の名前">
+      <button id="add-text" type="button">説明を追加</button>
+    </div>
+  `;
+  editor.querySelectorAll("[data-open-synergy]").forEach((node) => {
+    node.addEventListener("click", () => openSynergy(node.dataset.openSynergy));
+  });
+  editor.querySelectorAll("input, textarea").forEach((node) => {
+    node.addEventListener("input", () => {
+      syncDraftFromDom();
+      refreshDeltas();
+      refreshRelations();
+      renderCompare();
+      renderList();
+    });
+  });
+  document.getElementById("add-stat").addEventListener("click", () => {
+    const name = document.getElementById("extra-stat").value.trim();
+    if (!name || draft.stats[name]) return;
+    draft.stats[name] = [null, null, null, null];
+    ensureScale(name);
+    renderEditor();
+  });
+  document.getElementById("add-text").addEventListener("click", () => {
+    const name = document.getElementById("extra-text").value.trim();
+    if (!name || textFields.includes(name)) return;
+    textFields.push(name);
+    draft.texts[name] = "";
+    renderEditor();
+  });
+  renderCompare();
+}
+
+function statNames() {
+  const names = numericStats.slice();
+  Object.keys(draft.stats).forEach((name) => {
+    if (!names.includes(name) && !RETIRED_STATS.includes(name)) names.push(name);
+  });
+  names.forEach((name) => ensureScale(name));
+  return names;
+}
+
+function attributeNames() {
+  const names = attributes.slice();
+  const extra = new Set([...(draft.strong || []), ...(draft.weak || []), ...Object.keys(draft.attributeMods || {})]);
+  extra.forEach((name) => {
+    if (name && !names.includes(name)) names.push(name);
+  });
+  return names;
+}
+
+function relationOf(name) {
+  if ((draft.strong || []).includes(name)) return "得意";
+  if ((draft.weak || []).includes(name)) return "苦手";
+  return "";
+}
+
+function statRow(name) {
+  const cells = [0, 1, 2, 3].map((index) => {
+    const actual = starValue(draft.stats, name, index);
+    const expected = index === 0 ? null : expectedValue(draft.stats, name, index);
+    const placeholder = expected === null ? "" : `星 ${round(expected)}`;
+    const starDelta = index === 0 ? "" : formatDelta(actual, expected);
+    const starKlass = starDelta.startsWith("+") ? "plus" : starDelta.startsWith("-") ? "minus" : "";
+    const standardDelta = labeledDelta("基準", shownValue(draft.stats, name, index), standardAt(draft.cost, name, index));
+    const standardKlass = standardDelta.includes("+") ? "plus" : standardDelta.includes("-") ? "minus" : "";
+    const starText = starDelta ? `星 ${starDelta}` : "";
+    return `<td><input data-stat="${escapeAttr(name)}|${index}" type="number" step="any" value="${actual === null ? "" : actual}" placeholder="${escapeAttr(placeholder)}"><span class="delta ${starKlass}" data-delta="${escapeAttr(name)}|${index}">${starText}</span><span class="delta ${standardKlass}" data-standard="${escapeAttr(name)}|${index}">${standardDelta}</span></td>`;
+  }).join("");
+  return `<tr><th class="stat-name">${escapeHtml(name)}</th>${cells}</tr>`;
+}
+
+function attributeRow(name) {
+  const damage = attributeValue(name, "damage");
+  const resist = attributeValue(name, "resist");
+  const relation = relationOf(name);
+  const relationClass = relation === "得意" ? "rel-strong" : relation === "苦手" ? "rel-weak" : "";
+  return `<tr>
+    <th class="stat-name">${escapeHtml(name)}</th>
+    <td><input data-attr="${escapeAttr(name)}|damage" type="number" step="any" value="${damage === null ? "" : damage}" placeholder="0"><span class="delta" data-attr-delta="${escapeAttr(name)}|damage">${percentDelta(damage)}</span></td>
+    <td><input data-attr="${escapeAttr(name)}|resist" type="number" step="any" value="${resist === null ? "" : resist}" placeholder="0"><span class="rel ${relationClass}" data-relation="${escapeAttr(name)}">${escapeHtml(relation)}</span><span class="delta" data-attr-delta="${escapeAttr(name)}|resist">${percentDelta(resist)}</span></td>
+  </tr>`;
+}
+
+function attributeValue(name, key) {
+  const row = (draft.attributeMods || {})[name] || {};
+  return numberOrNull(row[key]);
+}
+
+function percentDelta(value) {
+  if (value === null || value === 0) return "";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${round(value)}%`;
+}
+
+function labeledDelta(prefix, actual, base) {
+  const delta = formatDelta(actual, base);
+  return delta ? `${prefix} ${delta}` : "";
+}
+
+function textRow(name) {
+  const value = draft.texts[name] || "";
+  const multiline = name !== "着弾方式";
+  const field = multiline
+    ? `<textarea data-text="${escapeAttr(name)}">${escapeHtml(value)}</textarea>`
+    : `<input data-text="${escapeAttr(name)}" value="${escapeAttr(value)}">`;
+  return `<label>${escapeHtml(name)}</label>${field}`;
+}
+
+function refreshDeltas() {
+  if (!draft) return;
+  document.querySelectorAll("[data-delta]").forEach((node) => {
+    const [name, indexText] = node.dataset.delta.split("|");
+    const index = Number(indexText);
+    const delta = index === 0 ? "" : formatDelta(starValue(draft.stats, name, index), expectedValue(draft.stats, name, index));
+    node.textContent = delta ? `星 ${delta}` : "";
+    node.className = "delta" + (delta.startsWith("+") ? " plus" : delta.startsWith("-") ? " minus" : "");
+  });
+  document.querySelectorAll("[data-standard]").forEach((node) => {
+    const [name, indexText] = node.dataset.standard.split("|");
+    const index = Number(indexText);
+    const delta = labeledDelta("基準", shownValue(draft.stats, name, index), standardAt(draft.cost, name, index));
+    node.textContent = delta;
+    node.className = "delta" + (delta.includes("+") ? " plus" : delta.includes("-") ? " minus" : "");
+  });
+  document.querySelectorAll("[data-attr-delta]").forEach((node) => {
+    const [name, key] = node.dataset.attrDelta.split("|");
+    node.textContent = percentDelta(attributeValue(name, key));
+  });
+}
+
+function refreshRelations() {
+  if (!draft) return;
+  document.querySelectorAll("[data-relation]").forEach((node) => {
+    const relation = relationOf(node.dataset.relation);
+    node.textContent = relation;
+    node.className = "rel" + (relation === "得意" ? " rel-strong" : relation === "苦手" ? " rel-weak" : "");
+  });
+}
+
+function renderCompare() {
+  const box = document.getElementById("compare");
+  if (!draft) return;
+  const rows = statNames().map((name) => {
+    const lines = [0, 1, 2, 3].map((index) => {
+      const actual = starValue(draft.stats, name, index);
+      const shown = shownValue(draft.stats, name, index);
+      const standard = standardAt(draft.cost, name, index);
+      if (shown === null && standard === null && index > 0) return "";
+      const delta = labeledDelta("", shown, standard).trim();
+      const klass = delta.startsWith("+") ? "plus" : delta.startsWith("-") ? "minus" : "";
+      const implied = actual === null && shown !== null ? "（空欄）" : "";
+      return `<dd>${STAR_LABELS[index]} ${shown === null ? "—" : round(shown)}${implied} / 基準 ${standard === null ? "—" : round(standard)} <span class="delta ${klass}">${delta}</span></dd>`;
+    }).join("");
+    const average = costAverage(name);
+    const mine = starValue(draft.stats, name, 0);
+    const averageDelta = formatDelta(mine, average);
+    const averageKlass = averageDelta.startsWith("+") ? "plus" : averageDelta.startsWith("-") ? "minus" : "";
+    const averageLine = `<dd>★1平均 ${average === null ? "—" : round(average)} <span class="delta ${averageKlass}">${averageDelta}</span></dd>`;
+    return `<dt>${escapeHtml(name)}</dt>${lines}${averageLine}`;
+  }).join("");
+  const attrs = attributeNames().map((name) => {
+    const relation = relationOf(name);
+    const mark = relation ? ` <span class="${relation === "得意" ? "rel-strong" : "rel-weak"}">${relation}</span>` : "";
+    return `<dt>${escapeHtml(name)}${mark}</dt><dd>ダメージ ${percentText(attributeValue(name, "damage"))} / 耐性 ${percentText(attributeValue(name, "resist"))}</dd>`;
+  }).join("");
+  box.innerHTML = `<dl>${rows}<dt>属性補正</dt><dd class="meta">基準はすべて 0%</dd>${attrs}</dl>`;
+}
+
+function percentText(value) {
+  const shown = value === null ? 0 : value;
+  const delta = percentDelta(value);
+  return `${shown}%${delta ? " " + delta : ""}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]));
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
+function rememberDraft() {
+  if (!draft) return;
+  const index = characters.findIndex((character) => character.id === draft.id);
+  if (index >= 0) characters[index] = structuredClone(draft);
+}
+
+function scaledStatNames() {
+  const names = numericStats.slice();
+  characters.forEach((character) => {
+    Object.keys(character.stats || {}).forEach((name) => {
+      if (!names.includes(name) && !RETIRED_STATS.includes(name)) names.push(name);
+    });
+  });
+  if (draft) {
+    Object.keys(draft.stats || {}).forEach((name) => {
+      if (!names.includes(name) && !RETIRED_STATS.includes(name)) names.push(name);
+    });
+  }
+  Object.keys(scales).forEach((name) => {
+    if (!names.includes(name) && !RETIRED_STATS.includes(name)) names.push(name);
+  });
+  names.forEach((name) => ensureScale(name));
+  return names;
+}
+
+function syncSettingsFromDom() {
+  document.querySelectorAll("[data-scale]").forEach((input) => {
+    const [name, indexText] = input.dataset.scale.split("|");
+    ensureScale(name);
+    const value = Number(input.value);
+    scales[name][Number(indexText)] = Number.isFinite(value) ? value : 0;
+  });
+  document.querySelectorAll("[data-standard-input]").forEach((input) => {
+    const [name, cost] = input.dataset.standardInput.split("|");
+    if (!standards[cost]) standards[cost] = {};
+    const value = numberOrNull(input.value);
+    if (value === null) delete standards[cost][name];
+    else standards[cost][name] = value;
+    if (!Object.keys(standards[cost]).length) delete standards[cost];
+  });
+}
+
+function renderStandardEditor() {
+  const editor = document.getElementById("standard-editor");
+  const names = scaledStatNames();
+  const scaleRows = names.map((name) => {
+    const cells = [0, 1, 2, 3].map((index) => `<td><input data-scale="${escapeAttr(name)}|${index}" type="number" step="any" value="${scaleAt(name, index)}"></td>`).join("");
+    return `<tr><th class="stat-name">${escapeHtml(name)}</th>${cells}</tr>`;
+  }).join("");
+  const standardRows = names.map((name) => {
+    const cells = [1, 2, 3, 4, 5, 6, 7].map((cost) => {
+      const value = standardBase(cost, name);
+      return `<td><input data-standard-input="${escapeAttr(name)}|${cost}" type="number" step="any" value="${value === null ? "" : value}"></td>`;
+    }).join("");
+    return `<tr><th class="stat-name">${escapeHtml(name)}</th>${cells}</tr>`;
+  }).join("");
+  editor.innerHTML = `
+    <h2>ステータスごとの星倍率</h2>
+    <p class="meta">★1を1としたときの倍率です。空欄の★2以降は、そのキャラクターの★1にこの倍率を掛けます。速度もここで、ほかのステータスと別に持てます。</p>
+    <table>
+      <thead><tr><th>ステータス</th>${STAR_LABELS.map((label) => `<th>${label}</th>`).join("")}</tr></thead>
+      <tbody>${scaleRows}</tbody>
+    </table>
+    <h2>コスト帯の基準キャラクター</h2>
+    <p class="meta">★1の標準値です。★2以降の基準は、この値にそのステータスの星倍率を掛けたものです。属性ダメージ倍率と属性ダメージ耐性の基準は、どのコストでも 0% です。</p>
+    <table>
+      <thead><tr><th>ステータス</th>${[1, 2, 3, 4, 5, 6, 7].map((cost) => `<th>コスト${cost}</th>`).join("")}</tr></thead>
+      <tbody>${standardRows}</tbody>
+    </table>
+  `;
+}
+
+function showTab(tab) {
+  if (mode === "standards") syncSettingsFromDom();
+  if (tab !== mode) {
+    syncDraftFromDom();
+    rememberDraft();
+  }
+  mode = tab;
+  document.getElementById("character-view").hidden = tab !== "characters";
+  document.getElementById("synergy-view").hidden = tab !== "synergies";
+  document.getElementById("standard-view").hidden = tab !== "standards";
+  document.getElementById("tab-characters").classList.toggle("active", tab === "characters");
+  document.getElementById("tab-synergies").classList.toggle("active", tab === "synergies");
+  document.getElementById("tab-standards").classList.toggle("active", tab === "standards");
+  document.querySelectorAll(".char-only").forEach((node) => {
+    node.hidden = tab !== "characters";
+  });
+  if (tab === "characters") {
+    renderSynergyFilter();
+    renderList();
+    renderEditor();
+    return;
+  }
+  if (tab === "standards") {
+    renderStandardEditor();
+    return;
+  }
+  if (!selectedSynergy || !allSynergies().includes(selectedSynergy)) {
+    const ranked = synergyRows();
+    selectedSynergy = ranked.length ? ranked[0].name : "";
+  }
+  renderSynergyList();
+  renderSynergyDetail();
+}
+
+function openSynergy(name) {
+  selectedSynergy = name;
+  showTab("synergies");
+}
+
+function openCharacter(id) {
+  showTab("characters");
+  select(id);
+}
+
+function synergyRows() {
+  const query = (document.getElementById("synergy-query").value || "").trim().toLowerCase();
+  const sort = document.getElementById("synergy-sort").value;
+  const rows = allSynergies().map((name) => ({ name, count: synergyMembers(name).length }));
+  const visible = rows.filter((row) => !query || row.name.toLowerCase().includes(query));
+  visible.sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name, "ja") || b.count - a.count;
+    return b.count - a.count || a.name.localeCompare(b.name, "ja");
+  });
+  return visible;
+}
+
+function synergyMembers(name) {
+  return characters
+    .filter((character) => character.synergies.includes(name))
+    .sort((a, b) => a.cost - b.cost || a.id.localeCompare(b.id));
+}
+
+function renderSynergyList() {
+  const list = document.getElementById("synergy-list");
+  list.innerHTML = "";
+  synergyRows().forEach((row) => {
+    const item = document.createElement("li");
+    if (row.name === selectedSynergy) item.className = "active";
+    item.innerHTML = `<div>${escapeHtml(row.name)}</div><div class="meta">${row.count}人</div>`;
+    item.addEventListener("click", () => {
+      selectedSynergy = row.name;
+      renderSynergyList();
+      renderSynergyDetail();
+    });
+    list.appendChild(item);
+  });
+}
+
+function starText(character, name) {
+  const value = starValue(character.stats || {}, name, 0);
+  return value === null ? "—" : String(value);
+}
+
+function synergyRecord(name) {
+  if (Object.prototype.hasOwnProperty.call(synergyTextDrafts, name)) return synergyTextDrafts[name];
+  const stored = synergyTexts[name];
+  const text = typeof stored === "string" ? stored : (stored && stored.text) || "";
+  const tiers = stored && typeof stored === "object" ? stored.tiers || [] : [];
+  return {
+    text,
+    tiers: tiers.map((tier) => ({
+      count: tier.count ?? "",
+      performance: tier.performance || "",
+    })),
+  };
+}
+
+function captureSynergyText() {
+  const node = document.getElementById("synergy-text");
+  if (!node || !node.dataset.synergy) return;
+  const tiers = [...document.querySelectorAll("#synergy-editor [data-tier]")].map((row) => ({
+    count: row.querySelector("[data-tier-count]").value,
+    performance: row.querySelector("[data-tier-performance]").value,
+  }));
+  synergyTextDrafts[node.dataset.synergy] = { text: node.value, tiers };
+}
+
+function synergyText(name) {
+  return synergyRecord(name).text;
+}
+
+function renderSynergyDetail(renderOptions = {}) {
+  if (!renderOptions.skipCapture) captureSynergyText();
+  const editor = document.getElementById("synergy-editor");
+  const summary = document.getElementById("synergy-summary");
+  const name = selectedSynergy;
+  if (!name) {
+    editor.innerHTML = "<p>シナジーがありません。</p>";
+    summary.innerHTML = "";
+    return;
+  }
+  const members = synergyMembers(name);
+  const others = characters.filter((character) => !character.synergies.includes(name));
+  const rows = members.map((character) => {
+    const other = character.synergies.filter((item) => item !== name).map((item) => {
+      const text = synergyText(item);
+      const label = text ? `${item}（${text}）` : item;
+      return `<button type="button" class="link" data-open-synergy="${escapeAttr(item)}">${escapeHtml(label)}</button>`;
+    }).join(" ");
+    return `<tr>
+      <td>${escapeHtml(character.id)}</td>
+      <td><button type="button" class="link" data-open-character="${escapeAttr(character.id)}">${escapeHtml(character.name)}</button></td>
+      <td>${character.cost}</td>
+      <td>${escapeHtml(character.attack) || "—"}</td>
+      <td>${escapeHtml(character.strong.join(", ")) || "—"}</td>
+      <td>${escapeHtml(character.weak.join(", ")) || "—"}</td>
+      <td>${other || "—"}</td>
+      <td>${starText(character, "最大HP")}</td>
+      <td>${starText(character, "攻撃力")}</td>
+      <td>${starText(character, "防御力")}</td>
+      <td>${starText(character, "速度")}</td>
+      <td class="clip">${escapeHtml(synergyText(name)) || "—"}</td>
+      <td><button type="button" data-remove-member="${escapeAttr(character.id)}">外す</button></td>
+    </tr>`;
+  }).join("");
+  const options = others.map((character) => `<option value="${escapeAttr(character.id)}">${escapeHtml(character.id)} ${escapeHtml(character.name)} / コスト${character.cost}</option>`).join("");
+  const record = synergyRecord(name);
+  const tierRows = record.tiers.map((tier, index) => `<tr data-tier>
+      <td><input data-tier-count type="text" value="${escapeAttr(tier.count)}" placeholder="2"></td>
+      <td><input data-tier-performance type="text" value="${escapeAttr(tier.performance)}" placeholder="この人数のときの性能"></td>
+      <td><button type="button" data-remove-tier="${index}">削除</button></td>
+    </tr>`).join("");
+  editor.innerHTML = `
+    <h2>${escapeHtml(name)}</h2>
+    <h3>性能</h3>
+    <textarea id="synergy-text" data-synergy="${escapeAttr(name)}">${escapeHtml(record.text)}</textarea>
+    <h3>人数段階</h3>
+    <p class="meta">段階を追加すると、人数と性能の欄が増えます。出撃人数がその人数に達すると、その性能になります。書いていない人数は、それより少ないいちばん近い段階の性能のままです。</p>
+    <table class="tier-table">
+      <thead><tr><th>人数</th><th>性能</th><th></th></tr></thead>
+      <tbody>${tierRows || `<tr><td colspan="3">段階はまだありません。</td></tr>`}</tbody>
+    </table>
+    <div class="row-actions">
+      <button id="add-tier" type="button">段階を追加</button>
+      <button id="save-synergy-text" type="button">性能を保存</button>
+    </div>
+    <p class="meta">所属 ${members.length}人。追加と除外は、そのキャラクターのファイルへ保存します。</p>
+    <table>
+      <thead><tr><th>ID</th><th>名前</th><th>コスト</th><th>攻撃属性</th><th>得意属性</th><th>苦手属性</th><th>他のシナジー</th><th>最大HP</th><th>攻撃力</th><th>防御力</th><th>速度</th><th>性能</th><th></th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="13">所属キャラクターはいません。</td></tr>`}</tbody>
+    </table>
+    <div class="row-actions">
+      <select id="add-member">${options}</select>
+      <button id="add-member-btn" type="button" ${others.length ? "" : "disabled"}>所属に追加</button>
+    </div>
+  `;
+  editor.querySelectorAll("[data-open-synergy]").forEach((node) => {
+    node.addEventListener("click", () => openSynergy(node.dataset.openSynergy));
+  });
+  editor.querySelectorAll("[data-open-character]").forEach((node) => {
+    node.addEventListener("click", () => openCharacter(node.dataset.openCharacter));
+  });
+  editor.querySelectorAll("[data-remove-member]").forEach((node) => {
+    node.addEventListener("click", () => setMembership(node.dataset.removeMember, name, false));
+  });
+  const rememberText = () => {
+    const record = synergyRecord(name);
+    record.text = document.getElementById("synergy-text").value;
+    synergyTextDrafts[name] = record;
+  };
+  document.getElementById("synergy-text").addEventListener("input", rememberText);
+  document.getElementById("add-tier").addEventListener("click", () => {
+    captureSynergyText();
+    const record = synergyRecord(name);
+    record.tiers.push({ count: "", performance: "" });
+    synergyTextDrafts[name] = record;
+    renderSynergyDetail({ skipCapture: true });
+  });
+  editor.querySelectorAll("[data-remove-tier]").forEach((button) => {
+    button.addEventListener("click", () => {
+      captureSynergyText();
+      const record = synergyRecord(name);
+      record.tiers.splice(Number(button.dataset.removeTier), 1);
+      synergyTextDrafts[name] = record;
+      renderSynergyDetail({ skipCapture: true });
+    });
+  });
+  document.getElementById("save-synergy-text").addEventListener("click", () => saveSynergyText(name));
+  const addButton = document.getElementById("add-member-btn");
+  if (addButton) {
+    addButton.addEventListener("click", () => {
+      const select = document.getElementById("add-member");
+      if (select && select.value) setMembership(select.value, name, true);
+    });
+  }
+  summary.innerHTML = renderSynergySummary(name, members);
+}
+
+function renderSynergySummary(name, members) {
+  const costRows = [1, 2, 3, 4, 5, 6, 7].map((cost) => {
+    const count = members.filter((character) => character.cost === cost).length;
+    return `<dt>コスト${cost}</dt><dd>${count}人</dd>`;
+  }).join("");
+  return `<h2>内訳</h2><p class="meta">${escapeHtml(name)}</p><h3>コスト</h3><dl>${costRows}</dl><h3>攻撃属性</h3><dl>${countTerms(members, (character) => character.attack ? [character.attack] : [])}</dl><h3>得意属性</h3><dl>${countTerms(members, (character) => character.strong)}</dl><h3>苦手属性</h3><dl>${countTerms(members, (character) => character.weak)}</dl>`;
+}
+
+function countTerms(members, pick) {
+  const counts = new Map();
+  members.forEach((character) => {
+    pick(character).forEach((term) => {
+      if (!term) return;
+      counts.set(term, (counts.get(term) || 0) + 1);
+    });
+  });
+  const rows = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"));
+  if (!rows.length) return "<dd>—</dd>";
+  return rows.map(([term, count]) => `<dt>${escapeHtml(term)}</dt><dd>${count}人</dd>`).join("");
+}
+
+async function saveSynergyText(name) {
+  captureSynergyText();
+  const record = synergyRecord(name);
+  const tiers = [];
+  const seen = new Set();
+  for (const tier of record.tiers) {
+    const count = String(tier.count).trim();
+    const performance = tier.performance.trim();
+    if (!count && !performance) continue;
+    if (!count || !performance) {
+      setStatus("段階には人数と性能の両方を書いてください");
+      return;
+    }
+    if (seen.has(count)) {
+      setStatus("同じ人数の段階が重なっています");
+      return;
+    }
+    seen.add(count);
+    tiers.push({ count, performance });
+  }
+  setStatus("保存しています");
+  const response = await fetch("/api/synergy-text", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, text: record.text, tiers }),
+  });
+  if (!response.ok) { setStatus("性能の保存に失敗"); return; }
+  const saved = await response.json();
+  if (saved.text || (saved.tiers && saved.tiers.length)) synergyTexts[saved.name] = { text: saved.text || "", tiers: saved.tiers || [] };
+  else delete synergyTexts[saved.name];
+  delete synergyTextDrafts[saved.name];
+  renderSynergyDetail({ skipCapture: true });
+  setStatus(`${saved.name} の性能を保存しました`);
+}
+
+async function setMembership(characterId, synergyName, include) {
+  syncDraftFromDom();
+  rememberDraft();
+  const source = characters.find((character) => character.id === characterId);
+  if (!source) return;
+  const next = structuredClone(source);
+  const has = next.synergies.includes(synergyName);
+  if (include && !has) next.synergies.push(synergyName);
+  if (!include && has) next.synergies = next.synergies.filter((name) => name !== synergyName);
+  if (include === has) return;
+  setStatus("保存しています");
+  const response = await fetch(`/api/characters/${next.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(next),
+  });
+  if (!response.ok) { setStatus("所属の保存に失敗"); return; }
+  const saved = await response.json();
+  const index = characters.findIndex((character) => character.id === saved.id);
+  if (index >= 0) characters[index] = saved;
+  if (draft && draft.id === saved.id) draft = structuredClone(saved);
+  if (!include && !characters.some((character) => character.synergies.includes(synergyName)) && !extraSynergies.includes(synergyName)) extraSynergies.push(synergyName);
+  renderSynergyFilter();
+  renderSynergyList();
+  renderSynergyDetail();
+  setStatus(`${saved.id} の所属を保存しました`);
+}
+
+document.getElementById("query").addEventListener("input", renderList);
+document.getElementById("synergy-filter").addEventListener("change", renderList);
+document.getElementById("sort-key").addEventListener("change", renderList);
+document.getElementById("sort-dir").addEventListener("change", renderList);
+
+document.getElementById("save-settings").addEventListener("click", async () => {
+  syncSettingsFromDom();
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scales, standards }),
+  });
+  if (!response.ok) { setStatus("倍率と基準の保存に失敗"); return; }
+  const saved = await response.json();
+  scales = saved.scales;
+  standards = saved.standards || {};
+  setStatus("倍率と基準を保存しました");
+});
+
+document.getElementById("save-char").addEventListener("click", async () => {
+  if (!draft) return;
+  syncDraftFromDom();
+  const response = await fetch(`/api/characters/${draft.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(draft),
+  });
+  if (!response.ok) { setStatus("保存に失敗"); return; }
+  const saved = await response.json();
+  const index = characters.findIndex((character) => character.id === saved.id);
+  if (index >= 0) characters[index] = saved;
+  draft = structuredClone(saved);
+  renderList();
+  renderEditor();
+  setStatus(`${saved.id} を保存しました`);
+});
+
+document.getElementById("tab-characters").addEventListener("click", () => showTab("characters"));
+document.getElementById("tab-synergies").addEventListener("click", () => showTab("synergies"));
+document.getElementById("tab-standards").addEventListener("click", () => showTab("standards"));
+document.getElementById("synergy-query").addEventListener("input", renderSynergyList);
+document.getElementById("synergy-sort").addEventListener("change", renderSynergyList);
+document.getElementById("add-synergy").addEventListener("click", () => {
+  const name = document.getElementById("new-synergy").value.trim();
+  if (!name || allSynergies().includes(name)) return;
+  extraSynergies.push(name);
+  document.getElementById("new-synergy").value = "";
+  openSynergy(name);
+});
+
+loadAll().catch(() => setStatus("読み込みに失敗しました"));
+</script>
+</body>
+</html>

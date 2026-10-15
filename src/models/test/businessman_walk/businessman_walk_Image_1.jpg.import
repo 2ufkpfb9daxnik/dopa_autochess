@@ -3,7 +3,7 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cmq5bte3xj3wu"
-path.s3tc="res://.godot/imported/businessman_walk_Image_1.jpg-8e4f9d50f460daac0560036700e5b39a.s3tc.ctex"
+path.s3tc="res://.godot/imported/businessman_walk_Image_1.jpg-55869db94bcd9df90aac989297d6d02b.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -15,7 +15,7 @@ generator_parameters={
 [deps]
 
 source_file="res://models/test/businessman_walk/businessman_walk_Image_1.jpg"
-dest_files=["res://.godot/imported/businessman_walk_Image_1.jpg-8e4f9d50f460daac0560036700e5b39a.s3tc.ctex"]
+dest_files=["res://.godot/imported/businessman_walk_Image_1.jpg-55869db94bcd9df90aac989297d6d02b.s3tc.ctex"]
 
 [params]
 

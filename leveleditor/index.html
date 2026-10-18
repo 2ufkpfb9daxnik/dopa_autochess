@@ -954,8 +954,8 @@ async function saveSynergyText(name) {
     const count = String(tier.count).trim();
     const performance = tier.performance.trim();
     if (!count && !performance) continue;
-    if (!count || !performance) {
-      setStatus("段階には人数と性能の両方を書いてください");
+    if (!count) {
+      setStatus("段階には人数を書いてください");
       return;
     }
     if (seen.has(count)) {

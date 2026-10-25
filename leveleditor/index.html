@@ -80,6 +80,8 @@
   h3 { font-size: 14px; margin: 18px 0 8px; }
   .grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 8px; align-items: center; }
   textarea { width: 100%; min-height: 64px; resize: vertical; }
+  #f-detail { overflow-y: hidden; resize: none; }
+  .grid label:has(+ #f-detail) { align-self: start; padding-top: 4px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -178,7 +180,6 @@
 const STAR_LABELS = ["★1", "★2", "★3", "★4"];
 let characters = [];
 let numericStats = [];
-let textFields = [];
 let totalStats = [];
 const DEFAULT_SCALE = [1, 3.5, 10, 35];
 const RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性"];
@@ -206,7 +207,6 @@ async function loadAll() {
   const settings = await setRes.json();
   characters = payload.characters;
   numericStats = payload.numericStats;
-  textFields = payload.textFields;
   totalStats = payload.totalStats;
   attributes = payload.attributes || attributes;
   scales = settings.scales || {};
@@ -371,9 +371,6 @@ function syncDraftFromDom() {
     if (!draft.attributeMods[name]) draft.attributeMods[name] = { damage: null, resist: null };
     draft.attributeMods[name][key] = numberOrNull(input.value);
   });
-  document.querySelectorAll("[data-text]").forEach((input) => {
-    draft.texts[input.dataset.text] = input.value;
-  });
 }
 
 function valueOf(id) {
@@ -448,12 +445,6 @@ function renderEditor() {
       <thead><tr><th>属性</th><th>ダメージ倍率</th><th>ダメージ耐性</th></tr></thead>
       <tbody>${attributeNames().map((name) => attributeRow(name)).join("")}</tbody>
     </table>
-    <h3>テキスト性能</h3>
-    <div class="grid">${textFields.map((name) => textRow(name)).join("")}</div>
-    <div class="row-actions">
-      <input id="extra-text" placeholder="固有説明の名前">
-      <button id="add-text" type="button">説明を追加</button>
-    </div>
   `;
   editor.querySelectorAll("[data-open-synergy]").forEach((node) => {
     node.addEventListener("click", () => openSynergy(node.dataset.openSynergy));
@@ -465,8 +456,10 @@ function renderEditor() {
       refreshRelations();
       renderCompare();
       renderList();
+      if (node.id === "f-detail") fitDetailHeight();
     });
   });
+  fitDetailHeight();
   document.getElementById("add-stat").addEventListener("click", () => {
     const name = document.getElementById("extra-stat").value.trim();
     if (!name || draft.stats[name]) return;
@@ -474,14 +467,15 @@ function renderEditor() {
     ensureScale(name);
     renderEditor();
   });
-  document.getElementById("add-text").addEventListener("click", () => {
-    const name = document.getElementById("extra-text").value.trim();
-    if (!name || textFields.includes(name)) return;
-    textFields.push(name);
-    draft.texts[name] = "";
-    renderEditor();
-  });
   renderCompare();
+}
+
+function fitDetailHeight() {
+  const node = document.getElementById("f-detail");
+  if (!node) return;
+  node.style.height = "auto";
+  const border = node.offsetHeight - node.clientHeight;
+  node.style.height = `${node.scrollHeight + border}px`;
 }
 
 function statNames() {
@@ -549,15 +543,6 @@ function percentDelta(value) {
 function labeledDelta(prefix, actual, base) {
   const delta = formatDelta(actual, base);
   return delta ? `${prefix} ${delta}` : "";
-}
-
-function textRow(name) {
-  const value = draft.texts[name] || "";
-  const multiline = name !== "着弾方式";
-  const field = multiline
-    ? `<textarea data-text="${escapeAttr(name)}">${escapeHtml(value)}</textarea>`
-    : `<input data-text="${escapeAttr(name)}" value="${escapeAttr(value)}">`;
-  return `<label>${escapeHtml(name)}</label>${field}`;
 }
 
 function refreshDeltas() {

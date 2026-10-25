@@ -36,16 +36,6 @@ NUMERIC_STATS = [
 ]
 RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性"]
 ATTRIBUTES = ["炎", "水", "雷", "土", "氷", "風", "吸収"]
-TEXT_FIELDS = [
-    "着弾方式",
-    "固有ゲージ",
-    "常時効果",
-    "条件付き効果",
-    "非戦闘時の効果",
-    "状態異常",
-    "召喚物",
-    "特殊ターゲット規則",
-]
 STAR_COUNT = 4
 DEFAULT_SCALES = [1.0, 3.5, 10.0, 28.0]
 TOTAL_STATS = ["最大HP", "攻撃力", "速度"]
@@ -106,25 +96,6 @@ def _parse_stats(body: str) -> dict[str, list]:
     return stats
 
 
-def _parse_texts(body: str) -> dict[str, str]:
-    texts = {name: "" for name in TEXT_FIELDS}
-    current = ""
-    chunks: dict[str, list[str]] = {}
-    for line in body.splitlines():
-        heading = re.match(r"^###\s+(.+)$", line)
-        bullet = re.match(r"^-\s+([^:：]+)[:：]\s*(.*)$", line)
-        if heading:
-            current = heading.group(1).strip()
-            chunks.setdefault(current, [])
-        elif bullet and not current:
-            texts[bullet.group(1).strip()] = bullet.group(2).strip()
-        elif current:
-            chunks.setdefault(current, []).append(line)
-    for name, lines in chunks.items():
-        texts[name] = "\n".join(lines).strip()
-    return texts
-
-
 def parse_character(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     head, sections = _section_map(text)
@@ -144,8 +115,6 @@ def parse_character(path: Path) -> dict:
         stats.setdefault(name, [None] * STAR_COUNT)
     for name in RETIRED_STATS:
         stats.pop(name, None)
-    texts = _parse_texts(_find_section(sections, "テキスト性能"))
-    _move_numeric_texts(stats, texts)
     return {
         "id": char_id,
         "name": fields.get("名前", title),
@@ -159,7 +128,6 @@ def parse_character(path: Path) -> dict:
         "flavor": _find_section(sections, "フレーバー").strip(),
         "performance": _find_section(sections, "性能").strip(),
         "stats": stats,
-        "texts": texts,
         "attributeMods": _parse_attribute_mods(_find_section(sections, "属性補正")),
     }
 
@@ -184,18 +152,6 @@ def _parse_attribute_mods(body: str) -> dict[str, dict]:
             continue
         mods[cells[0]] = {"damage": _optional_number(cells[1]), "resist": _optional_number(cells[2])}
     return mods
-
-
-def _move_numeric_texts(stats: dict[str, list], texts: dict[str, str]) -> None:
-    for name in NUMERIC_STATS:
-        raw = texts.pop(name, "").strip()
-        if not raw or any(value is not None for value in stats.get(name, [])):
-            continue
-        try:
-            number = float(raw)
-        except ValueError:
-            continue
-        stats[name][0] = int(number) if number.is_integer() else number
 
 
 def _format_number(value) -> str:
@@ -252,19 +208,6 @@ def render_character(data: dict) -> str:
         cells = [_format_number(values[index] if index < len(values) else None) for index in range(STAR_COUNT)]
         lines.append(f"| {name} | " + " | ".join(cells) + " |")
     lines.extend(_render_attribute_mods(data.get("attributeMods", {})))
-    lines.extend(["", "## テキスト性能", ""])
-    texts = data.get("texts", {})
-    for name in TEXT_FIELDS:
-        if name == "着弾方式":
-            lines.append(f"- {name}: {texts.get(name, '').strip()}")
-    lines.append("")
-    for name in TEXT_FIELDS:
-        if name == "着弾方式":
-            continue
-        lines.extend([f"### {name}", "", texts.get(name, "").strip(), ""])
-    extra_names = [name for name in texts if name not in TEXT_FIELDS and name not in NUMERIC_STATS]
-    for name in extra_names:
-        lines.extend([f"### {name}", "", texts.get(name, "").strip(), ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -538,7 +481,6 @@ class Handler(BaseHTTPRequestHandler):
             payload = {
                 "characters": load_characters(),
                 "numericStats": NUMERIC_STATS,
-                "textFields": TEXT_FIELDS,
                 "totalStats": TOTAL_STATS,
                 "attributes": ATTRIBUTES,
             }

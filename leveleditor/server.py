@@ -32,10 +32,10 @@ NUMERIC_STATS = [
     "ターゲット優先度",
     "クリティカル率",
     "クリティカルダメージ倍率",
-    "攻撃対象数",
 ]
-RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性"]
+RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性", "攻撃対象数"]
 ATTRIBUTES = ["炎", "水", "雷", "土", "氷", "風", "吸収"]
+ACTION_RATES = [("攻撃", "attack"), ("バフ/デバフ", "support"), ("ガード", "guard")]
 STAR_COUNT = 4
 DEFAULT_SCALES = [1.0, 3.5, 10.0, 28.0]
 TOTAL_STATS = ["最大HP", "攻撃力", "速度"]
@@ -126,7 +126,9 @@ def parse_character(path: Path) -> dict:
         "brief": _find_section(sections, "簡単な説明文").strip(),
         "detail": _find_section(sections, "詳細な説明文").strip(),
         "flavor": _find_section(sections, "フレーバー").strip(),
-        "performance": _find_section(sections, "性能").strip(),
+        "buffDebuff": _find_section(sections, "バフ/デバフ").strip(),
+        "buffValues": _parse_buff_values(_find_section(sections, "効果値")),
+        "actionRates": _parse_action_rates(_find_section(sections, "行動割合")),
         "stats": stats,
         "attributeMods": _parse_attribute_mods(_find_section(sections, "属性補正")),
     }
@@ -140,6 +142,59 @@ def _optional_number(cell: str):
     except ValueError:
         return None
     return int(number) if number.is_integer() else number
+
+
+def _parse_buff_values(body: str) -> dict[str, list]:
+    values = _parse_stats(body)
+    values.pop("効果値", None)
+    return values
+
+
+def _render_buff_values(values: dict | None) -> list[str]:
+    if not values:
+        return []
+    lines = [
+        "",
+        "## 効果値",
+        "",
+        "バフまたはデバフが変える数値。単位は%。空欄の★2以降は、その行の星倍率を★1に掛ける。星倍率の設定が無い行は、★1を1、★2を1.2、★3を1.5、★4を1.7として掛ける。欄に書いた値は、その星では倍率を使わない。",
+        "",
+        "| 効果値 | ★1 | ★2 | ★3 | ★4 |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for name, row in values.items():
+        row = row or [None] * STAR_COUNT
+        cells = [_format_number(row[index] if index < len(row) else None) for index in range(STAR_COUNT)]
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    return lines
+
+
+def _parse_action_rates(body: str) -> dict:
+    labels = {label: key for label, key in ACTION_RATES}
+    rates = {key: None for _, key in ACTION_RATES}
+    for line in body.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2 or cells[0] in {"行動", "---"} or set(cells[0]) <= {"-", ":"}:
+            continue
+        key = labels.get(cells[0])
+        if key:
+            rates[key] = _optional_number(cells[1])
+    return rates
+
+
+def _render_action_rates(rates: dict | None) -> list[str]:
+    rates = rates or {}
+    lines = [
+        "## 行動割合",
+        "",
+        "| 行動 | 割合 |",
+        "| --- | ---: |",
+    ]
+    for label, key in ACTION_RATES:
+        lines.append(f"| {label} | {_format_number(rates.get(key))} |")
+    return lines
 
 
 def _parse_attribute_mods(body: str) -> dict[str, dict]:
@@ -187,9 +242,12 @@ def render_character(data: dict) -> str:
         "",
         data.get("flavor", "").strip(),
         "",
-        "## 性能",
+        "## バフ/デバフ",
         "",
-        data.get("performance", "").strip(),
+        data.get("buffDebuff", "").strip(),
+        *_render_buff_values(data.get("buffValues")),
+        "",
+        *_render_action_rates(data.get("actionRates")),
         "",
         "## 各種ステータス",
         "",
@@ -406,7 +464,7 @@ def _clean_standards(raw) -> dict[str, dict]:
             continue
         values = {}
         for name, value in row.items():
-            if value in (None, ""):
+            if str(name) in RETIRED_STATS or value in (None, ""):
                 continue
             try:
                 number = float(value)
@@ -463,6 +521,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send(self, code: int, body: bytes, content_type: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

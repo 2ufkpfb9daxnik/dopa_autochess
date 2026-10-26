@@ -79,9 +79,8 @@
   h2 { font-size: 18px; margin: 0 0 8px; }
   h3 { font-size: 14px; margin: 18px 0 8px; }
   .grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 8px; align-items: center; }
-  textarea { width: 100%; min-height: 64px; resize: vertical; }
-  #f-detail { overflow-y: hidden; resize: none; }
-  .grid label:has(+ #f-detail) { align-self: start; padding-top: 4px; }
+  textarea { width: 100%; min-height: 64px; resize: none; overflow-y: hidden; }
+  .grid label:has(+ textarea) { align-self: start; padding-top: 4px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -120,6 +119,7 @@
     <button id="tab-synergies" type="button">シナジー</button>
     <button id="tab-standards" type="button">基準</button>
   </nav>
+  <button id="reload" type="button">再読み込み</button>
   <button id="save-char" class="primary char-only" type="button">このキャラを保存</button>
   <span id="status"></span>
 </header>
@@ -182,7 +182,8 @@ let characters = [];
 let numericStats = [];
 let totalStats = [];
 const DEFAULT_SCALE = [1, 3.5, 10, 35];
-const RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性"];
+const BUFF_DEFAULT_SCALE = [1, 1.2, 1.5, 1.7];
+const RETIRED_STATS = ["属性ダメージ倍率", "属性ダメージ耐性", "攻撃対象数"];
 let scales = {};
 let standards = {};
 let attributes = ["炎", "水", "雷", "土", "氷", "風", "吸収"];
@@ -199,9 +200,9 @@ function setStatus(text) { statusEl.textContent = text; }
 
 async function loadAll() {
   const [charRes, setRes, textRes] = await Promise.all([
-    fetch("/api/characters"),
-    fetch("/api/settings"),
-    fetch("/api/synergy-text"),
+    fetch("/api/characters", { cache: "no-store" }),
+    fetch("/api/settings", { cache: "no-store" }),
+    fetch("/api/synergy-text", { cache: "no-store" }),
   ]);
   const payload = await charRes.json();
   const settings = await setRes.json();
@@ -345,6 +346,8 @@ function select(id) {
   const source = characters.find((character) => character.id === id);
   draft = source ? structuredClone(source) : null;
   if (draft && !draft.attributeMods) draft.attributeMods = {};
+  if (draft && !draft.actionRates) draft.actionRates = { attack: null, support: null, guard: null };
+  if (draft && !draft.buffValues) draft.buffValues = {};
   renderList();
   renderEditor();
 }
@@ -359,7 +362,17 @@ function syncDraftFromDom() {
   draft.brief = valueOf("f-brief");
   draft.detail = valueOf("f-detail");
   draft.flavor = valueOf("f-flavor");
-  draft.performance = valueOf("f-performance");
+  draft.buffDebuff = valueOf("f-buff");
+  if (!draft.buffValues) draft.buffValues = {};
+  document.querySelectorAll("[data-buff]").forEach((input) => {
+    const [name, index] = input.dataset.buff.split("|");
+    if (!draft.buffValues[name]) draft.buffValues[name] = [null, null, null, null];
+    draft.buffValues[name][Number(index)] = numberOrNull(input.value);
+  });
+  if (!draft.actionRates) draft.actionRates = {};
+  draft.actionRates.attack = numberOrNull(valueOf("f-rate-attack"));
+  draft.actionRates.support = numberOrNull(valueOf("f-rate-support"));
+  draft.actionRates.guard = numberOrNull(valueOf("f-rate-guard"));
   document.querySelectorAll("[data-stat]").forEach((input) => {
     const [name, index] = input.dataset.stat.split("|");
     if (!draft.stats[name]) draft.stats[name] = [null, null, null, null];
@@ -392,6 +405,11 @@ function formatDelta(actual, base) {
 
 function round(value) {
   return Math.round(value * 100) / 100;
+}
+
+function rateValue(key) {
+  const value = draft && draft.actionRates ? draft.actionRates[key] : null;
+  return value === null || value === undefined ? "" : value;
 }
 
 function costAverage(name) {
@@ -427,7 +445,24 @@ function renderEditor() {
       <label>簡単な説明</label><textarea id="f-brief">${escapeHtml(draft.brief)}</textarea>
       <label>詳細</label><textarea id="f-detail">${escapeHtml(draft.detail)}</textarea>
       <label>フレーバー</label><textarea id="f-flavor">${escapeHtml(draft.flavor)}</textarea>
-      <label>性能</label><textarea id="f-performance">${escapeHtml(draft.performance)}</textarea>
+      <label>バフ/デバフ</label><textarea id="f-buff" placeholder="バフかデバフか。やる場合は、特に強化または弱化するステータス。">${escapeHtml(draft.buffDebuff || "")}</textarea>
+    </div>
+    <h3>効果値</h3>
+    <p class="meta">バフまたはデバフが変える数値。単位は%。★2以降の空欄は、★1 × その行の星倍率です。星倍率の設定が無い行は、1、1.2、1.5、1.7 です。欄に入れた値は、その星では倍率を使いません。</p>
+    <table>
+      <thead><tr><th>効果値</th>${STAR_LABELS.map((label) => `<th>${label}</th>`).join("")}</tr></thead>
+      <tbody>${buffValueNames().map((name) => buffValueRow(name)).join("")}</tbody>
+    </table>
+    <div class="row-actions">
+      <input id="extra-buff-value" placeholder="効果値の名前">
+      <button id="add-buff-value" type="button">効果値を追加</button>
+    </div>
+    <h3>行動割合</h3>
+    <p class="meta">攻撃、バフまたはデバフ、ガード。合計10の整数で、行動のたびにその整数を10で割った確率で1つ選ぶ。0はその行動を選ばない。</p>
+    <div class="grid">
+      <label>攻撃</label><input id="f-rate-attack" type="number" step="any" value="${rateValue("attack")}">
+      <label>バフ/デバフ</label><input id="f-rate-support" type="number" step="any" value="${rateValue("support")}">
+      <label>ガード</label><input id="f-rate-guard" type="number" step="any" value="${rateValue("guard")}">
     </div>
     <h3>ステータス</h3>
     <p class="meta">★2以降の空欄は、★1 × そのステータスの星倍率です。欄の下は、星倍率との差と、コスト帯の基準との差です。</p>
@@ -456,10 +491,10 @@ function renderEditor() {
       refreshRelations();
       renderCompare();
       renderList();
-      if (node.id === "f-detail") fitDetailHeight();
+      if (node.tagName === "TEXTAREA") fitTextHeight(node);
     });
   });
-  fitDetailHeight();
+  fitTextHeights(editor);
   document.getElementById("add-stat").addEventListener("click", () => {
     const name = document.getElementById("extra-stat").value.trim();
     if (!name || draft.stats[name]) return;
@@ -467,15 +502,59 @@ function renderEditor() {
     ensureScale(name);
     renderEditor();
   });
+  document.getElementById("add-buff-value").addEventListener("click", () => {
+    const name = document.getElementById("extra-buff-value").value.trim();
+    if (!name || (draft.buffValues || {})[name]) return;
+    if (!draft.buffValues) draft.buffValues = {};
+    draft.buffValues[name] = [null, null, null, null];
+    renderEditor();
+  });
   renderCompare();
 }
 
-function fitDetailHeight() {
-  const node = document.getElementById("f-detail");
-  if (!node) return;
+function fitTextHeight(node) {
+  if (!node || node.tagName !== "TEXTAREA") return;
   node.style.height = "auto";
   const border = node.offsetHeight - node.clientHeight;
   node.style.height = `${node.scrollHeight + border}px`;
+}
+
+function fitTextHeights(root) {
+  if (!root) return;
+  root.querySelectorAll("textarea").forEach(fitTextHeight);
+}
+
+function buffValueNames() {
+  return Object.keys(draft.buffValues || {});
+}
+
+function buffScaleAt(name, index) {
+  const row = scales && scales[name];
+  if (Array.isArray(row) && index < row.length) {
+    const value = Number(row[index]);
+    if (Number.isFinite(value)) return value;
+  }
+  return BUFF_DEFAULT_SCALE[index];
+}
+
+function expectedBuffValue(name, starIndex) {
+  const base = starValue(draft.buffValues, name, 0);
+  const origin = buffScaleAt(name, 0);
+  if (base === null || !origin) return null;
+  return base * buffScaleAt(name, starIndex) / origin;
+}
+
+function buffValueRow(name) {
+  const cells = [0, 1, 2, 3].map((index) => {
+    const actual = starValue(draft.buffValues, name, index);
+    const expected = index === 0 ? null : expectedBuffValue(name, index);
+    const placeholder = expected === null ? "" : `星 ${round(expected)}`;
+    const starDelta = index === 0 ? "" : formatDelta(actual, expected);
+    const starKlass = starDelta.startsWith("+") ? "plus" : starDelta.startsWith("-") ? "minus" : "";
+    const starText = starDelta ? `星 ${starDelta}` : "";
+    return `<td><input data-buff="${escapeAttr(name)}|${index}" type="number" step="any" value="${actual === null ? "" : actual}" placeholder="${escapeAttr(placeholder)}"><span class="delta ${starKlass}" data-buff-delta="${escapeAttr(name)}|${index}">${starText}</span></td>`;
+  }).join("");
+  return `<tr><th class="stat-name">${escapeHtml(name)}</th>${cells}</tr>`;
 }
 
 function statNames() {
@@ -564,6 +643,13 @@ function refreshDeltas() {
   document.querySelectorAll("[data-attr-delta]").forEach((node) => {
     const [name, key] = node.dataset.attrDelta.split("|");
     node.textContent = percentDelta(attributeValue(name, key));
+  });
+  document.querySelectorAll("[data-buff-delta]").forEach((node) => {
+    const [name, indexText] = node.dataset.buffDelta.split("|");
+    const index = Number(indexText);
+    const delta = index === 0 ? "" : formatDelta(starValue(draft.buffValues, name, index), expectedBuffValue(name, index));
+    node.textContent = delta ? `星 ${delta}` : "";
+    node.className = "delta" + (delta.startsWith("+") ? " plus" : delta.startsWith("-") ? " minus" : "");
   });
 }
 
@@ -881,7 +967,11 @@ function renderSynergyDetail(renderOptions = {}) {
     record.text = document.getElementById("synergy-text").value;
     synergyTextDrafts[name] = record;
   };
-  document.getElementById("synergy-text").addEventListener("input", rememberText);
+  document.getElementById("synergy-text").addEventListener("input", () => {
+    rememberText();
+    fitTextHeight(document.getElementById("synergy-text"));
+  });
+  fitTextHeight(document.getElementById("synergy-text"));
   document.getElementById("add-tier").addEventListener("click", () => {
     captureSynergyText();
     const record = synergyRecord(name);
@@ -1010,6 +1100,30 @@ document.getElementById("save-settings").addEventListener("click", async () => {
   scales = saved.scales;
   standards = saved.standards || {};
   setStatus("倍率と基準を保存しました");
+});
+
+document.getElementById("reload").addEventListener("click", async () => {
+  const list = document.getElementById("list");
+  const synergyList = document.getElementById("synergy-list");
+  const editor = document.getElementById("editor");
+  const listScroll = list.scrollTop;
+  const synergyScroll = synergyList.scrollTop;
+  const editorScroll = editor.scrollTop;
+  try {
+    await loadAll();
+    if (mode === "synergies") {
+      renderSynergyList();
+      renderSynergyDetail();
+    } else if (mode === "standards") {
+      renderStandardEditor();
+    }
+    list.scrollTop = listScroll;
+    synergyList.scrollTop = synergyScroll;
+    editor.scrollTop = editorScroll;
+    setStatus("再読み込みしました");
+  } catch (error) {
+    setStatus("再読み込みに失敗しました");
+  }
 });
 
 document.getElementById("save-char").addEventListener("click", async () => {

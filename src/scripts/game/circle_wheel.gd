@@ -10,6 +10,7 @@ signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_move_requested(from_slot: int, to_slot: int)
 
 const PLACEHOLDER_TEXTURE := preload("res://images/placeholder.png")
+const RIM_GRAB := 40.0
 const _MODE_NONE := 0
 const _MODE_ROTATE := 1
 const _MODE_UNIT := 2
@@ -93,8 +94,8 @@ func _layout_chrome() -> void:
 	_center_label.size = Vector2(inner * 1.7, inner * 1.15)
 	_center_label.position = _center() - _center_label.size * 0.5
 	var button_size := Vector2(46, 46)
-	_ccw_button.position = _center() + Vector2(cos(-PI * 0.75), sin(-PI * 0.75)) * (_outer_radius() + 24.0) - button_size * 0.5
-	_cw_button.position = _center() + Vector2(cos(-PI * 0.25), sin(-PI * 0.25)) * (_outer_radius() + 24.0) - button_size * 0.5
+	_ccw_button.position = _clamp_button(_center() + Vector2(cos(-PI * 0.75), sin(-PI * 0.75)) * (_outer_radius() + 24.0) - button_size * 0.5, button_size)
+	_cw_button.position = _clamp_button(_center() + Vector2(cos(-PI * 0.25), sin(-PI * 0.25)) * (_outer_radius() + 24.0) - button_size * 0.5, button_size)
 	_ccw_button.size = button_size
 	_cw_button.size = button_size
 
@@ -119,8 +120,6 @@ func _begin_press(mouse_button: InputEventMouseButton) -> void:
 		accept_event()
 		return
 	var slot := _slot_at(mouse_button.position)
-	if slot < 0 and not _is_ring(mouse_button.position):
-		return
 	_pressing = true
 	_press_slot = slot
 	_press_pos = mouse_button.position
@@ -170,15 +169,14 @@ func _draw() -> void:
 	var outer := _outer_radius()
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		draw_colored_polygon(_wedge_polygon(_slot_center_angle(slot_index)), _slot_fill(slot_index))
+	for slot_index in BoardController.SLOTS_PER_FACE:
+		_draw_slot_portrait(slot_index)
 	draw_arc(center, inner, 0.0, TAU, 48, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_arc(center, outer, 0.0, TAU, 64, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_circle(center, inner - 3.0, Color(0.1, 0.11, 0.14, 0.96))
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_number(slot_index)
 		_draw_slot_label(slot_index)
-	var font := ThemeDB.fallback_font
-	draw_string(font, center + Vector2(-28.0, -outer - 6.0), "前衛", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.86, 0.9, 0.96))
-	draw_string(font, center + Vector2(-28.0, outer + 18.0), "後衛", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.75, 0.72, 0.68))
 
 
 func _slot_fill(slot_index: int) -> Color:
@@ -212,6 +210,24 @@ func _draw_slot_number(slot_index: int) -> void:
 	draw_string(font, pos + Vector2(-18.0, font_size * 0.35), str(int(slot.get("number", slot_index + 1))), HORIZONTAL_ALIGNMENT_CENTER, 36.0, font_size, color)
 
 
+func _draw_slot_portrait(slot_index: int) -> void:
+	if slot_index >= _view_slots.size():
+		return
+	var slot: Dictionary = _view_slots[slot_index]
+	if not bool(slot.get("occupied", false)) and not bool(slot.get("fallback", false)):
+		return
+	var points := _wedge_polygon(_slot_center_angle(slot_index))
+	var bounds := _polygon_bounds(points)
+	var cover := _cover_rect(bounds, PLACEHOLDER_TEXTURE)
+	var modulate := Color(1, 1, 1, 0.45) if bool(slot.get("fallback", false)) else Color.WHITE
+	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
+	for point in points:
+		colors.append(modulate)
+		uvs.append(Vector2((point.x - cover.position.x) / cover.size.x, (point.y - cover.position.y) / cover.size.y))
+	draw_polygon(points, colors, uvs, PLACEHOLDER_TEXTURE)
+
+
 func _draw_slot_label(slot_index: int) -> void:
 	if slot_index >= _view_slots.size():
 		return
@@ -221,36 +237,66 @@ func _draw_slot_label(slot_index: int) -> void:
 	if not occupied and not fallback:
 		return
 	var angle := _slot_center_angle(slot_index)
-	var radius := (_inner_radius() + _outer_radius()) * 0.5
-	var pos := _center() + Vector2(cos(angle), sin(angle)) * radius
+	var pos := _center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + _outer_radius()) * 0.5
 	var band := _outer_radius() - _inner_radius()
-	var icon_h := clampf(band * 0.58, 28.0, 72.0)
-	var icon_w := icon_h * 0.86
-	var icon_rect := Rect2(pos - Vector2(icon_w * 0.5, icon_h * 0.62), Vector2(icon_w, icon_h))
-	var icon_color := Color(1, 1, 1, 0.45) if fallback else Color.WHITE
-	draw_texture_rect(PLACEHOLDER_TEXTURE, icon_rect, false, icon_color)
+	var font := ThemeDB.fallback_font
 	var cost := int(slot.get("cost", 0))
 	if cost > 0:
-		draw_rect(icon_rect, CostColors.get_color(cost), false, 2.0)
-	var text := "%s %s" % [slot.get("name", ""), slot.get("stars", "")]
+		var outline := _wedge_polygon(angle)
+		outline.append(outline[0])
+		draw_polyline(outline, CostColors.get_color(cost), 2.0, true)
+	var name := str(slot.get("name", ""))
 	if fallback:
-		text = "補 %s %s" % [slot.get("name", ""), slot.get("stars", "")]
-	var on_blue := _on_blue(slot_index)
-	var color := Color(1, 1, 1, 0.75) if fallback else Color.WHITE
-	if not on_blue and not fallback:
-		color = Color(0.08, 0.1, 0.16)
-	var font := ThemeDB.fallback_font
-	draw_string(font, icon_rect.position + Vector2(-6.0, icon_rect.size.y + 14.0), text, HORIZONTAL_ALIGNMENT_CENTER, icon_rect.size.x + 12.0, 12, color)
-	var number_color := Color(0.97, 0.98, 1.0) if on_blue else Color(0.12, 0.22, 0.4)
-	draw_string(
-		font,
-		icon_rect.position + Vector2(-2.0, 14.0),
-		str(int(slot.get("number", slot_index + 1))),
-		HORIZONTAL_ALIGNMENT_LEFT,
-		24.0,
-		14,
-		number_color
-	)
+		name = "補 %s" % name
+	var name_width := band * 0.72
+	var name_pos := _clamp_to_wedge(pos + Vector2(-name_width * 0.35, band * 0.28), slot_index)
+	_draw_outlined_string(font, name_pos, name, HORIZONTAL_ALIGNMENT_LEFT, name_width, 13, Color.WHITE)
+	var stars := str(slot.get("stars", ""))
+	if not stars.is_empty():
+		var star_pos := _clamp_to_wedge(pos + Vector2(band * 0.16, -4.0), slot_index)
+		_draw_outlined_string(font, star_pos, stars, HORIZONTAL_ALIGNMENT_LEFT, band * 0.4, 15, Color(1, 0.92, 0.45))
+	var number_pos := _clamp_to_wedge(_center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + 18.0) + Vector2(-10.0, 0.0), slot_index)
+	_draw_outlined_string(font, number_pos, str(int(slot.get("number", slot_index + 1))), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0))
+
+
+func _cover_rect(bounds: Rect2, texture: Texture2D) -> Rect2:
+	var tex_size := texture.get_size()
+	var aspect := tex_size.x / maxf(1.0, tex_size.y)
+	var target := Vector2(bounds.size.x, bounds.size.y * 1.08)
+	var cover := target
+	if cover.x / maxf(1.0, cover.y) > aspect:
+		cover.y = cover.x / aspect
+	else:
+		cover.x = cover.y * aspect
+	if cover.x < target.x:
+		cover *= target.x / cover.x
+	if cover.y < target.y:
+		cover *= target.y / cover.y
+	return Rect2(bounds.get_center() - cover * 0.5, cover)
+
+
+func _polygon_bounds(points: PackedVector2Array) -> Rect2:
+	var bounds := Rect2(points[0], Vector2.ZERO)
+	for point in points:
+		bounds = bounds.expand(point)
+	return bounds
+
+
+func _clamp_to_wedge(point: Vector2, slot_index: int) -> Vector2:
+	var delta := point - _center()
+	var dist := clampf(delta.length(), _inner_radius() + 12.0, _outer_radius() - 12.0)
+	var angle := _slot_center_angle(slot_index)
+	var point_angle := angle if delta.length() <= 1.0 else atan2(delta.y, delta.x)
+	var limit := TAU / 12.0 - 0.16
+	var delta_angle := clampf(wrapf(point_angle - angle, -PI, PI), -limit, limit)
+	return _center() + Vector2(cos(angle + delta_angle), sin(angle + delta_angle)) * dist
+
+
+func _draw_outlined_string(font: Font, pos: Vector2, text: String, alignment: HorizontalAlignment, width: float, font_size: int, color: Color) -> void:
+	var shadow := Color(0, 0, 0, 0.9)
+	for offset in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+		draw_string(font, pos + offset, text, alignment, width, font_size, shadow)
+	draw_string(font, pos, text, alignment, width, font_size, color)
 
 
 func _has_point(point: Vector2) -> bool:
@@ -258,7 +304,7 @@ func _has_point(point: Vector2) -> bool:
 		return true
 	if _cw_button != null and _cw_button.get_rect().grow(4.0).has_point(point):
 		return true
-	return point.distance_to(_center()) <= _outer_radius() + 8.0
+	return point.distance_to(_center()) <= _outer_radius() + RIM_GRAB
 
 
 func _center() -> Vector2:
@@ -266,7 +312,14 @@ func _center() -> Vector2:
 
 
 func _outer_radius() -> float:
-	return maxf(48.0, minf(size.x, size.y) * 0.5 - 50.0)
+	return maxf(48.0, minf(size.x, size.y) * 0.5 - RIM_GRAB)
+
+
+func _clamp_button(pos: Vector2, button_size: Vector2) -> Vector2:
+	return Vector2(
+		clampf(pos.x, 0.0, maxf(0.0, size.x - button_size.x)),
+		clampf(pos.y, 0.0, maxf(0.0, size.y - button_size.y))
+	)
 
 
 func _inner_radius() -> float:

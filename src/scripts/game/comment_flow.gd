@@ -4,13 +4,40 @@ extends Control
 const FONT_SIZE := 22
 const LANE_HEIGHT := 30.0
 const SPEED := 170.0
+const _MASK_SHADER := """
+shader_type canvas_item;
+uniform vec4 hole;
+varying vec2 canvas_position;
+
+void vertex() {
+	canvas_position = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+}
+
+void fragment() {
+	if (canvas_position.x >= hole.x && canvas_position.x <= hole.x + hole.z && canvas_position.y >= hole.y && canvas_position.y <= hole.y + hole.w) {
+		discard;
+	}
+}
+"""
 
 var _pending: Array[String] = []
+var _mask: ShaderMaterial
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	clip_contents = true
+	var shader := Shader.new()
+	shader.code = _MASK_SHADER
+	_mask = ShaderMaterial.new()
+	_mask.shader = shader
+	set_hole(Rect2())
+
+
+func set_hole(rect: Rect2) -> void:
+	if _mask == null:
+		return
+	_mask.set_shader_parameter("hole", Vector4(rect.position.x, rect.position.y, rect.size.x, rect.size.y))
 
 
 func push(text: String) -> void:
@@ -56,6 +83,7 @@ func _spawn(text: String) -> void:
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
 	label.add_theme_constant_override("outline_size", 8)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.material = _mask
 	add_child(label)
 	label.reset_size()
 	var text_size := label.get_minimum_size()

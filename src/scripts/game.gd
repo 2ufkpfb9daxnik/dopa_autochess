@@ -19,7 +19,29 @@ const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
 const HUD_BADGE_MARGIN_X := 8.0
 const BATTLE_COLUMN_WIDTH := 640.0
 const SHOP_SLOT_LAYOUT_WIDTH := 112.0
-const BATTLE_BACKGROUND_DIR := "res://images/backgrounds"
+const BATTLE_BACKGROUND_DIR := "res://images/backgrounds/battle"
+const UI_BACKGROUND_PATH := "res://images/ui/background.png"
+const SHOP_FRAME_ASPECT := 1024.0 / 1536.0
+const SHOP_HOVER_SCALE := 2.1
+const BATTLE_EDGE_FEATHER := 48.0
+const _BATTLE_EDGE_SHADER := """
+shader_type canvas_item;
+uniform vec2 rect_size;
+uniform float feather;
+varying vec2 local_position;
+
+void vertex() {
+	local_position = VERTEX;
+}
+
+void fragment() {
+	vec4 tex = texture(TEXTURE, UV);
+	float edge = min(local_position.x, rect_size.x - local_position.x);
+	edge = min(edge, rect_size.y - local_position.y);
+	tex.a *= smoothstep(0.0, max(feather, 0.001), edge);
+	COLOR = tex;
+}
+"""
 
 const LOG_COLLAPSED_TOP := 56.0
 const LOG_COLLAPSED_BOTTOM := 280.0
@@ -43,9 +65,8 @@ var _comment_flow: CommentFlow
 var _battle_viewport: SubViewportContainer
 var _battle_background: TextureRect
 var _battle_background_path := ""
+var _ui_background: TextureRect
 var _foot_shadow_layer: FootShadowLayer
-var _screen_divider: ColorRect
-var _shop_divider: ColorRect
 var _log_column_rect := Rect2()
 var _log_body_rect := Rect2()
 var _drag_preview: Control
@@ -59,6 +80,13 @@ var _battle_rect := Rect2()
 var _split_x := 0.0
 var _battle_world: SubViewport
 var _shop_slot_size := Vector2(SHOP_SLOT_WIDTH, SHOP_SLOT_HEIGHT)
+var _shop_zoomed := false
+var _shop_display_scale := 1.0
+var _shop_rest_origin := Vector2.ZERO
+var _shop_rest_size := Vector2.ZERO
+var _shop_zoom_tween: Tween
+var _hover_tip: PanelContainer
+var _hover_tip_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 @onready var board: BoardController = $Board
@@ -174,8 +202,10 @@ func _ready() -> void:
 func _setup_shop_slots() -> void:
 	var grid := GridContainer.new()
 	grid.columns = SHOP_COLUMNS
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var parent := shop_slots.get_parent()
 	var slot_index := shop_slots.get_index()
 	parent.add_child(grid)
@@ -275,6 +305,10 @@ func _mount_side_controls() -> void:
 	coin_label.add_theme_font_size_override("font_size", 14)
 	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_lock_button.custom_minimum_size = Vector2(0, 32)
+	if exp_button.get_parent() != exp_box:
+		exp_button.get_parent().remove_child(exp_button)
+		exp_box.add_child(exp_button)
+	exp_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	action_column.add_child(shop_odds_badge)
 	action_column.add_child(shop_lock_button)
 	var status_badges: Array[PanelContainer] = [round_badge, hp_badge, streak_badge]
@@ -304,7 +338,6 @@ func _mount_side_controls() -> void:
 		round_badge,
 		hp_badge,
 		streak_badge,
-		exp_button,
 		reroll_button,
 		battle_button,
 		back_button,
@@ -318,6 +351,63 @@ func _mount_side_controls() -> void:
 	action_column.mouse_filter = Control.MOUSE_FILTER_STOP
 	action_column.z_index = 6
 	action_column.alignment = BoxContainer.ALIGNMENT_BEGIN
+	_setup_column_hover_tips()
+
+
+func _setup_column_hover_tips() -> void:
+	_hover_tip = PanelContainer.new()
+	_hover_tip.visible = false
+	_hover_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_tip.z_index = 40
+	_apply_hud_badge_style(_hover_tip)
+	_hover_tip_label = Label.new()
+	_hover_tip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hover_tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hover_tip_label.custom_minimum_size = Vector2(240, 0)
+	_hover_tip_label.add_theme_font_size_override("font_size", 14)
+	_hover_tip_label.add_theme_color_override("font_color", Color(0.95, 0.94, 0.9))
+	_hover_tip.add_child(_hover_tip_label)
+	($CanvasLayer/UI as Control).add_child(_hover_tip)
+	_bind_hover_tip(hp_badge, "0になったらゲームオーバー。")
+	_bind_hover_tip(exp_button, "経験値があがり、レベルが上がるとサークルに置くことができるキャラクターの数が増える。")
+	_bind_hover_tip(reroll_button, "ショップを更新する。")
+
+
+func _bind_hover_tip(control: Control, text: String) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_STOP
+	for child in control.get_children():
+		if child is Control and child != exp_button:
+			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	control.mouse_entered.connect(func() -> void: _show_hover_tip(control, text))
+	control.mouse_exited.connect(_hide_hover_tip)
+
+
+func _show_hover_tip(anchor: Control, text: String) -> void:
+	if _hover_tip == null:
+		return
+	_hover_tip_label.text = text
+	_hover_tip.visible = true
+	_hover_tip.reset_size()
+	var content_size := _hover_tip_label.get_minimum_size()
+	var margins := _get_panel_content_margins(_hover_tip)
+	var fitted := content_size + Vector2(margins.x + margins.z, margins.y + margins.w)
+	fitted.x = maxf(fitted.x, 240.0)
+	_hover_tip.custom_minimum_size = fitted
+	_hover_tip.size = fitted
+	var anchor_rect := anchor.get_global_rect()
+	var viewport_size := get_viewport().get_visible_rect().size
+	var x := anchor_rect.position.x - fitted.x - 8.0
+	var y := anchor_rect.get_center().y - fitted.y * 0.5
+	if x < 8.0:
+		x = anchor_rect.end.x + 8.0
+	x = clampf(x, 8.0, maxf(8.0, viewport_size.x - fitted.x - 8.0))
+	y = clampf(y, 8.0, maxf(8.0, viewport_size.y - fitted.y - 8.0))
+	_hover_tip.global_position = Vector2(x, y)
+
+
+func _hide_hover_tip() -> void:
+	if _hover_tip != null:
+		_hover_tip.visible = false
 
 
 func _setup_shop_odds_table() -> void:
@@ -987,18 +1077,32 @@ func _mount_battle_viewport() -> void:
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(background)
 	layer.move_child(background, 0)
+	_ui_background = TextureRect.new()
+	_ui_background.name = "UiBackground"
+	_ui_background.texture = load(UI_BACKGROUND_PATH)
+	_ui_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_ui_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	_ui_background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(_ui_background)
+	layer.move_child(_ui_background, 1)
 	_battle_background = TextureRect.new()
 	_battle_background.name = "BattleBackground"
 	_battle_background.texture = _pick_random_background_texture()
 	_battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_battle_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var edge_shader := Shader.new()
+	edge_shader.code = _BATTLE_EDGE_SHADER
+	var edge_material := ShaderMaterial.new()
+	edge_material.shader = edge_shader
+	_battle_background.material = edge_material
 	layer.add_child(_battle_background)
-	layer.move_child(_battle_background, 1)
+	layer.move_child(_battle_background, 2)
 	_foot_shadow_layer = FootShadowLayer.new()
 	_foot_shadow_layer.setup(camera, units_root)
 	layer.add_child(_foot_shadow_layer)
-	layer.move_child(_foot_shadow_layer, 2)
+	layer.move_child(_foot_shadow_layer, 3)
 	_battle_viewport = SubViewportContainer.new()
 	_battle_viewport.name = "BattleViewport"
 	_battle_viewport.stretch = true
@@ -1006,7 +1110,7 @@ func _mount_battle_viewport() -> void:
 	_battle_viewport.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_battle_viewport.offset_bottom = _battle_view_height
 	layer.add_child(_battle_viewport)
-	layer.move_child(_battle_viewport, 3)
+	layer.move_child(_battle_viewport, 4)
 	var viewport := SubViewport.new()
 	viewport.name = "BattleWorld"
 	viewport.own_world_3d = true
@@ -1034,16 +1138,6 @@ func _mount_battle_viewport() -> void:
 	$DirectionalLight3D.reparent(viewport)
 	board.reparent(viewport)
 	units_root.reparent(viewport)
-	_screen_divider = ColorRect.new()
-	_screen_divider.color = Color(0.86, 0.74, 0.38)
-	_screen_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_screen_divider.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	layer.add_child(_screen_divider)
-	layer.move_child(_screen_divider, 4)
-	_shop_divider = ColorRect.new()
-	_shop_divider.color = _screen_divider.color
-	_shop_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(_shop_divider)
 
 
 func _setup_formation_ui() -> void:
@@ -1136,18 +1230,20 @@ func _layout_formation_ui() -> void:
 	_split_x = shop_x - 8.0
 	_log_column_rect = Rect2(log_x, top, log_w, bottom - top)
 	_battle_rect = Rect2(battle_x, top, battle_w, _battle_view_height)
+	_place_ui_background(viewport_size)
 	_place_battle_background()
 	_place_control(_battle_viewport, _battle_rect)
 	if _foot_shadow_layer != null:
 		_place_control(_foot_shadow_layer, _battle_rect)
 	if _battle_world != null:
 		_battle_world.size = Vector2i(maxi(8, int(_battle_rect.size.x)), maxi(8, int(_battle_rect.size.y)))
-	_place_column_divider(_screen_divider, battle_x - 4.0, top, bottom)
-	_place_column_divider(_shop_divider, shop_x - 4.0, top, bottom)
-	var circle_top := _battle_rect.end.y + 8.0
-	var circle_band := maxf(120.0, viewport_size.y - 8.0 - circle_top)
-	var wheel_size := minf(battle_w, circle_band)
-	_circle_wheel.position = Vector2(battle_x + (battle_w - wheel_size) * 0.5, circle_top + (circle_band - wheel_size) * 0.5)
+	var circle_top := _battle_rect.end.y + 4.0
+	var circle_bottom := viewport_size.y - 2.0
+	var diameter := minf(battle_w, maxf(96.0, circle_bottom - circle_top))
+	var wheel_size := diameter + CircleWheel.RIM_GRAB * 2.0
+	var wheel_center := Vector2(battle_x + battle_w * 0.5, circle_bottom - diameter * 0.5)
+	_circle_wheel.z_index = 9
+	_circle_wheel.position = wheel_center - Vector2(wheel_size, wheel_size) * 0.5
 	_circle_wheel.size = Vector2(wheel_size, wheel_size)
 	var right_x := shop_x
 	var right_bottom := bottom
@@ -1205,17 +1301,15 @@ func _layout_log_column() -> void:
 
 
 func _layout_comment_flow() -> void:
-	if _comment_flow == null or _battle_rect.size.x <= 1.0:
+	if _comment_flow == null:
 		return
-	var top_clear := 8.0
-	var rect := Rect2(
-		_battle_rect.position.x,
-		_battle_rect.position.y + top_clear,
-		_battle_rect.size.x,
-		maxf(48.0, _battle_rect.size.y - top_clear - 8.0)
-	)
-	_comment_flow.z_index = 12
-	_place_control(_comment_flow, rect)
+	var viewport_size := get_viewport().get_visible_rect().size
+	_comment_flow.z_index = 80
+	_place_control(_comment_flow, Rect2(Vector2.ZERO, viewport_size))
+	var hole := _battle_rect
+	if _battle_viewport != null:
+		hole = _battle_viewport.get_global_rect()
+	_comment_flow.set_hole(hole)
 
 
 func _reroll_battle_background() -> void:
@@ -1258,6 +1352,12 @@ func _battle_column_width(span_height: float) -> float:
 	return span_height * tex_size.x / tex_size.y
 
 
+func _place_ui_background(viewport_size: Vector2) -> void:
+	if _ui_background == null:
+		return
+	_place_control(_ui_background, Rect2(Vector2.ZERO, viewport_size))
+
+
 func _place_battle_background() -> void:
 	if _battle_background == null or _battle_background.texture == null:
 		return
@@ -1271,16 +1371,11 @@ func _place_battle_background() -> void:
 	var origin := Vector2(_battle_rect.position.x + (_battle_rect.size.x - drawn.x) * 0.5, 0.0)
 	_battle_background.stretch_mode = TextureRect.STRETCH_SCALE
 	_place_control(_battle_background, Rect2(origin, drawn))
-
-
-func _place_column_divider(divider: ColorRect, center_x: float, top: float, bottom: float) -> void:
-	if divider == null:
+	var edge := _battle_background.material as ShaderMaterial
+	if edge == null:
 		return
-	divider.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	divider.offset_left = center_x - 1.0
-	divider.offset_right = center_x + 1.0
-	divider.offset_top = top
-	divider.offset_bottom = bottom
+	edge.set_shader_parameter("rect_size", drawn)
+	edge.set_shader_parameter("feather", BATTLE_EDGE_FEATHER)
 
 
 func _place_control(control: Control, rect: Rect2) -> void:
@@ -1318,15 +1413,36 @@ func _place_side_column(column_x: float) -> void:
 	action_column.size = Vector2(_action_column_width, maxf(column_h, 1.0))
 
 
+func _process(_delta: float) -> void:
+	_update_shop_hover()
+
+
 func _place_shop(area: Rect2) -> void:
 	var shop_h := maxf(80.0, area.size.y)
-	var slot_w := clampf((area.size.x - 16.0) / float(SHOP_COLUMNS), 72.0, 150.0)
-	var slot_h := clampf((shop_h - 8.0) / 2.0, 96.0, 240.0)
+	var gap := 2.0
+	var slot_h := maxf(96.0, (shop_h - gap) / 2.0)
+	var slot_w := slot_h * SHOP_FRAME_ASPECT
+	var max_w := maxf(72.0, (area.size.x - gap * float(SHOP_COLUMNS - 1)) / float(SHOP_COLUMNS))
+	if slot_w > max_w:
+		slot_w = max_w
+		slot_h = slot_w / SHOP_FRAME_ASPECT
 	_shop_slot_size = Vector2(slot_w, slot_h)
+	_shop_zoomed = false
+	_shop_display_scale = 1.0
+	shop_slots.scale = Vector2.ONE
+	shop_slots.top_level = false
+	shop_slots.z_index = 0
 	for child in shop_slots.get_children():
 		var slot := child as ShopSlotPanel
 		if slot != null:
 			slot.set_card_size(_shop_slot_size)
+			slot.set_text_scale(1.0)
+	var grid_size := Vector2(
+		slot_w * float(SHOP_COLUMNS) + gap * float(SHOP_COLUMNS - 1),
+		slot_h * 2.0 + gap
+	)
+	shop_slots.custom_minimum_size = grid_size
+	shop_slots.size = grid_size
 	shop_panel.custom_minimum_size.x = _get_shop_panel_width()
 	bottom_ui.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	bottom_ui.offset_left = area.position.x
@@ -1344,6 +1460,71 @@ func _place_shop(area: Rect2) -> void:
 	if sell_label != null:
 		sell_label.text = "売却"
 	call_deferred("_position_coin_row_over_shop")
+	call_deferred("_capture_shop_rest_rect")
+
+
+func _capture_shop_rest_rect() -> void:
+	if shop_slots == null:
+		return
+	shop_slots.scale = Vector2.ONE
+	shop_slots.top_level = false
+	_shop_rest_origin = shop_slots.get_global_rect().position
+	_shop_rest_size = shop_slots.size
+	if _shop_zoomed:
+		_apply_shop_display_scale(SHOP_HOVER_SCALE)
+
+
+func _update_shop_hover() -> void:
+	if shop_slots == null or shop_panel == null or not shop_panel.visible or _shop_rest_size.x < 2.0:
+		return
+	var mouse := get_viewport().get_mouse_position()
+	var inside_rest := _shop_scaled_rect(1.0).grow(8.0).has_point(mouse)
+	var inside_zoom := _shop_scaled_rect(SHOP_HOVER_SCALE).grow(16.0).has_point(mouse)
+	var zoom := inside_zoom if _shop_zoomed else inside_rest
+	if zoom == _shop_zoomed:
+		return
+	_shop_zoomed = zoom
+	_tween_shop_zoom(SHOP_HOVER_SCALE if zoom else 1.0)
+
+
+func _shop_scaled_rect(shop_scale: float) -> Rect2:
+	var origin := _shop_rest_origin + Vector2(_shop_rest_size.x * (1.0 - shop_scale), 0.0)
+	return Rect2(origin, _shop_rest_size * shop_scale)
+
+
+func _tween_shop_zoom(shop_scale: float) -> void:
+	if _shop_zoom_tween != null and _shop_zoom_tween.is_valid():
+		_shop_zoom_tween.kill()
+	_shop_zoom_tween = create_tween()
+	_shop_zoom_tween.set_trans(Tween.TRANS_CUBIC)
+	_shop_zoom_tween.set_ease(Tween.EASE_OUT)
+	_shop_zoom_tween.tween_method(_apply_shop_display_scale, _shop_display_scale, shop_scale, 0.14)
+
+
+func _apply_shop_display_scale(amount: float) -> void:
+	if shop_slots == null or _shop_rest_size.x < 2.0:
+		return
+	_shop_display_scale = amount
+	var zoomed := amount > 1.02
+	shop_slots.scale = Vector2.ONE
+	shop_slots.top_level = zoomed
+	shop_slots.z_index = 20 if zoomed else 0
+	var grid_size := _shop_rest_size * amount
+	if zoomed:
+		shop_slots.global_position = _shop_rest_origin + Vector2(_shop_rest_size.x * (1.0 - amount), 0.0)
+		shop_slots.size = grid_size
+	else:
+		shop_slots.size = _shop_rest_size
+	var gap := maxi(0, int(round(2.0 * amount)))
+	shop_slots.add_theme_constant_override("h_separation", gap)
+	shop_slots.add_theme_constant_override("v_separation", gap)
+	var card := _shop_slot_size * amount
+	for child in shop_slots.get_children():
+		var slot := child as ShopSlotPanel
+		if slot == null:
+			continue
+		slot.set_card_size(card)
+		slot.set_text_scale(amount)
 
 
 func _refresh_formation_widgets() -> void:
@@ -1563,6 +1744,8 @@ func _update_ui() -> void:
 	)
 	exp_button.text = "経験値+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
 	exp_button.disabled = not session.is_prep() or session.coins < GameSession.EXP_COST
+	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0
 	input_handler.set_enabled(session.is_prep())
 	var show_prep_shop_ui := (

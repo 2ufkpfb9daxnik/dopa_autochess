@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://shop_slot_panel"]
+[gd_scene load_steps=4 format=3 uid="uid://shop_slot_panel"]
 
 [ext_resource type="Script" path="res://scripts/game/shop_slot_panel.gd" id="1_slot"]
 [ext_resource type="Texture2D" path="res://images/placeholder.png" id="2_placeholder"]
+[ext_resource type="Texture2D" path="res://images/ui/shop.png" id="3_frame"]
 
 [node name="ShopSlotPanel" type="Button"]
 custom_minimum_size = Vector2(148, 170)
@@ -11,43 +12,70 @@ flat = true
 text = ""
 script = ExtResource("1_slot")
 
-[node name="ContentRoot" type="Control" parent="."]
+[node name="Frame" type="TextureRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 3.0
-offset_top = 3.0
-offset_right = -3.0
-offset_bottom = -41.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("3_frame")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="ContentRoot" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 0
+anchor_left = 0.07
+anchor_top = 0.0
+anchor_right = 0.93
+anchor_bottom = 0.6
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
 [node name="Illustration" type="TextureRect" parent="ContentRoot"]
 layout_mode = 1
-anchors_preset = 10
+anchors_preset = 15
 anchor_right = 1.0
-offset_bottom = 132.0
+anchor_bottom = 1.0
 grow_horizontal = 2
+grow_vertical = 2
 mouse_filter = 2
 texture = ExtResource("2_placeholder")
-expand_mode = 4
-stretch_mode = 5
+expand_mode = 1
+stretch_mode = 6
+
+[node name="SynergyBackdrop" type="ColorRect" parent="ContentRoot"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -40.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0.04, 0.05, 0.08, 0.84)
 
 [node name="SynergyLabel" type="Label" parent="ContentRoot"]
 layout_mode = 1
-anchors_preset = 10
+anchors_preset = 12
+anchor_top = 1.0
 anchor_right = 1.0
+anchor_bottom = 1.0
 offset_left = 4.0
-offset_top = 4.0
+offset_top = -40.0
 offset_right = -4.0
-offset_bottom = 128.0
 grow_horizontal = 2
-theme_override_colors/font_color = Color(0.95, 0.97, 1, 0.92)
-theme_override_font_sizes/font_size = 12
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.96, 0.97, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 13
 text = "赤"
-modulate = Color(1, 1, 1, 0.78)
 horizontal_alignment = 1
 vertical_alignment = 1
 autowrap_mode = 3
@@ -68,16 +96,13 @@ horizontal_alignment = 2
 
 [node name="BottomBarPanel" type="Panel" parent="."]
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 3.0
-offset_top = -41.0
-offset_right = -3.0
-offset_bottom = -3.0
+anchors_preset = 0
+anchor_left = 0.16
+anchor_top = 0.60
+anchor_right = 0.84
+anchor_bottom = 0.78
 grow_horizontal = 2
-grow_vertical = 0
+grow_vertical = 2
 mouse_filter = 2
 
 [node name="BottomBar" type="HBoxContainer" parent="BottomBarPanel"]

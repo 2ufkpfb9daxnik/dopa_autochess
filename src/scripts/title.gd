@@ -2,7 +2,11 @@ extends Control
 
 
 func _ready() -> void:
-	$VBoxContainer/StartButton.pressed.connect(_on_start_pressed)
+	$StartButton.pressed.connect(_on_start_pressed)
+	var video := $Background as VideoStreamPlayer
+	video.loop = true
+	if not video.is_playing():
+		video.play()
 
 
 func _on_start_pressed() -> void:

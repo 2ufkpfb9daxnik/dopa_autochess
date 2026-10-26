@@ -8,7 +8,9 @@ signal slot_clicked(slot_index: int)
 
 const COLUMNS := 3
 const TITLE_TAB_OVERLAP := 8.0
+const FRAME_BLEED := 1.16
 const PLACEHOLDER_TEXTURE := preload("res://images/placeholder.png")
+const BENCH_FRAME := preload("res://images/ui/bench.png")
 
 var _title_tab: Panel
 var _count_label: Label
@@ -22,20 +24,15 @@ var _dragging := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.08, 0.09, 0.12, 0.94)
-	style.border_color = Color(0.78, 0.66, 0.32)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	style.content_margin_top = 8
-	style.content_margin_bottom = 8
+	var style := StyleBoxEmpty.new()
 	add_theme_stylebox_override("panel", style)
 	_title_tab = Panel.new()
 	_title_tab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title_tab.z_index = 8
-	var tab_style := style.duplicate() as StyleBoxFlat
+	var tab_style := StyleBoxFlat.new()
+	tab_style.bg_color = Color(0.08, 0.09, 0.12, 0.94)
+	tab_style.border_color = Color(0.78, 0.66, 0.32)
+	tab_style.set_border_width_all(2)
 	tab_style.set_corner_radius_all(8)
 	tab_style.corner_radius_top_right = 0
 	tab_style.corner_radius_bottom_right = 0
@@ -131,31 +128,20 @@ func _draw() -> void:
 		var rect := _slot_rect(slot_index)
 		var slot: Dictionary = _slots[slot_index]
 		var occupied := bool(slot.get("occupied", false))
+		var frame := _frame_rect(rect)
+		draw_texture_rect(BENCH_FRAME, frame, false, Color.WHITE if occupied else Color(1, 1, 1, 0.72))
+		if not occupied:
+			continue
+		var portrait := _portrait_rect(frame)
+		_draw_cover(PLACEHOLDER_TEXTURE, portrait)
+		var stars := str(slot.get("stars", ""))
+		if not stars.is_empty():
+			_draw_outlined(font, portrait.position + Vector2(4.0, 16.0), stars, HORIZONTAL_ALIGNMENT_RIGHT, portrait.size.x - 8.0, 14, Color(1, 0.92, 0.55))
 		var cost := int(slot.get("cost", 0))
-		var bg := Color(0.13, 0.14, 0.17) if not occupied else Color(0.16, 0.17, 0.2)
-		draw_rect(rect, bg)
-		var border := Color(0.32, 0.34, 0.38) if not occupied else CostColors.get_color(cost)
-		if occupied:
-			var image_rect := Rect2(rect.position + Vector2(2, 2), rect.size - Vector2(4, 4))
-			_draw_cover(PLACEHOLDER_TEXTURE, image_rect)
-			var bar_h := minf(22.0, image_rect.size.y * 0.36)
-			var bar := Rect2(image_rect.position.x, image_rect.end.y - bar_h, image_rect.size.x, bar_h)
-			draw_rect(bar, CostColors.get_color(cost))
-			var label_color := CostColors.get_shop_label_color(cost)
-			draw_string(font, bar.position + Vector2(2.0, bar_h - 6.0), str(cost), HORIZONTAL_ALIGNMENT_LEFT, 22.0, 14, label_color)
-			draw_string(
-				font,
-				bar.position + Vector2(22.0, bar_h - 6.0),
-				str(slot.get("name", "")),
-				HORIZONTAL_ALIGNMENT_LEFT,
-				bar.size.x - 26.0,
-				13,
-				label_color
-			)
-			var stars := str(slot.get("stars", ""))
-			if not stars.is_empty():
-				draw_string(font, image_rect.position + Vector2(2.0, 16.0), stars, HORIZONTAL_ALIGNMENT_RIGHT, image_rect.size.x - 6.0, 14, Color(1, 0.95, 0.7))
-		draw_rect(rect, border, false, 2.0)
+		var caption := str(slot.get("name", ""))
+		if cost > 0:
+			caption = "%d %s" % [cost, caption]
+		_draw_outlined(font, portrait.position + Vector2(4.0, portrait.size.y - 4.0), caption, HORIZONTAL_ALIGNMENT_LEFT, portrait.size.x - 8.0, 13, Color(0.96, 0.97, 1))
 
 
 func _draw_cover(texture: Texture2D, dest: Rect2) -> void:
@@ -168,19 +154,37 @@ func _draw_cover(texture: Texture2D, dest: Rect2) -> void:
 	draw_texture_rect_region(texture, dest, Rect2(origin, crop))
 
 
+func _frame_rect(cell: Rect2) -> Rect2:
+	var side := maxf(cell.size.x, cell.size.y) * FRAME_BLEED
+	return Rect2(cell.get_center() - Vector2(side, side) * 0.5, Vector2(side, side))
+
+
+func _portrait_rect(frame: Rect2) -> Rect2:
+	return Rect2(
+		frame.position + frame.size * Vector2(0.12, 0.1),
+		frame.size * Vector2(0.76, 0.68)
+	)
+
+
+func _draw_outlined(font: Font, pos: Vector2, text: String, alignment: HorizontalAlignment, width: float, font_size: int, color: Color) -> void:
+	var shadow := Color(0, 0, 0, 0.9)
+	for offset in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
+		draw_string(font, pos + offset, text, alignment, width, font_size, shadow)
+	draw_string(font, pos, text, alignment, width, font_size, color)
+
+
 func _slot_rect(slot_index: int) -> Rect2:
-	var origin := Vector2(6.0, 6.0)
-	var gap := 8.0
-	var grid_size := size - origin - Vector2(6.0, 6.0)
-	var cell_w := (grid_size.x - gap * float(COLUMNS - 1)) / float(COLUMNS)
-	var rows := maxi(1, int(ceil(float(_slots.size()) / float(COLUMNS))))
-	var cell_h := (grid_size.y - gap * float(rows - 1)) / float(rows)
+	var gap := 2.0
+	var rows := maxi(1, int(ceil(float(maxi(_slots.size(), 1)) / float(COLUMNS))))
+	var cell := minf(
+		(size.x - gap * float(COLUMNS - 1)) / float(COLUMNS),
+		(size.y - gap * float(rows - 1)) / float(rows)
+	)
+	var grid := Vector2(cell * float(COLUMNS) + gap * float(COLUMNS - 1), cell * float(rows) + gap * float(rows - 1))
+	var origin := (size - grid) * 0.5
 	var column := slot_index % COLUMNS
 	var row := int(slot_index / COLUMNS)
-	return Rect2(
-		origin + Vector2(float(column) * (cell_w + gap), float(row) * (cell_h + gap)),
-		Vector2(cell_w, cell_h)
-	)
+	return Rect2(origin + Vector2(float(column) * (cell + gap), float(row) * (cell + gap)), Vector2(cell, cell))
 
 
 func _slot_at(point: Vector2) -> int:

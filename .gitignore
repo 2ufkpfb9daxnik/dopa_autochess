@@ -1,1 +1,23 @@
-tools/ffmpeg.exe
+# Local helper programs. Not part of the game.
+tools/
+
+# Standalone binaries. Game assets live under src/ as images, audio, and video.
+*.exe
+*.dll
+*.pdb
+*.obj
+*.zip
+*.7z
+
+# OS and editor leftovers
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.tmp
+*.bak
+*~
+
+# Godot cache if the project is opened from the repo root.
+# The game project itself ignores src/.godot/ from src/.gitignore.
+.godot/

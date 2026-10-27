@@ -11,6 +11,7 @@ var _hide_flash_next_frame := false
 
 
 func _ready() -> void:
+	GameAudio.stop_bgm()
 	$StartButton.pressed.connect(_on_start_pressed)
 	_video = $Background as VideoStreamPlayer
 	_video.loop = true
@@ -73,4 +74,5 @@ func _list_frame_paths() -> PackedStringArray:
 
 
 func _on_start_pressed() -> void:
+	GameAudio.play_confirm_strong()
 	get_tree().change_scene_to_file("res://scenes/game.tscn")

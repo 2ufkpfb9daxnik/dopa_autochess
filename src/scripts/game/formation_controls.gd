@@ -95,6 +95,7 @@ func on_bench_slot_clicked(slot_index: int) -> void:
 	var unit: GameUnit = _host.board.bench_units[slot_index]
 	if unit == null:
 		return
+	GameAudio.play_select_character()
 	var dest: int = _host.board.find_empty_circle_slot(_host.board.active_face)
 	if dest < 0:
 		_host._log("この面は満員です")
@@ -105,6 +106,7 @@ func on_bench_slot_clicked(slot_index: int) -> void:
 
 func begin_drag(unit: GameUnit) -> void:
 	_dragging_unit = unit
+	GameAudio.play_select_character()
 	var cost := unit.get_cost()
 	var label_color := CostColors.get_shop_label_color(cost)
 	_host._drag_bar.color = CostColors.get_color(cost)

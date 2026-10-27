@@ -145,6 +145,11 @@ func reroll() -> void:
 	_host._layout_formation_ui()
 
 
+func is_clock_tower() -> bool:
+	var file_name := _background_path.get_file().to_lower()
+	return file_name.begins_with("clock_tower") or file_name.begins_with("clocktower")
+
+
 func _place_background() -> void:
 	if background == null or background.texture == null:
 		return

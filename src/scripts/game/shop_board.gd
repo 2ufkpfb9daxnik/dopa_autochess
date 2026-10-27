@@ -17,6 +17,12 @@ var _zoomed := false
 var _display_scale := 1.0
 var _rest_origin := Vector2.ZERO
 var _rest_size := Vector2.ZERO
+var _layout_position := Vector2.ZERO
+var _layout_position_ready := false
+var _placed_area := Rect2()
+var _has_placed := false
+var _hover_suspended := false
+var _capture_serial := 0
 var _zoom_tween: Tween
 
 
@@ -75,12 +81,13 @@ func place(area: Rect2) -> void:
 	if slot_w > max_w:
 		slot_w = max_w
 		slot_h = slot_w / FRAME_ASPECT
-	slot_size = Vector2(slot_w, slot_h)
-	_zoomed = false
-	_display_scale = 1.0
-	_host.shop_slots.scale = Vector2.ONE
-	_host.shop_slots.top_level = false
-	_host.shop_slots.z_index = 0
+	var next_slot := Vector2(slot_w, slot_h)
+	if _has_placed and _placed_area.is_equal_approx(area) and slot_size.is_equal_approx(next_slot):
+		return
+	slot_size = next_slot
+	_placed_area = area
+	_has_placed = true
+	_cancel_zoom_for_layout()
 	for child in _host.shop_slots.get_children():
 		var slot := child as ShopSlotPanel
 		if slot != null:
@@ -109,11 +116,11 @@ func place(area: Rect2) -> void:
 	if sell_label != null:
 		sell_label.text = "売却"
 	_host.call_deferred("_position_coin_row_over_shop")
-	call_deferred("_capture_rest_rect")
+	_schedule_rest_capture()
 
 
 func update_hover() -> void:
-	if _host.shop_slots == null or _host.shop_panel == null or not _host.shop_panel.visible or _rest_size.x < 2.0:
+	if _hover_suspended or _host.shop_slots == null or _host.shop_panel == null or not _host.shop_panel.visible or _rest_size.x < 2.0:
 		return
 	var mouse: Vector2 = _host.get_viewport().get_mouse_position()
 	var inside_rest: bool = _scaled_rect(1.0).grow(8.0).has_point(mouse)
@@ -172,15 +179,40 @@ func _position_tooltip() -> void:
 	_host.shop_odds_tooltip.global_position = Vector2(x, y)
 
 
-func _capture_rest_rect() -> void:
+func _cancel_zoom_for_layout() -> void:
+	if _zoom_tween != null and _zoom_tween.is_valid():
+		_zoom_tween.kill()
+	_zoomed = false
+	_display_scale = 1.0
+	_hover_suspended = true
+	_restore_layout_placement()
+
+
+func _restore_layout_placement() -> void:
 	if _host.shop_slots == null:
 		return
 	_host.shop_slots.scale = Vector2.ONE
 	_host.shop_slots.top_level = false
+	_host.shop_slots.z_index = 0
+	if _layout_position_ready:
+		_host.shop_slots.position = _layout_position
+
+
+func _schedule_rest_capture() -> void:
+	_capture_serial += 1
+	_capture_rest_rect(_capture_serial)
+
+
+func _capture_rest_rect(serial: int) -> void:
+	await _host.get_tree().process_frame
+	if serial != _capture_serial or _host.shop_slots == null:
+		return
+	_restore_layout_placement()
 	_rest_origin = _host.shop_slots.get_global_rect().position
 	_rest_size = _host.shop_slots.size
-	if _zoomed:
-		_apply_display_scale(HOVER_SCALE)
+	_layout_position = _host.shop_slots.position
+	_layout_position_ready = true
+	_hover_suspended = false
 
 
 func _tween_zoom(shop_scale: float) -> void:
@@ -198,13 +230,20 @@ func _apply_display_scale(amount: float) -> void:
 	_display_scale = amount
 	var zoomed := amount > 1.02
 	_host.shop_slots.scale = Vector2.ONE
-	_host.shop_slots.top_level = zoomed
-	_host.shop_slots.z_index = 20 if zoomed else 0
 	var grid_size := _rest_size * amount
 	if zoomed:
+		if not _host.shop_slots.top_level:
+			_layout_position = _host.shop_slots.position
+			_layout_position_ready = true
+		_host.shop_slots.top_level = true
+		_host.shop_slots.z_index = 20
 		_host.shop_slots.global_position = _rest_origin + Vector2(_rest_size.x * (1.0 - amount), 0.0)
 		_host.shop_slots.size = grid_size
 	else:
+		_host.shop_slots.top_level = false
+		_host.shop_slots.z_index = 0
+		if _layout_position_ready:
+			_host.shop_slots.position = _layout_position
 		_host.shop_slots.size = _rest_size
 	var gap := maxi(0, int(round(2.0 * amount)))
 	_host.shop_slots.add_theme_constant_override("h_separation", gap)

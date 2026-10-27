@@ -110,6 +110,7 @@ func try_reroll() -> bool:
 		return false
 	coins -= REROLL_COST
 	refresh_shop()
+	GameAudio.play_money_gain()
 	return true
 
 
@@ -119,12 +120,15 @@ func try_buy_exp() -> bool:
 	coins -= EXP_COST
 	experience += EXP_GAIN
 	state_changed.emit()
+	GameAudio.play_money_gain()
 	return true
 
 
 func add_sell_income(amount: int) -> void:
 	coins += amount
 	state_changed.emit()
+	if amount > 0:
+		GameAudio.play_money_gain()
 
 
 func add_free_experience(amount: int) -> void:
@@ -177,9 +181,12 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 func select_route(index: int) -> Dictionary:
 	if not is_route_choice() or index < 0 or index >= route_options.size():
 		return {}
+	var coins_before := coins
 	selected_route = route_options[index]
 	_apply_route_reward(selected_route)
 	_apply_round_start_income()
+	if coins > coins_before:
+		GameAudio.play_money_gain()
 	phase = Phase.PREP
 	apply_round_start_shop()
 	state_changed.emit()

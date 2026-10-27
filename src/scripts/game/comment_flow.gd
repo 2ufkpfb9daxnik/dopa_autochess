@@ -3,6 +3,7 @@ extends Control
 
 const FONT_SIZE := 22
 const LANE_HEIGHT := 30.0
+const START_Y := 28.0
 const SPEED := 170.0
 const _MASK_SHADER := """
 shader_type canvas_item;
@@ -90,11 +91,11 @@ func _spawn(text: String) -> void:
 	label.size = Vector2(text_size.x, LANE_HEIGHT)
 	var lane := _pick_lane()
 	label.set_meta("lane", lane)
-	label.position = Vector2(size.x, float(lane) * LANE_HEIGHT)
+	label.position = Vector2(size.x, START_Y + float(lane) * LANE_HEIGHT)
 
 
 func _pick_lane() -> int:
-	var lane_count := maxi(1, int(floor(size.y / LANE_HEIGHT)))
+	var lane_count := maxi(1, int(floor(maxf(0.0, size.y - START_Y) / LANE_HEIGHT)))
 	var fallback := 0
 	var fallback_right := INF
 	for lane in lane_count:

@@ -153,9 +153,15 @@ func _ready() -> void:
 	for index in route_buttons.size():
 		route_buttons[index].pressed.connect(func() -> void: _on_route_selected(index))
 	_log("準備フェーズ開始")
+	GameAudio.play_construction()
+	call_deferred("_bind_button_confirms")
 	_shop.setup_odds_table()
 	_setup_log_panel()
 	call_deferred("_finish_startup_layout")
+
+
+func _bind_button_confirms() -> void:
+	GameAudio.bind_buttons(self)
 
 
 func _get_bottom_ui_width() -> float:
@@ -527,6 +533,7 @@ func _buy_from_shop(slot_index: int) -> void:
 	var unit_id := session.try_buy_shop_slot(slot_index, board.bench_is_full())
 	if unit_id < 0:
 		return
+	GameAudio.play_buy()
 	var data := UnitCatalog.get_unit(unit_id)
 	var unit := GameUnit.create(unit_id, 1)
 	units_root.add_child(unit)
@@ -542,6 +549,8 @@ func _start_battle() -> void:
 		return
 	_shop.hide_odds_table()
 	_log("戦闘開始 (ラウンド %d)" % session.round_number)
+	var secret_battle := session.extended_mode and session.round_number == session.max_round
+	GameAudio.play_battle(secret_battle, _battle.is_clock_tower())
 	session.start_battle()
 	input_handler.set_enabled(false)
 	prep_blocker.visible = true
@@ -571,6 +580,7 @@ func _start_battle() -> void:
 	if session.is_run_over():
 		_review.show_end_screen()
 		return
+	GameAudio.play_construction()
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
 		input_handler.set_enabled(false)
 		prep_blocker.visible = true
@@ -664,11 +674,11 @@ func _on_end_run() -> void:
 
 
 func _on_run_completed() -> void:
-	pass
+	GameAudio.play_after_clear()
 
 
 func _on_run_failed() -> void:
-	pass
+	GameAudio.play_defeat()
 
 
 func _set_synergy_panel_review_mode(_active: bool) -> void:
@@ -688,6 +698,7 @@ func _on_sell_requested(unit: GameUnit) -> void:
 func _on_merges_applied(messages: Array[String]) -> void:
 	for message in messages:
 		_log("合成: %s" % message)
+		GameAudio.play_fusion()
 
 
 func _show_income_feedback() -> void:
@@ -809,8 +820,9 @@ func _setup_formation_ui() -> void:
 	ui.move_child(_action_order_bar, insert_at + 2)
 	_comment_flow = CommentFlow.new()
 	_comment_flow.name = "CommentFlow"
+	_comment_flow.z_index = 0
 	ui.add_child(_comment_flow)
-	ui.move_child(_comment_flow, insert_at + 3)
+	ui.move_child(_comment_flow, 0)
 	ui.add_child(_drag_preview)
 	_circle_wheel.rotate_steps.connect(func(steps: int) -> void: board.apply_spin_commit(steps))
 	_circle_wheel.visual_shift_changed.connect(func(shift: float) -> void: board.set_visual_shift(shift))
@@ -913,7 +925,9 @@ func _layout_comment_flow() -> void:
 	if _comment_flow == null:
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
-	_comment_flow.z_index = 80
+	_comment_flow.z_index = 0
+	if _comment_flow.get_parent() != null:
+		_comment_flow.get_parent().move_child(_comment_flow, 0)
 	_place_control(_comment_flow, Rect2(Vector2.ZERO, viewport_size))
 	var hole := _battle.battle_rect
 	if _battle.viewport_container != null:

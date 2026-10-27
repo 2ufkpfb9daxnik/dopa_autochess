@@ -75,7 +75,10 @@
   }
   #list li:hover, #synergy-list li:hover { background: var(--soft); }
   #list li.active, #synergy-list li.active { background: #efe2c6; }
-  #list .meta, #synergy-list .meta { color: var(--muted); font-size: 12px; }
+  #list .meta, #synergy-list .meta, #written-count { color: var(--muted); font-size: 12px; }
+  #written-count { margin: 8px 0 0; }
+  .name-line { display: flex; gap: 6px; align-items: baseline; }
+  .written { color: var(--good); font-weight: 700; }
   h2 { font-size: 18px; margin: 0 0 8px; }
   h3 { font-size: 14px; margin: 18px 0 8px; }
   .grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 8px; align-items: center; }
@@ -137,12 +140,14 @@
         <option value="synergy">シナジー</option>
         <option value="attack">攻撃属性</option>
         <option value="total">総ステータス</option>
+        <option value="written">詳細</option>
       </select>
       <select id="sort-dir">
         <option value="1">昇順</option>
         <option value="-1">降順</option>
       </select>
     </div>
+    <p id="written-count"></p>
     <ul id="list"></ul>
   </aside>
   <section id="editor"></section>
@@ -319,22 +324,41 @@ function filteredCharacters() {
   return rows;
 }
 
+function hasDetail(character) {
+  return Boolean((character.detail || "").trim());
+}
+
+function writtenMark(character) {
+  if (!hasDetail(character)) return "";
+  return `<span class="written" title="性能の詳細あり">✓</span>`;
+}
+
 function sortValue(character, key) {
   if (key === "cost") return character.cost;
   if (key === "name") return character.name;
   if (key === "synergy") return character.synergies.join(",");
   if (key === "attack") return character.attack;
   if (key === "total") return totalOf(character);
+  if (key === "written") return hasDetail(listedCharacter(character)) ? 1 : 0;
   return character.id;
+}
+
+function listedCharacter(character) {
+  if (draft && draft.id === character.id) return draft;
+  return character;
 }
 
 function renderList() {
   const list = document.getElementById("list");
+  const rows = filteredCharacters();
+  const written = rows.filter((character) => hasDetail(listedCharacter(character))).length;
+  document.getElementById("written-count").textContent = `詳細あり ${written} / ${rows.length}`;
   list.innerHTML = "";
-  filteredCharacters().forEach((character) => {
+  rows.forEach((character) => {
+    const shown = listedCharacter(character);
     const item = document.createElement("li");
     if (character.id === selectedId) item.className = "active";
-    item.innerHTML = `<div>${character.id} ${character.name}</div><div class="meta">コスト${character.cost} / ${character.attack} / 合計 ${totalOf(character)}</div>`;
+    item.innerHTML = `<div class="name-line">${writtenMark(shown)}<span>${escapeHtml(character.id)} ${escapeHtml(shown.name)}</span></div><div class="meta">コスト${character.cost} / ${escapeHtml(character.attack)} / 合計 ${totalOf(character)}</div>`;
     item.addEventListener("click", () => select(character.id));
     list.appendChild(item);
   });
@@ -908,7 +932,7 @@ function renderSynergyDetail(renderOptions = {}) {
     }).join(" ");
     return `<tr>
       <td>${escapeHtml(character.id)}</td>
-      <td><button type="button" class="link" data-open-character="${escapeAttr(character.id)}">${escapeHtml(character.name)}</button></td>
+      <td><button type="button" class="link" data-open-character="${escapeAttr(character.id)}">${writtenMark(character)}${hasDetail(character) ? " " : ""}${escapeHtml(character.name)}</button></td>
       <td>${character.cost}</td>
       <td>${escapeHtml(character.attack) || "—"}</td>
       <td>${escapeHtml(character.strong.join(", ")) || "—"}</td>
@@ -922,7 +946,7 @@ function renderSynergyDetail(renderOptions = {}) {
       <td><button type="button" data-remove-member="${escapeAttr(character.id)}">外す</button></td>
     </tr>`;
   }).join("");
-  const options = others.map((character) => `<option value="${escapeAttr(character.id)}">${escapeHtml(character.id)} ${escapeHtml(character.name)} / コスト${character.cost}</option>`).join("");
+  const options = others.map((character) => `<option value="${escapeAttr(character.id)}">${hasDetail(character) ? "✓ " : ""}${escapeHtml(character.id)} ${escapeHtml(character.name)} / コスト${character.cost}</option>`).join("");
   const record = synergyRecord(name);
   const tierRows = record.tiers.map((tier, index) => `<tr data-tier>
       <td><input data-tier-count type="text" value="${escapeAttr(tier.count)}" placeholder="2"></td>

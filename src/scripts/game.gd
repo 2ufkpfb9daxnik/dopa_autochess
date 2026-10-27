@@ -1,11 +1,6 @@
 extends Node3D
 
 const INCOME_FEEDBACK_DURATION := 2.0
-const SHOP_SLOT_SCENE := preload("res://scenes/shop_slot.tscn")
-const SHOP_COLUMNS := 3
-const SHOP_SLOT_WIDTH := 132
-const SHOP_SLOT_HEIGHT := 148
-const SELL_ZONE_WIDTH := 72.0
 var _action_column_width := 72.0
 const BOTTOM_BUTTON_HEIGHT := 48
 const BOTTOM_BAR_GAP := 12
@@ -17,43 +12,20 @@ const BOTTOM_UI_FONT_BUTTON := 16
 const BOTTOM_UI_FONT_SHOP := 15
 const HUD_BADGE_BG := Color(0.0, 0.0, 0.0, 0.45)
 const HUD_BADGE_MARGIN_X := 8.0
-const BATTLE_COLUMN_WIDTH := 640.0
-const SHOP_SLOT_LAYOUT_WIDTH := 112.0
-const BATTLE_BACKGROUND_DIR := "res://images/backgrounds/battle"
-const UI_BACKGROUND_PATH := "res://images/ui/background.png"
-const SHOP_FRAME_ASPECT := 1024.0 / 1536.0
-const SHOP_HOVER_SCALE := 2.1
-const BATTLE_EDGE_FEATHER := 48.0
-const _BATTLE_EDGE_SHADER := """
-shader_type canvas_item;
-uniform vec2 rect_size;
-uniform float feather;
-varying vec2 local_position;
-
-void vertex() {
-	local_position = VERTEX;
-}
-
-void fragment() {
-	vec4 tex = texture(TEXTURE, UV);
-	float edge = min(local_position.x, rect_size.x - local_position.x);
-	edge = min(edge, rect_size.y - local_position.y);
-	tex.a *= smoothstep(0.0, max(feather, 0.001), edge);
-	COLOR = tex;
-}
-"""
 
 const LOG_COLLAPSED_TOP := 56.0
 const LOG_COLLAPSED_BOTTOM := 280.0
 const LOG_EXPANDED_BOTTOM_PAD := 12.0
 const SYNERGY_PANEL_NORMAL_BOTTOM := 520.0
 
-enum RunReviewMode { MENU, BOARD, SYNERGY, LOG, STATS }
-
 var _log_expanded := false
 var _log_scroll_position := 0
 var _run_end_active := false
-var _run_review_mode := RunReviewMode.MENU
+var _run_review_mode := RunReview.Mode.MENU
+var _battle := BattleStage.new()
+var _shop := ShopBoard.new()
+var _review := RunReview.new()
+var _formation := FormationControls.new()
 var _pending_bottom_refit := false
 var _bottom_ui_layout_height := -1.0
 var _last_prep_shop_ui_visible := true
@@ -62,11 +34,6 @@ var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
 var _action_order_bar: ActionOrderBar
 var _comment_flow: CommentFlow
-var _battle_viewport: SubViewportContainer
-var _battle_background: TextureRect
-var _battle_background_path := ""
-var _ui_background: TextureRect
-var _foot_shadow_layer: FootShadowLayer
 var _log_column_rect := Rect2()
 var _log_body_rect := Rect2()
 var _drag_preview: Control
@@ -74,17 +41,7 @@ var _drag_name_label: Label
 var _drag_cost_label: Label
 var _drag_stars_label: Label
 var _drag_bar: ColorRect
-var _dragging_unit: GameUnit
-var _battle_view_height := 320.0
-var _battle_rect := Rect2()
 var _split_x := 0.0
-var _battle_world: SubViewport
-var _shop_slot_size := Vector2(SHOP_SLOT_WIDTH, SHOP_SLOT_HEIGHT)
-var _shop_zoomed := false
-var _shop_display_scale := 1.0
-var _shop_rest_origin := Vector2.ZERO
-var _shop_rest_size := Vector2.ZERO
-var _shop_zoom_tween: Tween
 var _hover_tip: PanelContainer
 var _hover_tip_label: Label
 
@@ -160,15 +117,17 @@ var _hover_tip_label: Label
 
 
 func _ready() -> void:
-	_setup_shop_slots()
+	_shop.setup(self)
+	_review.setup(self)
+	_formation.setup(self)
 	_setup_bottom_ui_fonts()
 	exp_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
 	reroll_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
 	action_column.custom_minimum_size.x = 0
-	_mount_battle_viewport()
+	_battle.mount(self, $CanvasLayer, camera, board, units_root, $DirectionalLight3D)
 	_setup_formation_ui()
 	_mount_side_controls()
-	_setup_camera()
+	_battle.setup_camera()
 	input_handler.action_triggered.connect(_on_action)
 	session.state_changed.connect(_update_ui)
 	board.merges_applied.connect(_on_merges_applied)
@@ -185,49 +144,22 @@ func _ready() -> void:
 	back_button.pressed.connect(func() -> void: _on_action(GameAction.simple(GameAction.Type.GO_BACK)))
 	continue_button.pressed.connect(_on_continue_extension)
 	end_run_button.pressed.connect(_on_end_run)
-	review_board_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.BOARD))
-	review_synergy_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.SYNERGY))
-	review_log_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.LOG))
-	review_stats_button.pressed.connect(func() -> void: _enter_run_review(RunReviewMode.STATS))
-	title_return_button.pressed.connect(_leave_to_title)
-	back_to_run_end_button.pressed.connect(_return_to_run_end_menu)
+	review_board_button.pressed.connect(func() -> void: _review.enter(RunReview.Mode.BOARD))
+	review_synergy_button.pressed.connect(func() -> void: _review.enter(RunReview.Mode.SYNERGY))
+	review_log_button.pressed.connect(func() -> void: _review.enter(RunReview.Mode.LOG))
+	review_stats_button.pressed.connect(func() -> void: _review.enter(RunReview.Mode.STATS))
+	title_return_button.pressed.connect(_review.leave_to_title)
+	back_to_run_end_button.pressed.connect(_review.return_to_menu)
 	for index in route_buttons.size():
 		route_buttons[index].pressed.connect(func() -> void: _on_route_selected(index))
 	_log("準備フェーズ開始")
-	_setup_shop_odds_table()
+	_shop.setup_odds_table()
 	_setup_log_panel()
 	call_deferred("_finish_startup_layout")
 
 
-func _setup_shop_slots() -> void:
-	var grid := GridContainer.new()
-	grid.columns = SHOP_COLUMNS
-	grid.add_theme_constant_override("h_separation", 2)
-	grid.add_theme_constant_override("v_separation", 2)
-	grid.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	var parent := shop_slots.get_parent()
-	var slot_index := shop_slots.get_index()
-	parent.add_child(grid)
-	parent.move_child(grid, slot_index)
-	shop_slots.queue_free()
-	shop_slots = grid
-	for index in GameSession.SHOP_SIZE:
-		var slot := SHOP_SLOT_SCENE.instantiate() as ShopSlotPanel
-		if slot == null:
-			push_error("ShopSlotPanel の生成に失敗しました")
-			continue
-		slot.pressed.connect(func() -> void: _on_action(GameAction.shop_buy(index)))
-		shop_slots.add_child(slot)
-		slot.set_card_size(_shop_slot_size)
-
-
-func _get_shop_panel_width() -> float:
-	return float(SHOP_COLUMNS) * _shop_slot_size.x + float(SHOP_COLUMNS - 1) * 8.0
-
-
 func _get_bottom_ui_width() -> float:
-	return _action_column_width + BOTTOM_BAR_GAP + _get_shop_panel_width()
+	return _action_column_width + BOTTOM_BAR_GAP + _shop.panel_width()
 
 
 func _finish_startup_layout() -> void:
@@ -410,45 +342,6 @@ func _hide_hover_tip() -> void:
 		_hover_tip.visible = false
 
 
-func _setup_shop_odds_table() -> void:
-	shop_odds_badge.mouse_filter = Control.MOUSE_FILTER_STOP
-	if not shop_odds_badge.gui_input.is_connected(_on_shop_odds_badge_gui_input):
-		shop_odds_badge.gui_input.connect(_on_shop_odds_badge_gui_input)
-	_apply_hud_badge_style(shop_odds_tooltip)
-	shop_odds_tooltip.z_index = 28
-	shop_odds_tooltip.visible = false
-
-
-func _on_shop_odds_badge_gui_input(event: InputEvent) -> void:
-	if _run_end_active or not session.is_prep():
-		return
-	if not event is InputEventMouseButton:
-		return
-	var mouse_event := event as InputEventMouseButton
-	if not mouse_event.pressed or mouse_event.button_index != MOUSE_BUTTON_LEFT:
-		return
-	_toggle_shop_odds_table()
-	get_viewport().set_input_as_handled()
-
-
-func _toggle_shop_odds_table() -> void:
-	if shop_odds_tooltip.visible:
-		_hide_shop_odds_table()
-	else:
-		_show_shop_odds_table()
-
-
-func _show_shop_odds_table() -> void:
-	ShopOdds.populate_odds_grid(shop_odds_grid, session.get_level())
-	shop_odds_tooltip.visible = true
-	shop_odds_tooltip.move_to_front()
-	call_deferred("_fit_shop_odds_tooltip_size")
-
-
-func _hide_shop_odds_table() -> void:
-	shop_odds_tooltip.visible = false
-
-
 func _get_panel_content_margins(panel: PanelContainer) -> Vector4:
 	var style := panel.get_theme_stylebox("panel")
 	if style == null:
@@ -459,36 +352,6 @@ func _get_panel_content_margins(panel: PanelContainer) -> Vector4:
 		style.content_margin_right,
 		style.content_margin_bottom
 	)
-
-
-func _fit_shop_odds_tooltip_size() -> void:
-	shop_odds_tooltip_vbox.reset_size()
-	shop_odds_grid.reset_size()
-	await get_tree().process_frame
-	var content_size := shop_odds_tooltip_vbox.get_minimum_size()
-	var margins := _get_panel_content_margins(shop_odds_tooltip)
-	var fitted := content_size + Vector2(margins.x + margins.z, margins.y + margins.w)
-	shop_odds_tooltip.custom_minimum_size = fitted
-	shop_odds_tooltip.size = fitted
-	_position_shop_odds_tooltip()
-
-
-func _position_shop_odds_tooltip() -> void:
-	var anchor_rect := shop_odds_badge.get_global_rect()
-	var tooltip_size := shop_odds_tooltip.size
-	var x := anchor_rect.position.x - tooltip_size.x - 6.0
-	var y := anchor_rect.get_center().y - tooltip_size.y * 0.5
-	var viewport_size := get_viewport().get_visible_rect().size
-	var max_x := maxf(8.0, viewport_size.x - tooltip_size.x - 8.0)
-	var max_y := maxf(8.0, viewport_size.y - tooltip_size.y - 8.0)
-	x = clampf(x, 8.0, max_x)
-	y = clampf(y, 8.0, max_y)
-	shop_odds_tooltip.global_position = Vector2(x, y)
-
-
-func _fit_shop_odds_badge_width() -> void:
-	shop_odds_badge.custom_minimum_size.x = 0
-	_position_coin_row_over_shop()
 
 
 func _format_streak_text() -> String:
@@ -527,12 +390,12 @@ func _fit_bottom_ui_layout() -> void:
 		if slot is Control:
 			(slot as Control).reset_size()
 	await get_tree().process_frame
-	shop_panel.custom_minimum_size.x = _get_shop_panel_width()
+	shop_panel.custom_minimum_size.x = _shop.panel_width()
 	_layout_formation_ui()
 	if shop_odds_tooltip.visible:
-		call_deferred("_fit_shop_odds_tooltip_size")
+		_shop.call_deferred("_fit_tooltip_size")
 	if session.is_prep() and not _run_end_active:
-		_fit_shop_odds_badge_width()
+		_shop.fit_badge_width()
 
 
 func _position_coin_row_over_shop() -> void:
@@ -616,14 +479,6 @@ func _get_bottom_ui_occupied_height() -> float:
 	return bottom_ui.size.y + BOTTOM_UI_MARGIN
 
 
-func _setup_camera() -> void:
-	camera.current = true
-	camera.fov = 34.0
-	camera.near = 0.05
-	camera.global_position = Vector3(0.0, 1.1, 4.9)
-	camera.look_at(Vector3(0.0, 0.75, 0.0), Vector3.UP)
-
-
 func _log(text: String) -> void:
 	event_log.add(text)
 
@@ -656,9 +511,9 @@ func _on_action(action: GameAction) -> void:
 			if session.try_buy_exp():
 				_log("経験値を購入した (+%d)" % GameSession.EXP_GAIN)
 		GameAction.Type.SELL_UNDER_CURSOR:
-			if not session.is_prep() or _dragging_unit != null:
+			if not session.is_prep() or _formation.is_dragging():
 				return
-			var hover_unit := _unit_under_screen(action.screen_position)
+			var hover_unit := _formation.unit_under_screen(action.screen_position)
 			if hover_unit != null:
 				_on_sell_requested(hover_unit)
 				_update_ui()
@@ -685,7 +540,7 @@ func _start_battle() -> void:
 	if board.get_front_unit_count() <= 0:
 		_log("前衛に1人以上配置してください")
 		return
-	_hide_shop_odds_table()
+	_shop.hide_odds_table()
 	_log("戦闘開始 (ラウンド %d)" % session.round_number)
 	session.start_battle()
 	input_handler.set_enabled(false)
@@ -712,9 +567,9 @@ func _start_battle() -> void:
 		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
 	board.set_battle_mode(false)
 	battle_overlay.visible = false
-	_reroll_battle_background()
+	_battle.reroll()
 	if session.is_run_over():
-		_show_run_end_screen()
+		_review.show_end_screen()
 		return
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
 		input_handler.set_enabled(false)
@@ -805,7 +660,7 @@ func _on_end_run() -> void:
 	extension_overlay.visible = false
 	_log("ランを終了した")
 	session.choose_extension(false)
-	_show_run_end_screen()
+	_review.show_end_screen()
 
 
 func _on_run_completed() -> void:
@@ -814,175 +669,6 @@ func _on_run_completed() -> void:
 
 func _on_run_failed() -> void:
 	pass
-
-
-func _show_run_end_screen() -> void:
-	if _run_end_active:
-		return
-	_run_end_active = true
-	_run_review_mode = RunReviewMode.MENU
-	battle_overlay.visible = false
-	extension_overlay.visible = false
-	route_overlay.visible = false
-	income_overlay.visible = false
-	run_stats_panel.visible = false
-	run_end_review_bar.visible = false
-	run_end_title.text = _get_run_end_title()
-	run_end_summary.text = _build_run_end_summary()
-	run_stats_label.text = _build_run_stats_text()
-	run_end_overlay.visible = true
-	prep_blocker.visible = true
-	input_handler.set_enabled(false)
-	shop_panel.visible = false
-	coin_row.visible = false
-	_collapse_log_panel()
-	_set_synergy_panel_review_mode(false)
-	match session.run_end_reason:
-		GameSession.RunEndReason.DEFEAT:
-			_log("HPが0になった")
-		GameSession.RunEndReason.CLEAR:
-			_log("ゲームクリア")
-		GameSession.RunEndReason.VOLUNTARY_END:
-			pass
-	_update_ui()
-
-
-func _enter_run_review(mode: RunReviewMode) -> void:
-	if not _run_end_active:
-		return
-	_run_review_mode = mode
-	run_end_overlay.visible = false
-	run_end_review_bar.visible = true
-	prep_blocker.visible = false
-	run_stats_panel.visible = false
-	_set_synergy_panel_review_mode(false)
-	if _log_expanded:
-		_log_expanded = false
-		_apply_log_panel_layout()
-	match mode:
-		RunReviewMode.BOARD:
-			review_bar_label.text = "ラン終了 — 編成を確認中"
-			_setup_camera()
-		RunReviewMode.SYNERGY:
-			review_bar_label.text = "ラン終了 — シナジーを確認中"
-			_set_synergy_panel_review_mode(true)
-			_update_synergy_panel()
-		RunReviewMode.LOG:
-			review_bar_label.text = "ラン終了 — ログを確認中"
-			_log_expanded = true
-			_apply_log_panel_layout()
-			_refresh_event_log()
-		RunReviewMode.STATS:
-			review_bar_label.text = "ラン終了 — 戦績詳細"
-			run_stats_label.text = _build_run_stats_text()
-			run_stats_panel.visible = true
-
-
-func _return_to_run_end_menu() -> void:
-	if not _run_end_active:
-		return
-	_run_review_mode = RunReviewMode.MENU
-	run_end_overlay.visible = true
-	run_end_review_bar.visible = false
-	run_stats_panel.visible = false
-	prep_blocker.visible = true
-	_set_synergy_panel_review_mode(false)
-	if _log_expanded:
-		_log_expanded = false
-		_apply_log_panel_layout()
-
-
-func _leave_to_title() -> void:
-	get_tree().change_scene_to_file("res://scenes/title.tscn")
-
-
-func _get_run_end_title() -> String:
-	match session.run_end_reason:
-		GameSession.RunEndReason.DEFEAT:
-			return "敗北"
-		GameSession.RunEndReason.CLEAR:
-			return "完全クリア"
-		GameSession.RunEndReason.VOLUNTARY_END:
-			return "クリア"
-	return "ラン終了"
-
-
-func _get_reached_round() -> int:
-	if session.run_end_reason == GameSession.RunEndReason.DEFEAT:
-		return maxi(1, session.round_number - 1)
-	return mini(session.round_number - 1, session.max_round)
-
-
-func _build_run_end_summary() -> String:
-	var reached := _get_reached_round()
-	return "到達ラウンド: %d / %d\nHP: %d  Lv.%d  コイン: %d" % [
-		reached,
-		session.max_round,
-		session.player_hp,
-		session.get_level(),
-		session.coins,
-	]
-
-
-func _build_run_stats_text() -> String:
-	var lines: PackedStringArray = []
-	var reached := _get_reached_round()
-	lines.append("結果: %s" % _get_run_end_title())
-	lines.append("到達ラウンド: %d / %d" % [reached, session.max_round])
-	lines.append("HP: %d / %d" % [session.player_hp, PlayerHp.INITIAL_HP])
-	lines.append("レベル: %d" % session.get_level())
-	lines.append("経験値: %d" % session.experience)
-	lines.append("コイン: %d" % session.coins)
-	lines.append("連勝: %d  連敗: %d" % [session.win_streak, session.loss_streak])
-	lines.append("延長モード: %s" % ("あり" if session.extended_mode else "なし"))
-	lines.append("")
-	lines.append("サークル (%d / %d)" % [
-		board.get_board_unit_count(),
-		session.get_board_unit_cap(),
-	])
-	for face_index in board.get_unlocked_face_count():
-		lines.append("%d面" % [face_index + 1])
-		for slot_index in BoardController.SLOTS_PER_FACE:
-			var placed := board.get_placed_unit(face_index, slot_index)
-			if placed == null:
-				continue
-			var row_label := "前衛" if slot_index < BoardController.FRONT_COUNT else "後衛"
-			lines.append("  %s %s %s (%dコスト)" % [
-				row_label,
-				placed.get_display_name(),
-				placed.get_star_text(),
-				placed.get_cost(),
-			])
-	var bench_count := 0
-	for slot in board.bench_units:
-		if slot == null:
-			continue
-		bench_count += 1
-	lines.append("")
-	lines.append("ベンチ (%d)" % bench_count)
-	for slot in board.bench_units:
-		var unit: GameUnit = slot as GameUnit
-		if unit == null:
-			continue
-		lines.append("  %s %s (%dコスト)" % [
-			unit.get_display_name(),
-			unit.get_star_text(),
-			unit.get_cost(),
-		])
-	var synergies := SynergyTracker.get_active_synergies(board.get_all_units())
-	if synergies.is_empty():
-		lines.append("")
-		lines.append("シナジー: 発動なし")
-	else:
-		lines.append("")
-		lines.append("シナジー:")
-		for entry in synergies:
-			lines.append("  %s Lv.%d (%d体)" % [
-				entry["name"],
-				entry["tier"],
-				entry["count"],
-			])
-	return "\n".join(lines)
 
 
 func _set_synergy_panel_review_mode(_active: bool) -> void:
@@ -1069,77 +755,6 @@ func _update_synergy_panel() -> void:
 	synergy_label.text = "\n".join(lines)
 
 
-func _mount_battle_viewport() -> void:
-	var layer := $CanvasLayer
-	var background := ColorRect.new()
-	background.color = Color(0.06, 0.07, 0.09)
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	layer.add_child(background)
-	layer.move_child(background, 0)
-	_ui_background = TextureRect.new()
-	_ui_background.name = "UiBackground"
-	_ui_background.texture = load(UI_BACKGROUND_PATH)
-	_ui_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_ui_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_ui_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	_ui_background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	layer.add_child(_ui_background)
-	layer.move_child(_ui_background, 1)
-	_battle_background = TextureRect.new()
-	_battle_background.name = "BattleBackground"
-	_battle_background.texture = _pick_random_background_texture()
-	_battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_battle_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	var edge_shader := Shader.new()
-	edge_shader.code = _BATTLE_EDGE_SHADER
-	var edge_material := ShaderMaterial.new()
-	edge_material.shader = edge_shader
-	_battle_background.material = edge_material
-	layer.add_child(_battle_background)
-	layer.move_child(_battle_background, 2)
-	_foot_shadow_layer = FootShadowLayer.new()
-	_foot_shadow_layer.setup(camera, units_root)
-	layer.add_child(_foot_shadow_layer)
-	layer.move_child(_foot_shadow_layer, 3)
-	_battle_viewport = SubViewportContainer.new()
-	_battle_viewport.name = "BattleViewport"
-	_battle_viewport.stretch = true
-	_battle_viewport.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_battle_viewport.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_battle_viewport.offset_bottom = _battle_view_height
-	layer.add_child(_battle_viewport)
-	layer.move_child(_battle_viewport, 4)
-	var viewport := SubViewport.new()
-	viewport.name = "BattleWorld"
-	viewport.own_world_3d = true
-	viewport.transparent_bg = true
-	viewport.handle_input_locally = false
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	viewport.size = Vector2i(640, 480)
-	_battle_world = viewport
-	_battle_viewport.add_child(viewport)
-	var world_environment := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_COLOR
-	environment.background_color = Color(0.0, 0.0, 0.0, 0.0)
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.7, 0.73, 0.78)
-	environment.ambient_light_energy = 1.1
-	world_environment.environment = environment
-	viewport.add_child(world_environment)
-	var fill_light := OmniLight3D.new()
-	fill_light.position = Vector3(0.0, 4.2, 0.4)
-	fill_light.omni_range = 16.0
-	fill_light.light_energy = 1.3
-	viewport.add_child(fill_light)
-	camera.reparent(viewport)
-	$DirectionalLight3D.reparent(viewport)
-	board.reparent(viewport)
-	units_root.reparent(viewport)
-
-
 func _setup_formation_ui() -> void:
 	var ui := $CanvasLayer/UI
 	_circle_wheel = CircleWheel.new()
@@ -1199,29 +814,29 @@ func _setup_formation_ui() -> void:
 	ui.add_child(_drag_preview)
 	_circle_wheel.rotate_steps.connect(func(steps: int) -> void: board.apply_spin_commit(steps))
 	_circle_wheel.visual_shift_changed.connect(func(shift: float) -> void: board.set_visual_shift(shift))
-	_circle_wheel.center_pressed.connect(_on_circle_center_pressed)
-	_circle_wheel.unit_drag_started.connect(_on_circle_drag_started)
-	_circle_wheel.unit_drag_finished.connect(_on_circle_drag_finished)
-	_circle_wheel.slot_move_requested.connect(_on_circle_slot_move)
-	_bench_board.unit_drag_started.connect(_on_bench_drag_started)
-	_bench_board.unit_drag_finished.connect(_on_bench_drag_finished)
-	_bench_board.slot_clicked.connect(_on_bench_slot_clicked)
+	_circle_wheel.center_pressed.connect(_formation.on_center_pressed)
+	_circle_wheel.unit_drag_started.connect(_formation.on_circle_drag_started)
+	_circle_wheel.unit_drag_finished.connect(_formation.on_circle_drag_finished)
+	_circle_wheel.slot_move_requested.connect(_formation.on_circle_slot_move)
+	_bench_board.unit_drag_started.connect(_formation.on_bench_drag_started)
+	_bench_board.unit_drag_finished.connect(_formation.on_bench_drag_finished)
+	_bench_board.slot_clicked.connect(_formation.on_bench_slot_clicked)
 	if not get_viewport().size_changed.is_connected(_layout_formation_ui):
 		get_viewport().size_changed.connect(_layout_formation_ui)
 
 
 func _layout_formation_ui() -> void:
-	if _circle_wheel == null or _battle_viewport == null:
+	if _circle_wheel == null or _battle.viewport_container == null:
 		return
 	var viewport_size := get_viewport().get_visible_rect().size
 	var top := 8.0
 	var bottom := viewport_size.y - 8.0
 	var left_h := bottom - top
-	_battle_view_height = left_h * 0.58
-	var battle_bottom := top + _battle_view_height
-	var battle_w := _battle_column_width(battle_bottom)
+	_battle.view_height = left_h * 0.58
+	var battle_bottom := top + _battle.view_height
+	var battle_w := _battle.column_width(battle_bottom)
 	_fit_action_column_width()
-	var cards_w := SHOP_SLOT_LAYOUT_WIDTH * float(SHOP_COLUMNS) + 8.0 * float(SHOP_COLUMNS - 1)
+	var cards_w := ShopBoard.LAYOUT_SLOT_WIDTH * float(ShopBoard.COLUMNS) + 8.0 * float(ShopBoard.COLUMNS - 1)
 	var shop_w := _action_column_width + 8.0 + cards_w
 	var shop_x := viewport_size.x - 8.0 - shop_w
 	var battle_x := shop_x - 8.0 - battle_w
@@ -1229,15 +844,9 @@ func _layout_formation_ui() -> void:
 	var log_w := maxf(0.0, battle_x - 8.0 - log_x)
 	_split_x = shop_x - 8.0
 	_log_column_rect = Rect2(log_x, top, log_w, bottom - top)
-	_battle_rect = Rect2(battle_x, top, battle_w, _battle_view_height)
-	_place_ui_background(viewport_size)
-	_place_battle_background()
-	_place_control(_battle_viewport, _battle_rect)
-	if _foot_shadow_layer != null:
-		_place_control(_foot_shadow_layer, _battle_rect)
-	if _battle_world != null:
-		_battle_world.size = Vector2i(maxi(8, int(_battle_rect.size.x)), maxi(8, int(_battle_rect.size.y)))
-	var circle_top := _battle_rect.end.y + 4.0
+	_battle.battle_rect = Rect2(battle_x, top, battle_w, _battle.view_height)
+	_battle.place(viewport_size)
+	var circle_top := _battle.battle_rect.end.y + 4.0
 	var circle_bottom := viewport_size.y - 2.0
 	var diameter := minf(battle_w, maxf(96.0, circle_bottom - circle_top))
 	var wheel_size := diameter + CircleWheel.RIM_GRAB * 2.0
@@ -1252,9 +861,9 @@ func _layout_formation_ui() -> void:
 	var bench_top := top + shop_area_h + 6.0
 	var bench_h := right_bottom - bench_top
 	var cards_x := right_x + _action_column_width + 8.0
-	_place_shop(Rect2(cards_x, top, cards_w, shop_area_h))
+	_shop.place(Rect2(cards_x, top, cards_w, shop_area_h))
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
-	_bench_board.size = Vector2(_get_shop_panel_width() + 12.0, bench_h)
+	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
 	_place_side_column(right_x)
 	_layout_log_column()
 	_layout_comment_flow()
@@ -1262,17 +871,17 @@ func _layout_formation_ui() -> void:
 	battle_overlay.anchor_right = 0.0
 	battle_overlay.anchor_top = 0.0
 	battle_overlay.anchor_bottom = 0.0
-	battle_overlay.offset_left = _battle_rect.position.x + _battle_rect.size.x * 0.5 - 90.0
+	battle_overlay.offset_left = _battle.battle_rect.position.x + _battle.battle_rect.size.x * 0.5 - 90.0
 	battle_overlay.offset_right = battle_overlay.offset_left + 180.0
-	battle_overlay.offset_top = _battle_rect.position.y + _battle_rect.size.y * 0.32
+	battle_overlay.offset_top = _battle.battle_rect.position.y + _battle.battle_rect.size.y * 0.32
 	battle_overlay.offset_bottom = battle_overlay.offset_top + 52.0
 	income_overlay.anchor_left = 0.0
 	income_overlay.anchor_right = 0.0
 	income_overlay.anchor_top = 0.0
 	income_overlay.anchor_bottom = 0.0
-	income_overlay.offset_left = _battle_rect.position.x + _battle_rect.size.x * 0.5 - 130.0
+	income_overlay.offset_left = _battle.battle_rect.position.x + _battle.battle_rect.size.x * 0.5 - 130.0
 	income_overlay.offset_right = income_overlay.offset_left + 260.0
-	income_overlay.offset_top = _battle_rect.position.y + 10.0
+	income_overlay.offset_top = _battle.battle_rect.position.y + 10.0
 	income_overlay.offset_bottom = income_overlay.offset_top + 78.0
 
 
@@ -1283,7 +892,7 @@ func _layout_log_column() -> void:
 	if column.size.x <= 1.0 or column.size.y <= 1.0:
 		return
 	var gap := 6.0
-	var review_synergy := _run_review_mode == RunReviewMode.SYNERGY
+	var review_synergy := _run_review_mode == RunReview.Mode.SYNERGY
 	var synergy_ratio := 0.64 if review_synergy else 0.42
 	var synergy_h := maxf(96.0, (column.size.y - gap) * synergy_ratio)
 	synergy_h = minf(synergy_h, column.size.y - gap - 96.0)
@@ -1306,76 +915,10 @@ func _layout_comment_flow() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	_comment_flow.z_index = 80
 	_place_control(_comment_flow, Rect2(Vector2.ZERO, viewport_size))
-	var hole := _battle_rect
-	if _battle_viewport != null:
-		hole = _battle_viewport.get_global_rect()
+	var hole := _battle.battle_rect
+	if _battle.viewport_container != null:
+		hole = _battle.viewport_container.get_global_rect()
 	_comment_flow.set_hole(hole)
-
-
-func _reroll_battle_background() -> void:
-	if _battle_background == null:
-		return
-	_battle_background.texture = _pick_random_background_texture()
-	_layout_formation_ui()
-
-
-func _pick_random_background_texture() -> Texture2D:
-	var paths := _list_background_paths()
-	if paths.is_empty():
-		return null
-	var candidates: PackedStringArray = []
-	for path in paths:
-		if path != _battle_background_path:
-			candidates.append(path)
-	if candidates.is_empty():
-		candidates = paths
-	_battle_background_path = candidates[randi() % candidates.size()]
-	return load(_battle_background_path)
-
-
-func _list_background_paths() -> PackedStringArray:
-	var paths: PackedStringArray = []
-	for file_name in DirAccess.get_files_at(BATTLE_BACKGROUND_DIR):
-		if file_name.get_extension().to_lower() != "png":
-			continue
-		paths.append(BATTLE_BACKGROUND_DIR.path_join(file_name))
-	return paths
-
-
-func _battle_column_width(span_height: float) -> float:
-	var texture := _battle_background.texture if _battle_background != null else null
-	if texture == null or span_height <= 0.0:
-		return BATTLE_COLUMN_WIDTH
-	var tex_size := texture.get_size()
-	if tex_size.y <= 0.0:
-		return BATTLE_COLUMN_WIDTH
-	return span_height * tex_size.x / tex_size.y
-
-
-func _place_ui_background(viewport_size: Vector2) -> void:
-	if _ui_background == null:
-		return
-	_place_control(_ui_background, Rect2(Vector2.ZERO, viewport_size))
-
-
-func _place_battle_background() -> void:
-	if _battle_background == null or _battle_background.texture == null:
-		return
-	var tex_size := _battle_background.texture.get_size()
-	if tex_size.y <= 0.0:
-		return
-	var span := _battle_rect.end.y
-	if span <= 0.0:
-		return
-	var drawn := Vector2(span * tex_size.x / tex_size.y, span)
-	var origin := Vector2(_battle_rect.position.x + (_battle_rect.size.x - drawn.x) * 0.5, 0.0)
-	_battle_background.stretch_mode = TextureRect.STRETCH_SCALE
-	_place_control(_battle_background, Rect2(origin, drawn))
-	var edge := _battle_background.material as ShaderMaterial
-	if edge == null:
-		return
-	edge.set_shader_parameter("rect_size", drawn)
-	edge.set_shader_parameter("feather", BATTLE_EDGE_FEATHER)
 
 
 func _place_control(control: Control, rect: Rect2) -> void:
@@ -1414,265 +957,16 @@ func _place_side_column(column_x: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	_update_shop_hover()
-
-
-func _place_shop(area: Rect2) -> void:
-	var shop_h := maxf(80.0, area.size.y)
-	var gap := 2.0
-	var slot_h := maxf(96.0, (shop_h - gap) / 2.0)
-	var slot_w := slot_h * SHOP_FRAME_ASPECT
-	var max_w := maxf(72.0, (area.size.x - gap * float(SHOP_COLUMNS - 1)) / float(SHOP_COLUMNS))
-	if slot_w > max_w:
-		slot_w = max_w
-		slot_h = slot_w / SHOP_FRAME_ASPECT
-	_shop_slot_size = Vector2(slot_w, slot_h)
-	_shop_zoomed = false
-	_shop_display_scale = 1.0
-	shop_slots.scale = Vector2.ONE
-	shop_slots.top_level = false
-	shop_slots.z_index = 0
-	for child in shop_slots.get_children():
-		var slot := child as ShopSlotPanel
-		if slot != null:
-			slot.set_card_size(_shop_slot_size)
-			slot.set_text_scale(1.0)
-	var grid_size := Vector2(
-		slot_w * float(SHOP_COLUMNS) + gap * float(SHOP_COLUMNS - 1),
-		slot_h * 2.0 + gap
-	)
-	shop_slots.custom_minimum_size = grid_size
-	shop_slots.size = grid_size
-	shop_panel.custom_minimum_size.x = _get_shop_panel_width()
-	bottom_ui.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	bottom_ui.offset_left = area.position.x
-	bottom_ui.offset_top = area.position.y
-	bottom_ui.offset_right = area.end.x
-	bottom_ui.offset_bottom = area.end.y
-	sell_drag_hint_left.visible = false
-	sell_drag_hint_right.z_index = 30
-	sell_drag_hint_right.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	sell_drag_hint_right.offset_left = area.end.x - SELL_ZONE_WIDTH
-	sell_drag_hint_right.offset_right = area.end.x
-	sell_drag_hint_right.offset_top = area.position.y
-	sell_drag_hint_right.offset_bottom = area.end.y
-	var sell_label := sell_drag_hint_right.get_node_or_null("SellDragLabelRight") as Label
-	if sell_label != null:
-		sell_label.text = "売却"
-	call_deferred("_position_coin_row_over_shop")
-	call_deferred("_capture_shop_rest_rect")
-
-
-func _capture_shop_rest_rect() -> void:
-	if shop_slots == null:
-		return
-	shop_slots.scale = Vector2.ONE
-	shop_slots.top_level = false
-	_shop_rest_origin = shop_slots.get_global_rect().position
-	_shop_rest_size = shop_slots.size
-	if _shop_zoomed:
-		_apply_shop_display_scale(SHOP_HOVER_SCALE)
-
-
-func _update_shop_hover() -> void:
-	if shop_slots == null or shop_panel == null or not shop_panel.visible or _shop_rest_size.x < 2.0:
-		return
-	var mouse := get_viewport().get_mouse_position()
-	var inside_rest := _shop_scaled_rect(1.0).grow(8.0).has_point(mouse)
-	var inside_zoom := _shop_scaled_rect(SHOP_HOVER_SCALE).grow(16.0).has_point(mouse)
-	var zoom := inside_zoom if _shop_zoomed else inside_rest
-	if zoom == _shop_zoomed:
-		return
-	_shop_zoomed = zoom
-	_tween_shop_zoom(SHOP_HOVER_SCALE if zoom else 1.0)
-
-
-func _shop_scaled_rect(shop_scale: float) -> Rect2:
-	var origin := _shop_rest_origin + Vector2(_shop_rest_size.x * (1.0 - shop_scale), 0.0)
-	return Rect2(origin, _shop_rest_size * shop_scale)
-
-
-func _tween_shop_zoom(shop_scale: float) -> void:
-	if _shop_zoom_tween != null and _shop_zoom_tween.is_valid():
-		_shop_zoom_tween.kill()
-	_shop_zoom_tween = create_tween()
-	_shop_zoom_tween.set_trans(Tween.TRANS_CUBIC)
-	_shop_zoom_tween.set_ease(Tween.EASE_OUT)
-	_shop_zoom_tween.tween_method(_apply_shop_display_scale, _shop_display_scale, shop_scale, 0.14)
-
-
-func _apply_shop_display_scale(amount: float) -> void:
-	if shop_slots == null or _shop_rest_size.x < 2.0:
-		return
-	_shop_display_scale = amount
-	var zoomed := amount > 1.02
-	shop_slots.scale = Vector2.ONE
-	shop_slots.top_level = zoomed
-	shop_slots.z_index = 20 if zoomed else 0
-	var grid_size := _shop_rest_size * amount
-	if zoomed:
-		shop_slots.global_position = _shop_rest_origin + Vector2(_shop_rest_size.x * (1.0 - amount), 0.0)
-		shop_slots.size = grid_size
-	else:
-		shop_slots.size = _shop_rest_size
-	var gap := maxi(0, int(round(2.0 * amount)))
-	shop_slots.add_theme_constant_override("h_separation", gap)
-	shop_slots.add_theme_constant_override("v_separation", gap)
-	var card := _shop_slot_size * amount
-	for child in shop_slots.get_children():
-		var slot := child as ShopSlotPanel
-		if slot == null:
-			continue
-		slot.set_card_size(card)
-		slot.set_text_scale(amount)
-
-
-func _refresh_formation_widgets() -> void:
-	if _circle_wheel == null:
-		return
-	board.board_unit_limit = session.get_board_unit_cap()
-	board.set_unlocked_face_count(BoardController.unlocked_face_count_for_level(session.get_level()))
-	var center_text := "%d面\n%d/%d" % [
-		board.active_face + 1,
-		board.get_board_unit_count(),
-		session.get_board_unit_cap(),
-	]
-	if board.get_unlocked_face_count() <= 1:
-		center_text += "\nLv7で2面"
-	_circle_wheel.set_view(center_text, board.get_wheel_slots())
-	var bench_view: Array = []
-	for slot in board.bench_units:
-		var unit := slot as GameUnit
-		if unit == null:
-			bench_view.append({"occupied": false})
-		else:
-			bench_view.append({
-				"occupied": true,
-				"name": unit.get_display_name(),
-				"stars": unit.get_star_text(),
-				"cost": unit.get_cost(),
-			})
-	_bench_board.set_slots(bench_view)
-	_action_order_bar.set_entries(board.get_action_order())
-	var can_edit := session.is_prep() and not _run_end_active
-	var can_rotate := not _run_end_active and (
-		session.is_prep() or session.phase == GameSession.Phase.BATTLE
-	)
-	_circle_wheel.set_unit_drag_enabled(can_edit)
-	_circle_wheel.set_interaction_enabled(can_rotate)
-	_bench_board.set_input_enabled(can_edit)
-
-
-func _on_circle_center_pressed() -> void:
-	if _run_end_active or session.phase == GameSession.Phase.ROUTE_CHOICE or session.phase == GameSession.Phase.EXTENSION_CHOICE:
-		return
-	if board.get_unlocked_face_count() <= 1:
-		_log("2面はレベル7で開きます")
-		return
-	board.cycle_face()
-	_log("%d面を表示" % [board.active_face + 1])
-
-
-func _on_circle_drag_started(slot_index: int) -> void:
-	var unit := board.get_placed_unit(board.active_face, slot_index)
-	if unit != null:
-		_begin_unit_drag(unit)
-
-
-func _on_bench_drag_started(slot_index: int) -> void:
-	var unit: GameUnit = board.bench_units[slot_index]
-	if unit != null:
-		_begin_unit_drag(unit)
-
-
-func _on_circle_drag_finished(_slot_index: int, global_position: Vector2) -> void:
-	_finish_unit_drag(global_position)
-
-
-func _on_bench_drag_finished(_slot_index: int, global_position: Vector2) -> void:
-	_finish_unit_drag(global_position)
-
-
-func _on_circle_slot_move(from_slot: int, to_slot: int) -> void:
-	var unit := board.get_placed_unit(board.active_face, from_slot)
-	if unit == null:
-		return
-	if not board.try_move_unit_to_circle(unit, board.active_face, to_slot):
-		_log("そこには配置できません")
-
-
-func _on_bench_slot_clicked(slot_index: int) -> void:
-	if not session.is_prep() or _run_end_active:
-		return
-	var unit: GameUnit = board.bench_units[slot_index]
-	if unit == null:
-		return
-	var dest := board.find_empty_circle_slot(board.active_face)
-	if dest < 0:
-		_log("この面は満員です")
-		return
-	if not board.try_move_unit_to_circle(unit, board.active_face, dest):
-		_log("配置上限です")
-
-
-func _begin_unit_drag(unit: GameUnit) -> void:
-	_dragging_unit = unit
-	var cost := unit.get_cost()
-	var label_color := CostColors.get_shop_label_color(cost)
-	_drag_bar.color = CostColors.get_color(cost)
-	_drag_cost_label.text = str(cost)
-	_drag_name_label.text = unit.get_display_name()
-	_drag_stars_label.text = unit.get_star_text()
-	_drag_cost_label.add_theme_color_override("font_color", label_color)
-	_drag_name_label.add_theme_color_override("font_color", label_color)
-	_drag_preview.visible = true
-	_drag_preview.global_position = get_viewport().get_mouse_position() - _drag_preview.size * 0.5
-	_on_drag_state_changed(true, -1)
-
-
-func _finish_unit_drag(global_position: Vector2) -> void:
-	var unit := _dragging_unit
-	_dragging_unit = null
-	_drag_preview.visible = false
-	_on_drag_state_changed(false, -1)
-	if unit == null or not is_instance_valid(unit) or not session.is_prep():
-		return
-	var circle_slot := _circle_wheel.slot_index_at_global(global_position)
-	if circle_slot >= 0:
-		if not board.try_move_unit_to_circle(unit, board.active_face, circle_slot):
-			_log("配置上限です")
-		return
-	var bench_slot := _bench_board.slot_index_at_global(global_position)
-	if bench_slot >= 0:
-		board.try_move_unit_to_bench(unit, bench_slot)
-		return
-	if _get_sell_zone_side(global_position) >= 0:
-		_on_sell_requested(unit)
-
-
-func _unit_under_screen(screen_position: Vector2) -> GameUnit:
-	if _circle_wheel == null:
-		return null
-	var circle_slot := _circle_wheel.slot_index_at_global(screen_position)
-	if circle_slot >= 0:
-		return board.get_placed_unit(board.active_face, circle_slot)
-	var bench_slot := _bench_board.slot_index_at_global(screen_position)
-	if bench_slot >= 0:
-		return board.bench_units[bench_slot]
-	return null
+	_shop.update_hover()
 
 
 func _input(event: InputEvent) -> void:
-	if _dragging_unit == null or not (event is InputEventMouseMotion):
-		return
-	var motion := event as InputEventMouseMotion
-	_drag_preview.global_position = motion.global_position - _drag_preview.size * 0.5
-	_on_drag_state_changed(true, _get_sell_zone_side(motion.global_position))
+	_formation.handle_mouse_motion(event)
 
 
 func _update_ui() -> void:
 	board.board_unit_limit = session.get_board_unit_cap()
-	_refresh_formation_widgets()
+	_formation.refresh_widgets()
 	call_deferred("_layout_formation_ui")
 	if _run_end_active:
 		battle_button.disabled = true
@@ -1714,12 +1008,12 @@ func _update_ui() -> void:
 		exp_progress_bar.max_value = 1.0
 		exp_progress_bar.value = 1.0
 	ShopOdds.populate_current_odds_row(shop_odds_row, level)
-	_fit_shop_odds_badge_width()
+	_shop.fit_badge_width()
 	if not session.is_prep() or _run_end_active:
-		_hide_shop_odds_table()
+		_shop.hide_odds_table()
 	elif shop_odds_tooltip.visible:
 		ShopOdds.populate_odds_grid(shop_odds_grid, level)
-		call_deferred("_fit_shop_odds_tooltip_size")
+		_shop.call_deferred("_fit_tooltip_size")
 	shop_lock_button.text = "🔒" if session.shop_locked else "🔓"
 	shop_lock_button.disabled = not session.is_prep()
 	var round_cap := session.max_round
@@ -1778,83 +1072,3 @@ func _update_ui() -> void:
 			_request_bottom_ui_refit()
 		else:
 			call_deferred("_position_coin_row_over_shop")
-
-
-class FootShadowLayer extends Control:
-	const SHADOW_RADIUS := 0.55
-	const SHADOW_CORE := 0.5
-
-	var _camera: Camera3D
-	var _units_root: Node3D
-	var _texture: Texture2D
-
-	func setup(view_camera: Camera3D, units_root: Node3D) -> void:
-		_camera = view_camera
-		_units_root = units_root
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-		var canvas_material := CanvasItemMaterial.new()
-		canvas_material.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
-		material = canvas_material
-		_texture = _make_soft_texture()
-
-	func _process(_delta: float) -> void:
-		queue_redraw()
-
-	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color.WHITE)
-		if _camera == null or _units_root == null or _texture == null or size.x <= 1.0 or size.y <= 1.0:
-			return
-		var viewport := _camera.get_viewport()
-		if viewport == null:
-			return
-		var viewport_size := Vector2(viewport.size)
-		if viewport_size.x <= 1.0 or viewport_size.y <= 1.0:
-			return
-		for child in _units_root.get_children():
-			if not child is GameUnit or not child.visible:
-				continue
-			_draw_unit_shadow(child as GameUnit, viewport_size)
-
-	func _draw_unit_shadow(unit: GameUnit, viewport_size: Vector2) -> void:
-		var feet := unit.global_position
-		feet.y = 0.0
-		if _camera.is_position_behind(feet):
-			return
-		var center := _to_local_point(_camera.unproject_position(feet), viewport_size)
-		var ground_right := _to_local_point(
-			_camera.unproject_position(feet + Vector3(SHADOW_RADIUS, 0.0, 0.0)),
-			viewport_size
-		) - center
-		var ground_forward := _to_local_point(
-			_camera.unproject_position(feet + Vector3(0.0, 0.0, SHADOW_RADIUS)),
-			viewport_size
-		) - center
-		if ground_right.length() < 1.0 or ground_forward.length() < 1.0:
-			return
-		var star_scale := 0.85 + float(unit.stars - 1) * 0.08
-		draw_set_transform(
-			center,
-			ground_right.angle(),
-			Vector2(ground_right.length(), ground_forward.length()) * star_scale
-		)
-		draw_texture_rect(_texture, Rect2(-Vector2.ONE, Vector2(2.0, 2.0)), false, Color.WHITE)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-	func _to_local_point(viewport_point: Vector2, viewport_size: Vector2) -> Vector2:
-		return Vector2(viewport_point.x / viewport_size.x, viewport_point.y / viewport_size.y) * size
-
-	func _make_soft_texture() -> Texture2D:
-		var texture_size := 160
-		var image := Image.create(texture_size, texture_size, false, Image.FORMAT_RGBA8)
-		var half := float(texture_size) * 0.5
-		for y in texture_size:
-			for x in texture_size:
-				var px := (float(x) + 0.5 - half) / half
-				var py := (float(y) + 0.5 - half) / half
-				var outside := Vector2(maxf(absf(px) - 0.04, 0.0), maxf(absf(py) - 0.04, 0.0))
-				var dist := clampf(outside.length() / 0.9, 0.0, 1.0)
-				var fade := dist * dist * (3.0 - 2.0 * dist)
-				var shade := lerpf(SHADOW_CORE, 1.0, fade)
-				image.set_pixel(x, y, Color(shade, shade, shade, 1.0))
-		return ImageTexture.create_from_image(image)

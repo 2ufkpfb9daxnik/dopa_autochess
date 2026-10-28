@@ -1,9 +1,9 @@
 class_name CommentFlow
 extends Control
 
-const FONT_SIZE := 22
-const LANE_HEIGHT := 30.0
-const START_Y := 28.0
+const FONT_SIZE := 40
+const LANE_HEIGHT := 52.0
+const START_Y := 16.0
 const SPEED := 170.0
 const _MASK_SHADER := """
 shader_type canvas_item;
@@ -82,7 +82,7 @@ func _spawn(text: String) -> void:
 	label.add_theme_font_size_override("font_size", FONT_SIZE)
 	label.add_theme_color_override("font_color", Color(1, 1, 1))
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
-	label.add_theme_constant_override("outline_size", 8)
+	label.add_theme_constant_override("outline_size", 12)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.material = _mask
 	add_child(label)

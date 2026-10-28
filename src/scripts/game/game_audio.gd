@@ -2,6 +2,9 @@ extends Node
 
 const EFFECTS := "res://sounds/effects/"
 const BGM := "res://sounds/bgm/"
+const SETTINGS_PATH := "user://audio_settings.cfg"
+const BGM_VOLUME_DB := -6.0
+const MUTED_VOLUME_DB := -80.0
 const MONEY_STAGGER := 0.1
 const MONEY_VOICES := 3
 
@@ -11,14 +14,40 @@ static var _node: GameAudio
 
 var _bgm: AudioStreamPlayer
 var _bgm_kind: BgmKind = BgmKind.NONE
+var _bgm_enabled := true
+var _se_enabled := true
 
 
 func _enter_tree() -> void:
 	_node = self
+	_load_settings()
 	if _bgm == null:
 		_bgm = AudioStreamPlayer.new()
-		_bgm.volume_db = -6.0
 		add_child(_bgm)
+	_apply_bgm_volume()
+
+
+static func is_bgm_enabled() -> bool:
+	return _node != null and _node._bgm_enabled
+
+
+static func is_se_enabled() -> bool:
+	return _node != null and _node._se_enabled
+
+
+static func set_bgm_enabled(enabled: bool) -> void:
+	if _node == null:
+		return
+	_node._bgm_enabled = enabled
+	_node._apply_bgm_volume()
+	_node._save_settings()
+
+
+static func set_se_enabled(enabled: bool) -> void:
+	if _node == null:
+		return
+	_node._se_enabled = enabled
+	_node._save_settings()
 
 
 static func bind_buttons(root: Node) -> void:
@@ -120,6 +149,7 @@ func _play_bgm(path: String, kind: BgmKind) -> void:
 	_bgm.stream = stream
 	_bgm.play()
 	_bgm_kind = kind
+	_apply_bgm_volume()
 
 
 func _random_track(prefix: String) -> String:
@@ -136,6 +166,8 @@ func _random_track(prefix: String) -> String:
 
 
 func _play_now(path: String) -> void:
+	if not _se_enabled:
+		return
 	var stream := load(path) as AudioStream
 	if stream == null:
 		return
@@ -144,6 +176,27 @@ func _play_now(path: String) -> void:
 	player.finished.connect(player.queue_free)
 	add_child(player)
 	player.play()
+
+
+func _apply_bgm_volume() -> void:
+	if _bgm == null:
+		return
+	_bgm.volume_db = BGM_VOLUME_DB if _bgm_enabled else MUTED_VOLUME_DB
+
+
+func _load_settings() -> void:
+	var config := ConfigFile.new()
+	if config.load(SETTINGS_PATH) != OK:
+		return
+	_bgm_enabled = bool(config.get_value("audio", "bgm", true))
+	_se_enabled = bool(config.get_value("audio", "se", true))
+
+
+func _save_settings() -> void:
+	var config := ConfigFile.new()
+	config.set_value("audio", "bgm", _bgm_enabled)
+	config.set_value("audio", "se", _se_enabled)
+	config.save(SETTINGS_PATH)
 
 
 func _play_later(path: String, delay: float) -> void:

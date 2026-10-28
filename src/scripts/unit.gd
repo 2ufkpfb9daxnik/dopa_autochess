@@ -6,6 +6,9 @@ const MAX_STARS := 4
 const TARGET_MODEL_HEIGHT := 1.05
 const UNIT_RENDER_PRIORITY := 2
 const ACTION_VALUE_NUMERATOR := 10000
+const HP_BAR_WIDTH := 0.46
+const HP_BAR_HEIGHT := 0.05
+const HP_LAG_SECONDS := 0.45
 
 var unit_id: int = -1
 var stars: int = 1
@@ -14,6 +17,7 @@ var circle_face: int = -1
 var circle_slot: int = -1
 var bench_index: int = -1
 var action_value: int = 1
+var battle_ko := false
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D
@@ -23,8 +27,17 @@ var _model_ground_y := 0.0
 var _animation_player: AnimationPlayer
 var _armature_root: Node3D
 var _armature_rest := Transform3D.IDENTITY
-var _walk_anim_name := ""
 var _battle_walking := false
+var _clip_lock := false
+var defeat_playing := false
+var _guard_shake_time := 0.0
+var _guard_shake_left := 0.0
+var _hp_root: Node3D
+var _hp_lag_mesh: MeshInstance3D
+var _hp_fill_mesh: MeshInstance3D
+var _hp_current := 0
+var _hp_max := 1
+var _hp_lag := -1.0
 
 
 static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
@@ -44,12 +57,152 @@ func _ready() -> void:
 	_apply_battle_walking_state()
 
 
+func hold_guard_pose() -> void:
+	play_battle_role("guard")
+	if _animation_player != null:
+		_animation_player.pause()
+
+
+func play_guard_hit_shake() -> void:
+	_guard_shake_time = 0.0
+	_guard_shake_left = 0.32
+
+
+func stop_guard_hit_shake() -> void:
+	_guard_shake_left = 0.0
+	if is_instance_valid(model_root):
+		model_root.position.x = 0.0
+		model_root.position.z = 0.0
+
+
+func _process(delta: float) -> void:
+	_process_guard_shake(delta)
+	_process_hp_lag(delta)
+
+
+func _process_guard_shake(delta: float) -> void:
+	if _guard_shake_left <= 0.0 or model_root == null:
+		return
+	_guard_shake_left -= delta
+	_guard_shake_time += delta
+	if _guard_shake_left <= 0.0:
+		model_root.position.x = 0.0
+		model_root.position.z = 0.0
+		return
+	model_root.position.x = sin(_guard_shake_time * 46.0) * 0.02
+	model_root.position.z = sin(_guard_shake_time * 37.0 + 1.1) * 0.014
+
+
+func _process_hp_lag(delta: float) -> void:
+	if _hp_root == null or not _hp_root.visible:
+		return
+	_hp_root.rotation.y = -rotation.y
+	if _hp_lag <= float(_hp_current):
+		return
+	var step := float(_hp_max) * delta / HP_LAG_SECONDS
+	_hp_lag = maxf(float(_hp_current), _hp_lag - step)
+	_place_hp_meshes()
+
+
 func set_battle_walking(active: bool) -> void:
+	if _clip_lock:
+		return
 	if _battle_walking == active:
 		return
 	_battle_walking = active
 	if is_node_ready():
 		_apply_battle_walking_state()
+
+
+func play_battle_role(role: String) -> float:
+	_clip_lock = role != "idle"
+	defeat_playing = role == "defeat"
+	if _animation_player == null:
+		return 0.0
+	var fragment := "idle"
+	match role:
+		"attack", "buff":
+			fragment = "cast_a_spell"
+		"guard":
+			fragment = "fold_arms"
+		"hit":
+			fragment = "hit_to_head"
+		"defeat":
+			fragment = "defeat"
+	var anim_name := _find_clip(fragment)
+	if anim_name.is_empty():
+		return 0.0
+	var anim := _animation_player.get_animation(anim_name)
+	if anim == null:
+		return 0.0
+	if role == "idle":
+		anim.loop_mode = Animation.LOOP_LINEAR
+		_animation_player.speed_scale = 1.0
+		_animation_player.play(anim_name)
+		return 0.0
+	anim.loop_mode = Animation.LOOP_NONE
+	var speed := 1.35
+	var from := anim.length * 0.08
+	match role:
+		"guard":
+			speed = 1.0
+			from = anim.length * 0.55
+		"hit", "defeat":
+			speed = 1.0
+			from = 0.0
+	_animation_player.speed_scale = speed
+	_animation_player.play(anim_name)
+	_animation_player.seek(from, true)
+	return maxf(0.05, (anim.length - from) / speed)
+
+
+func release_battle_clip() -> void:
+	_clip_lock = false
+	defeat_playing = false
+	if _animation_player != null:
+		_animation_player.speed_scale = 1.0
+		_animation_player.stop()
+	_lock_model_position()
+
+
+func set_battle_hp(current: int, maximum: int) -> void:
+	label.visible = false
+	label.text = ""
+	_ensure_hp_bar()
+	_hp_current = maxi(current, 0)
+	_hp_max = maxi(maximum, 1)
+	if _hp_lag < 0.0 or _hp_lag < float(_hp_current):
+		_hp_lag = float(_hp_current)
+	_hp_root.visible = true
+	_place_hp_bar()
+	_place_hp_meshes()
+
+
+func popup_battle_text(text: String, color: Color) -> void:
+	var popup := Label3D.new()
+	popup.text = text
+	popup.font_size = 42
+	popup.outline_size = 8
+	popup.modulate = Color(color.r, color.g, color.b, 0.0)
+	popup.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	popup.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	popup.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	popup.scale = Vector3(2.4, 2.4, 2.4)
+	var start := Vector3(randf_range(-0.36, 0.36), 1.12 + randf_range(0.0, 0.32), randf_range(-0.06, 0.06))
+	var dipped := start + Vector3(0.0, -0.1, 0.0)
+	var risen := dipped + Vector3(randf_range(-0.1, 0.1), randf_range(0.42, 0.68), 0.0)
+	popup.position = start
+	popup.render_priority = 8
+	popup.outline_render_priority = 7
+	popup.no_depth_test = true
+	add_child(popup)
+	var tween := create_tween()
+	tween.tween_property(popup, "scale", Vector3.ONE, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(popup, "modulate:a", color.a, 0.2)
+	tween.parallel().tween_property(popup, "position", dipped, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(popup, "position", risen, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(popup, "modulate:a", 0.0, 0.7)
+	tween.finished.connect(popup.queue_free)
 
 
 func _setup_model_animation() -> void:
@@ -58,36 +211,41 @@ func _setup_model_animation() -> void:
 	if _armature_root != null:
 		_armature_rest = _armature_root.transform
 	if _animation_player != null:
-		_walk_anim_name = _resolve_walk_animation_name()
 		_animation_player.stop()
 
 
 func _apply_battle_walking_state() -> void:
-	if _animation_player == null or _walk_anim_name.is_empty():
-		return
 	if _battle_walking:
-		_animation_player.play(_walk_anim_name)
-	else:
-		_animation_player.stop()
-		if _animation_player.has_animation("RESET"):
-			_animation_player.play("RESET")
-		_lock_model_position()
+		play_battle_role("idle")
+		_clip_lock = false
+		return
+	if _animation_player == null:
+		return
+	_animation_player.speed_scale = 1.0
+	_animation_player.stop()
+	if _animation_player.has_animation("RESET"):
+		_animation_player.play("RESET")
+	_lock_model_position()
+
+
+func _find_clip(fragment: String) -> String:
+	if _animation_player == null:
+		return ""
+	var fallback := ""
+	for anim_name in _animation_player.get_animation_list():
+		if anim_name == "RESET":
+			continue
+		var lower := anim_name.to_lower()
+		if fragment in lower:
+			return anim_name
+		if fallback.is_empty():
+			fallback = anim_name
+	return fallback
 
 
 func _lock_model_position() -> void:
 	if _armature_root != null:
 		_armature_root.transform = _armature_rest
-
-
-func _resolve_walk_animation_name() -> String:
-	for anim_name in _animation_player.get_animation_list():
-		if anim_name == "RESET":
-			continue
-		if ".001" in anim_name or ".002" in anim_name:
-			continue
-		return anim_name
-	var animations := _animation_player.get_animation_list()
-	return animations[0] if not animations.is_empty() else ""
 
 
 func _find_animation_player(root: Node) -> AnimationPlayer:
@@ -121,20 +279,71 @@ func _find_skeleton3d(root: Node) -> Skeleton3D:
 
 
 func refresh_visuals() -> void:
-	var data := UnitCatalog.get_unit(unit_id)
-	var synergy_text := UnitCatalog.get_synergy_names(unit_id)
-	label.text = "%s\n%d\n%s" % ["★".repeat(stars), data["cost"], synergy_text]
-	if is_enemy:
-		label.modulate = Color(1.0, 0.78, 0.78)
-	elif stars <= 2:
-		label.modulate = Color.WHITE
-	else:
-		label.modulate = Color(1.0, 0.95, 0.7)
+	label.visible = false
+	label.text = ""
+	_hide_hp_bar()
 	_apply_model_star_scale()
 	_apply_enemy_model_tint()
 	_refresh_action_value()
+
+
+func _ensure_hp_bar() -> void:
+	if _hp_root != null:
+		return
+	_hp_root = Node3D.new()
+	_hp_root.name = "HpBar"
+	_hp_root.visible = false
+	add_child(_hp_root)
+	_hp_root.add_child(_make_hp_quad(Color(0.45, 0.46, 0.48), 3))
+	_hp_lag_mesh = _make_hp_quad(Color(0.9, 0.18, 0.14), 4)
+	_hp_fill_mesh = _make_hp_quad(Color(0.24, 0.78, 0.3), 5)
+	_hp_root.add_child(_hp_lag_mesh)
+	_hp_root.add_child(_hp_fill_mesh)
+
+
+func _make_hp_quad(color: Color, priority: int) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(HP_BAR_WIDTH, HP_BAR_HEIGHT)
+	mesh_instance.mesh = quad
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.no_depth_test = true
+	mesh_instance.material_override = material
+	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mesh_instance.sorting_offset = float(priority)
+	return mesh_instance
+
+
+func _hide_hp_bar() -> void:
+	_hp_lag = -1.0
+	if _hp_root != null:
+		_hp_root.visible = false
+
+
+func _place_hp_bar() -> void:
+	if _hp_root == null:
+		return
 	var star_scale := 0.85 + float(stars - 1) * 0.08
-	label.position.y = TARGET_MODEL_HEIGHT * star_scale + 0.22
+	_hp_root.position = Vector3(0.0, TARGET_MODEL_HEIGHT * star_scale + 0.18, 0.0)
+	_hp_root.rotation.y = -rotation.y
+
+
+func _place_hp_meshes() -> void:
+	if _hp_lag_mesh == null or _hp_fill_mesh == null:
+		return
+	_place_hp_fill(_hp_lag_mesh, _hp_lag / float(_hp_max))
+	_place_hp_fill(_hp_fill_mesh, float(_hp_current) / float(_hp_max))
+
+
+func _place_hp_fill(mesh: MeshInstance3D, ratio: float) -> void:
+	var clamped := clampf(ratio, 0.0, 1.0)
+	mesh.visible = clamped > 0.001
+	mesh.scale = Vector3(maxf(clamped, 0.001), 1.0, 1.0)
+	mesh.position.x = HP_BAR_WIDTH * (clamped - 1.0) * 0.5
 
 
 func _fit_model_to_board() -> void:

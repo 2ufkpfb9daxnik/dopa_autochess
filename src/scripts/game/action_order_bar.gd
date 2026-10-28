@@ -45,42 +45,63 @@ func set_entries(entries: Array) -> void:
 
 
 func _make_entry(entry: Dictionary) -> Control:
-	var root := PanelContainer.new()
-	root.custom_minimum_size = Vector2(0, 44)
-	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var texture := UnitCatalog.get_icon(int(entry.get("unit_id", 0)))
+	var width := maxf(48.0, size.x - 12.0)
+	var height := width * 0.5
+	var on_front := bool(entry.get("front", true))
+	var border := CostColors.get_color(int(entry.get("cost", 1)))
+	if not on_front:
+		border.a = 0.45
+	var root := Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.custom_minimum_size = Vector2(0, height)
+	root.clip_contents = true
+	var frame := Panel.new()
+	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.z_index = 1
 	var style := StyleBoxFlat.new()
-	style.bg_color = CostColors.get_color(int(entry.get("cost", 1)))
-	if bool(entry.get("enemy", false)):
-		style.bg_color = style.bg_color.lerp(Color(0.75, 0.16, 0.18), 0.45)
-	if not bool(entry.get("front", true)):
-		style.bg_color.a = 0.45
+	style.bg_color = Color(0, 0, 0, 0)
+	style.border_color = border
+	style.set_border_width_all(3)
 	style.set_corner_radius_all(4)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	style.content_margin_top = 4
-	style.content_margin_bottom = 4
-	root.add_theme_stylebox_override("panel", style)
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.add_child(row)
-	var name_label := Label.new()
-	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	name_label.text = str(entry.get("name", ""))
-	name_label.add_theme_font_size_override("font_size", 13)
-	name_label.add_theme_color_override("font_color", CostColors.get_shop_label_color(int(entry.get("cost", 1))))
-	name_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	name_label.add_theme_constant_override("outline_size", 3)
-	row.add_child(name_label)
+	frame.add_theme_stylebox_override("panel", style)
+	root.add_child(frame)
+	var icon := TextureRect.new()
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.texture = texture
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	icon.set_anchors_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = -8.0
+	icon.offset_top = -8.0
+	icon.offset_right = 8.0
+	icon.offset_bottom = 8.0
+	icon.z_index = 0
+	if not on_front:
+		icon.modulate.a = 0.45
+	root.add_child(icon)
+	var value_text := str(entry.get("action_value", 0))
+	var font_size := int(height * 0.72)
+	var estimated := float(value_text.length()) * float(font_size) * 0.58
+	if estimated > width - 8.0:
+		font_size = int((width - 8.0) / (float(value_text.length()) * 0.58))
+	font_size = clampi(font_size, 22, 56)
 	var value_label := Label.new()
 	value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	value_label.text = str(entry.get("action_value", 0))
+	value_label.text = value_text
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	value_label.add_theme_font_size_override("font_size", 13)
-	value_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.75))
-	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	value_label.add_theme_constant_override("outline_size", 4)
-	row.add_child(value_label)
+	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	value_label.offset_left = 4.0
+	value_label.offset_top = 0.0
+	value_label.offset_right = -6.0
+	value_label.offset_bottom = 0.0
+	value_label.z_index = 3
+	value_label.add_theme_font_size_override("font_size", font_size)
+	value_label.add_theme_color_override("font_color", Color(1.0, 0.97, 0.82))
+	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	value_label.add_theme_constant_override("outline_size", 12)
+	root.add_child(value_label)
 	return root

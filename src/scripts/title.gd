@@ -27,6 +27,16 @@ func _ready() -> void:
 	move_child(_frame_flash, _video.get_index() + 1)
 	if not _video.is_playing():
 		_video.play()
+	var settings := AudioSettings.new()
+	settings.button_font = 32
+	settings.button_height = 64.0
+	settings.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	settings.offset_left = -196.0
+	settings.offset_top = 20.0
+	settings.offset_right = -20.0
+	settings.offset_bottom = 84.0
+	settings.z_index = 10
+	add_child(settings)
 
 
 func _process(_delta: float) -> void:

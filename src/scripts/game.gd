@@ -23,12 +23,21 @@ var _log_scroll_position := 0
 var _run_end_active := false
 var _run_review_mode := RunReview.Mode.MENU
 var _battle := BattleStage.new()
+var _combat := BattleDirector.new()
 var _shop := ShopBoard.new()
 var _review := RunReview.new()
 var _formation := FormationControls.new()
 var _pending_bottom_refit := false
 var _bottom_ui_layout_height := -1.0
 var _last_prep_shop_ui_visible := true
+var _debug_roster_button: Button
+var _debug_roster_panel: PanelContainer
+var _debug_roster_grid: GridContainer
+var _debug_roster_open := false
+const BATTLE_SPEEDS: Array[int] = [1, 2, 4, 8]
+var _battle_speed_index := 0
+var _battle_speed_button: Button
+var _battle_playing := false
 var _last_reroll_button_text := ""
 var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
@@ -120,6 +129,7 @@ func _ready() -> void:
 	_shop.setup(self)
 	_review.setup(self)
 	_formation.setup(self)
+	_combat.setup(self)
 	_setup_bottom_ui_fonts()
 	exp_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
 	reroll_button.custom_minimum_size = Vector2(0, BOTTOM_BUTTON_HEIGHT)
@@ -282,7 +292,10 @@ func _mount_side_controls() -> void:
 	]
 	for index in ordered.size():
 		action_column.move_child(ordered[index], index)
+	_mount_battle_speed_button()
 	top_bar.visible = false
+	_mount_debug_grants()
+	_mount_audio_settings()
 	var ui := $CanvasLayer/UI as Control
 	action_column.get_parent().remove_child(action_column)
 	ui.add_child(action_column)
@@ -290,6 +303,145 @@ func _mount_side_controls() -> void:
 	action_column.z_index = 6
 	action_column.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_setup_column_hover_tips()
+
+
+func _mount_audio_settings() -> void:
+	var settings := AudioSettings.new()
+	settings.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings.z_index = 4
+	action_column.add_child(settings)
+	if _debug_roster_button != null:
+		action_column.move_child(settings, _debug_roster_button.get_index())
+
+
+func _mount_battle_speed_button() -> void:
+	var button := Button.new()
+	button.custom_minimum_size = Vector2(0, 36)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 14)
+	button.pressed.connect(_cycle_battle_speed)
+	action_column.add_child(button)
+	action_column.move_child(button, battle_button.get_index())
+	_battle_speed_button = button
+	_refresh_battle_speed_button()
+
+
+func _cycle_battle_speed() -> void:
+	_battle_speed_index = (_battle_speed_index + 1) % BATTLE_SPEEDS.size()
+	_refresh_battle_speed_button()
+	_apply_battle_time_scale()
+
+
+func _refresh_battle_speed_button() -> void:
+	if _battle_speed_button == null:
+		return
+	_battle_speed_button.text = "×%d" % BATTLE_SPEEDS[_battle_speed_index]
+
+
+func _apply_battle_time_scale() -> void:
+	Engine.time_scale = float(BATTLE_SPEEDS[_battle_speed_index]) if _battle_playing else 1.0
+
+
+func _exit_tree() -> void:
+	Engine.time_scale = 1.0
+
+
+func _mount_debug_grants() -> void:
+	if not OS.is_debug_build():
+		return
+	var button := Button.new()
+	button.text = "キャラ"
+	button.custom_minimum_size = Vector2(0, 36)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 14)
+	button.pressed.connect(_toggle_debug_roster)
+	action_column.add_child(button)
+	_debug_roster_button = button
+	var panel := PanelContainer.new()
+	panel.visible = false
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.z_index = 18
+	_apply_hud_badge_style(panel)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
+	scroll.add_child(grid)
+	($CanvasLayer/UI as Control).add_child(panel)
+	_debug_roster_panel = panel
+	_debug_roster_grid = grid
+	for unit in UnitCatalog.UNITS:
+		var unit_id := int(unit["id"])
+		var card := ShopBoard.SLOT_SCENE.instantiate() as ShopSlotPanel
+		if card == null:
+			continue
+		grid.add_child(card)
+		card.set_unit(unit_id)
+		card.pressed.connect(_grant_debug_unit.bind(unit_id))
+
+
+func _toggle_debug_roster() -> void:
+	_set_debug_roster_open(not _debug_roster_open)
+
+
+func _set_debug_roster_open(open: bool) -> void:
+	if _debug_roster_panel == null:
+		return
+	_debug_roster_open = open and session.is_prep() and not _run_end_active
+	_debug_roster_panel.visible = _debug_roster_open
+	if _debug_roster_button != null:
+		_debug_roster_button.text = "閉じる" if _debug_roster_open else "キャラ"
+	if _debug_roster_open:
+		_place_debug_roster()
+
+
+func _place_debug_roster() -> void:
+	if _debug_roster_panel == null or not _debug_roster_open:
+		return
+	var viewport_size := get_viewport().get_visible_rect().size
+	var margin := 8.0
+	var panel_pos := Vector2(margin, margin)
+	var panel_size := Vector2(maxf(160.0, _split_x - margin * 2.0), maxf(160.0, viewport_size.y - margin * 2.0))
+	_debug_roster_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_debug_roster_panel.position = panel_pos
+	_debug_roster_panel.size = panel_size
+	var card := _shop.slot_size
+	if card.x < 8.0 or card.y < 8.0:
+		card = Vector2(ShopBoard.LAYOUT_SLOT_WIDTH, ShopBoard.LAYOUT_SLOT_WIDTH / ShopBoard.FRAME_ASPECT)
+	var gap := 2.0
+	var inner_w := maxf(card.x, panel_size.x - 28.0)
+	var columns := maxi(1, int((inner_w + gap) / (card.x + gap)))
+	_debug_roster_grid.columns = columns
+	for child in _debug_roster_grid.get_children():
+		var slot := child as ShopSlotPanel
+		if slot == null:
+			continue
+		slot.set_card_size(card)
+		slot.set_text_scale(1.0)
+
+
+func _grant_debug_unit(unit_id: int) -> void:
+	if not OS.is_debug_build() or not session.is_prep() or _run_end_active:
+		return
+	var data := UnitCatalog.get_unit(unit_id)
+	if data.is_empty():
+		return
+	var slot := board.find_empty_bench_slot()
+	if slot < 0:
+		_log("ベンチが満杯です")
+		return
+	var unit := GameUnit.create(unit_id, 1)
+	units_root.add_child(unit)
+	if not board.place_on_bench(unit, slot):
+		unit.queue_free()
+		return
+	GameAudio.play_buy()
+	_log("%s を取り出した" % str(data["name"]))
 
 
 func _setup_column_hover_tips() -> void:
@@ -564,9 +716,15 @@ func _start_battle() -> void:
 	)
 	_log("敵 %d 体出現" % enemy_count)
 	_update_ui()
-	await get_tree().create_timer(session.get_battle_duration()).timeout
-	var battle_won := true
-	var remaining_enemies := 0
+	_battle_playing = true
+	_apply_battle_time_scale()
+	var outcome: Dictionary = await _combat.play()
+	_battle_playing = false
+	Engine.time_scale = 1.0
+	if not is_inside_tree():
+		return
+	var battle_won: bool = bool(outcome.get("won", false))
+	var remaining_enemies: int = int(outcome.get("remaining", 0))
 	session.finish_battle(battle_won, remaining_enemies)
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
@@ -877,6 +1035,7 @@ func _layout_formation_ui() -> void:
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
 	_place_side_column(right_x)
+	_place_debug_roster()
 	_layout_log_column()
 	_layout_comment_flow()
 	battle_overlay.anchor_left = 0.0
@@ -955,6 +1114,8 @@ func _place_top_bar(origin: Vector2) -> void:
 
 func _fit_action_column_width() -> void:
 	var width_buttons: Array[Button] = [exp_button, reroll_button, battle_button, back_button, shop_lock_button]
+	if _battle_speed_button != null:
+		width_buttons.append(_battle_speed_button)
 	for button in width_buttons:
 		button.custom_minimum_size.x = 0
 	action_column.custom_minimum_size.x = 0
@@ -983,6 +1144,7 @@ func _update_ui() -> void:
 	_formation.refresh_widgets()
 	call_deferred("_layout_formation_ui")
 	if _run_end_active:
+		_set_debug_roster_open(false)
 		battle_button.disabled = true
 		back_button.disabled = true
 		reroll_button.disabled = true
@@ -1055,6 +1217,16 @@ func _update_ui() -> void:
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0
+	if _debug_roster_button != null:
+		_debug_roster_button.disabled = not session.is_prep()
+		if not session.is_prep():
+			_set_debug_roster_open(false)
+	if _debug_roster_grid != null:
+		var debug_blocked := not session.is_prep() or board.bench_is_full()
+		for child in _debug_roster_grid.get_children():
+			var card := child as BaseButton
+			if card != null:
+				card.disabled = debug_blocked
 	input_handler.set_enabled(session.is_prep())
 	var show_prep_shop_ui := (
 		session.is_prep()

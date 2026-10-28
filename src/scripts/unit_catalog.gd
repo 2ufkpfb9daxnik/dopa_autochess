@@ -1,19 +1,37 @@
 class_name UnitCatalog
 extends RefCounted
 
+const PLACEHOLDER_ICON := preload("res://images/placeholder.png")
+static var _icons: Dictionary = {}
+
 const UNITS: Array[Dictionary] = [
-	{"id": 0, "name": "見習い", "cost": 1, "color": Color(0.92, 0.25, 0.25), "synergies": [0]},
-	{"id": 1, "name": "槍兵", "cost": 2, "color": Color(0.95, 0.55, 0.12), "synergies": [0, 3]},
-	{"id": 2, "name": "魔術師", "cost": 3, "color": Color(0.22, 0.48, 0.95), "synergies": [1]},
-	{"id": 3, "name": "重装兵", "cost": 4, "color": Color(0.28, 0.78, 0.38), "synergies": [2, 5]},
-	{"id": 4, "name": "暗殺者", "cost": 5, "color": Color(0.58, 0.28, 0.88), "synergies": [4, 6]},
-	{"id": 5, "name": "竜騎士", "cost": 6, "color": Color(0.95, 0.86, 0.22), "synergies": [3, 7]},
-	{"id": 6, "name": "覇王", "cost": 7, "color": Color(0.18, 0.18, 0.24), "synergies": [6, 0]},
+	{"id": 1, "name": "アカシ", "cost": 5, "color": Color(0.95, 0.55, 0.12), "synergies": [], "synergy_names": ["ジャックポット", "スキューバ", "時をかける少女"]},
+	{"id": 2, "name": "アサヒ", "cost": 2, "color": Color(0.22, 0.48, 0.95), "synergies": [], "synergy_names": ["ナギナタスタイル", "パンドラ・オートロード", "時をかける少女"]},
+	{"id": 3, "name": "アシヤ", "cost": 7, "color": Color(0.28, 0.78, 0.38), "synergies": [], "synergy_names": ["わたしのグランパ", "パンドラ・オートロード", "ポップミュージック", "新しい下駄を履く"]},
+	{"id": 4, "name": "アヅチ", "cost": 7, "color": Color(0.58, 0.28, 0.88), "synergies": [], "synergy_names": ["パプリカ", "伊豆は飛鳥", "時をかける少女", "カーテンコール"]},
+	{"id": 5, "name": "アリタ", "cost": 3, "color": Color(0.95, 0.86, 0.22), "synergies": [], "synergy_names": ["ポップミュージック", "月2-263", "虚人たち"]},
+	{"id": 6, "name": "アヤカワ", "cost": 6, "color": Color(0.18, 0.18, 0.24), "synergies": [], "synergy_names": ["モンスター", "時をかける少女", "狂気の沙汰も金次第"]},
 ]
 
 
+static func get_icon(unit_id: int) -> Texture2D:
+	if _icons.has(unit_id):
+		return _icons[unit_id] as Texture2D
+	var path := "res://images/characters/%03d.png" % unit_id
+	var texture: Texture2D = PLACEHOLDER_ICON
+	if ResourceLoader.exists(path):
+		var loaded: Texture2D = load(path) as Texture2D
+		if loaded != null:
+			texture = loaded
+	_icons[unit_id] = texture
+	return texture
+
+
 static func get_unit(unit_id: int) -> Dictionary:
-	return UNITS[unit_id]
+	for unit in UNITS:
+		if int(unit["id"]) == unit_id:
+			return unit
+	return {}
 
 
 static func get_synergies(unit_id: int) -> Array:
@@ -22,17 +40,23 @@ static func get_synergies(unit_id: int) -> Array:
 
 
 static func get_synergy_names(unit_id: int) -> String:
-	var names: PackedStringArray = []
-	for synergy_id in get_synergies(unit_id):
-		names.append(SynergyCatalog.get_synergy_name(int(synergy_id)))
-	return " ".join(names)
+	return " ".join(_synergy_name_list(unit_id))
 
 
 static func get_synergy_lines(unit_id: int) -> String:
+	return "\n".join(_synergy_name_list(unit_id))
+
+
+static func _synergy_name_list(unit_id: int) -> PackedStringArray:
+	var data := get_unit(unit_id)
 	var names: PackedStringArray = []
+	if data.has("synergy_names"):
+		for entry in data["synergy_names"]:
+			names.append(str(entry))
+		return names
 	for synergy_id in get_synergies(unit_id):
 		names.append(SynergyCatalog.get_synergy_name(int(synergy_id)))
-	return "\n".join(names)
+	return names
 
 
 static func get_unit_ids_by_cost(cost: int) -> Array[int]:

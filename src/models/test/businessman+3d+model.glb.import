@@ -3,21 +3,25 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ct1dkkci31m0i"
-path="res://.godot/imported/businessman_walk.glb-d90ad8839488ebb6f401adca9360b105.scn"
+uid="uid://cutld1febsge4"
+path="res://.godot/imported/businessman+3d+model.glb-f866d24f191091596cb17eda9eac39bf.scn"
 
 [deps]
 
-source_file="res://models/test/businessman_walk/businessman_walk.glb"
-dest_files=["res://.godot/imported/businessman_walk.glb-d90ad8839488ebb6f401adca9360b105.scn"]
+source_file="res://models/test/businessman+3d+model.glb"
+dest_files=["res://.godot/imported/businessman+3d+model.glb-f866d24f191091596cb17eda9eac39bf.scn"]
 
 [params]
 
 nodes/root_type=""
 nodes/root_name=""
+nodes/root_script=null
+mesh_library/use_node_names_as_mesh_names=false
+array_mesh/deduplicate_surfaces=true
 nodes/apply_root_scale=true
 nodes/root_scale=1.0
 nodes/import_as_skeleton_bones=false
+nodes/use_name_suffixes=true
 nodes/use_node_type_suffixes=true
 meshes/ensure_tangents=true
 meshes/generate_lods=true
@@ -32,6 +36,10 @@ animation/trimming=false
 animation/remove_immutable_tracks=true
 animation/import_rest_as_RESET=false
 import_script/path=""
+materials/extract=0
+materials/extract_format=0
+materials/extract_path=""
 _subresources={}
-gltf/naming_version=1
+gltf/naming_version=2
 gltf/embedded_image_handling=1
+gltf/texture_map_mode=1

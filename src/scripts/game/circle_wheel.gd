@@ -334,6 +334,15 @@ func _slot_center_angle(slot_index: int) -> float:
 	return _fixed_slot_center_angle(slot_index) + _visual_angle
 
 
+func spin_steps(steps: int) -> void:
+	if posmod(steps, BoardController.SLOTS_PER_FACE) == 0:
+		return
+	_commit_spin_now()
+	_tween_visual(0.0, float(steps) * TAU / 6.0, 0.45)
+	if _spin_tween != null and _spin_tween.is_valid():
+		await _spin_tween.finished
+
+
 func _animate_steps(steps: int) -> void:
 	if steps == 0:
 		return

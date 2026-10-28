@@ -11,12 +11,12 @@ const MAX_FACES := 8
 
 const ALLY_STANDS: Array[Vector3] = [
 	Vector3(-0.95, 0.0, 1.05),
-	Vector3(0.0, 0.0, 0.55),
+	Vector3(0.0, 0.0, 1.05),
 	Vector3(0.95, 0.0, 1.05),
 ]
 const ENEMY_STANDS: Array[Vector3] = [
 	Vector3(-0.95, 0.0, -1.05),
-	Vector3(0.0, 0.0, -0.55),
+	Vector3(0.0, 0.0, -1.05),
 	Vector3(0.95, 0.0, -1.05),
 ]
 const ALLY_YAW := PI
@@ -73,7 +73,14 @@ func set_unlocked_face_count(count: int) -> void:
 func cycle_face() -> void:
 	if _unlocked_faces <= 1:
 		return
-	active_face = (active_face + 1) % _unlocked_faces
+	set_active_face((active_face + 1) % _unlocked_faces)
+
+
+func set_active_face(face_index: int) -> void:
+	var next := clampi(face_index, 0, _unlocked_faces - 1)
+	if next == active_face:
+		return
+	active_face = next
 	refresh_presentation()
 	units_changed.emit()
 
@@ -154,19 +161,19 @@ func get_action_order() -> Array:
 	var seen: Dictionary = {}
 	for slot_index in SLOTS_PER_FACE:
 		var unit := get_resolved_unit(active_face, slot_index)
-		if unit == null or seen.has(unit):
+		if unit == null or unit.battle_ko or seen.has(unit):
 			continue
 		seen[unit] = true
 		entries.append(_action_entry(unit, false, slot_index < FRONT_COUNT))
 	if _in_battle:
 		for slot_index in SLOTS_PER_FACE:
 			var enemy: GameUnit = _enemy_slots[slot_index]
-			if enemy == null:
+			if enemy == null or enemy.battle_ko:
 				continue
 			entries.append(_action_entry(enemy, true, slot_index < FRONT_COUNT))
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		if int(a["action_value"]) == int(b["action_value"]):
-			return str(a["name"]) < str(b["name"])
+			return int(a.get("unit_id", 0)) < int(b.get("unit_id", 0))
 		return int(a["action_value"]) < int(b["action_value"])
 	)
 	return entries
@@ -182,6 +189,60 @@ func get_all_units() -> Array[GameUnit]:
 		if unit != null:
 			units.append(unit)
 	return units
+
+
+func enemy_units() -> Array:
+	var found: Array = []
+	for unit in _enemy_slots:
+		if unit != null and is_instance_valid(unit):
+			found.append(unit)
+	return found
+
+
+func front_units(enemies: bool) -> Array:
+	var found: Array = []
+	if enemies:
+		for slot_index in FRONT_COUNT:
+			var unit: GameUnit = _enemy_slots[slot_index]
+			if unit != null and is_instance_valid(unit):
+				found.append(unit)
+		return found
+	var seen := {}
+	for slot_index in FRONT_COUNT:
+		var unit := get_resolved_unit(active_face, slot_index)
+		if unit == null or seen.has(unit):
+			continue
+		seen[unit] = true
+		found.append(unit)
+	return found
+
+
+func front_slot_of(unit: GameUnit) -> int:
+	if unit == null:
+		return -1
+	if unit.is_enemy:
+		for slot_index in FRONT_COUNT:
+			if _enemy_slots[slot_index] == unit:
+				return slot_index
+		return -1
+	for slot_index in FRONT_COUNT:
+		if get_resolved_unit(active_face, slot_index) == unit:
+			return slot_index
+	return -1
+
+
+func stand_position_for(unit: GameUnit) -> Vector3:
+	if unit == null:
+		return Vector3.ZERO
+	if unit.is_enemy:
+		for slot_index in FRONT_COUNT:
+			if _enemy_slots[slot_index] == unit:
+				return ENEMY_STANDS[slot_index]
+		return unit.global_position
+	for slot_index in FRONT_COUNT:
+		if get_resolved_unit(active_face, slot_index) == unit:
+			return ALLY_STANDS[slot_index]
+	return unit.global_position
 
 
 func get_front_unit_count() -> int:
@@ -371,6 +432,9 @@ func refresh_presentation() -> void:
 
 
 func _show_unit(unit: GameUnit, stand: Vector3, yaw: float) -> void:
+	if unit.battle_ko:
+		unit.visible = unit.defeat_playing
+		return
 	unit.visible = true
 	unit.global_position = stand
 	unit.rotation = Vector3(0.0, yaw, 0.0)
@@ -387,8 +451,7 @@ func _show_sliding_allies() -> void:
 		if absf(from_center) > 2.35:
 			continue
 		shown[ally] = true
-		var depth := 0.55 + 0.50 * minf(absf(from_center), 1.0)
-		_show_unit(ally, Vector3(from_center * 0.95, 0.0, depth), ALLY_YAW)
+		_show_unit(ally, Vector3(from_center * 0.95, 0.0, ALLY_STANDS[1].z), ALLY_YAW)
 
 
 func _finish_mutation() -> void:
@@ -447,6 +510,7 @@ func _action_entry(unit: GameUnit, enemy: bool, front: bool) -> Dictionary:
 		"stars": unit.get_star_text(),
 		"cost": unit.get_cost(),
 		"action_value": unit.action_value,
+		"unit_id": unit.unit_id,
 		"enemy": enemy,
 		"front": front,
 	}

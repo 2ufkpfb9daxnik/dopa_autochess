@@ -1,9 +1,9 @@
-[gd_scene load_steps=3 format=3 uid="uid://cmrev2t6tdau4"]
+[gd_scene format=3 uid="uid://cmrev2t6tdau4"]
 
 [ext_resource type="Script" uid="uid://dm6um7lyoxhg0" path="res://scripts/title.gd" id="1_title"]
 [ext_resource type="VideoStream" uid="uid://ddo01cfh81i3d" path="res://movies/title.ogv" id="2_video"]
 
-[node name="Title" type="Control"]
+[node name="Title" type="Control" unique_id=1211628343]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -12,7 +12,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_title")
 
-[node name="Background" type="VideoStreamPlayer" parent="."]
+[node name="Background" type="VideoStreamPlayer" parent="." unique_id=26220531]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -25,7 +25,7 @@ autoplay = true
 expand = true
 loop = true
 
-[node name="TitleLabel" type="Label" parent="."]
+[node name="TitleLabel" type="Label" parent="." unique_id=1150389757]
 layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0
@@ -45,7 +45,7 @@ Auto
 chess"
 horizontal_alignment = 2
 
-[node name="StartButton" type="Button" parent="."]
+[node name="StartButton" type="Button" parent="." unique_id=1161811277]
 layout_mode = 1
 offset_left = -354.0
 offset_top = 469.0

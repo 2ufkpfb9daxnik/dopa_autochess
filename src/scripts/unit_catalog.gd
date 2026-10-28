@@ -2,7 +2,9 @@ class_name UnitCatalog
 extends RefCounted
 
 const PLACEHOLDER_ICON := preload("res://images/placeholder.png")
+const PORTRAIT_TOP_SHIFT := 1.0 / 8.0
 static var _icons: Dictionary = {}
+static var _models: Dictionary = {}
 
 const UNITS: Array[Dictionary] = [
 	{"id": 1, "name": "アカシ", "cost": 5, "color": Color(0.95, 0.55, 0.12), "synergies": [], "synergy_names": ["ジャックポット", "スキューバ", "時をかける少女"]},
@@ -15,6 +17,8 @@ const UNITS: Array[Dictionary] = [
 
 
 static func get_icon(unit_id: int) -> Texture2D:
+	if unit_id < 1:
+		return PLACEHOLDER_ICON
 	if _icons.has(unit_id):
 		return _icons[unit_id] as Texture2D
 	var path := "res://images/characters/%03d.png" % unit_id
@@ -25,6 +29,53 @@ static func get_icon(unit_id: int) -> Texture2D:
 			texture = loaded
 	_icons[unit_id] = texture
 	return texture
+
+
+static func portrait_source_rect(texture: Texture2D, dest_size: Vector2) -> Rect2:
+	var tex_size := texture.get_size()
+	if tex_size.x <= 1.0 or tex_size.y <= 1.0:
+		return Rect2(Vector2.ZERO, tex_size)
+	var window := Rect2(0.0, tex_size.y * PORTRAIT_TOP_SHIFT, tex_size.x, tex_size.y * 0.5)
+	if window.end.y > tex_size.y:
+		window.position.y = maxf(0.0, tex_size.y - window.size.y)
+	if dest_size.x <= 1.0 or dest_size.y <= 1.0:
+		return window
+	var scale := maxf(dest_size.x / window.size.x, dest_size.y / window.size.y)
+	var crop := dest_size / scale
+	crop.x = minf(crop.x, window.size.x)
+	crop.y = minf(crop.y, window.size.y)
+	var origin := Vector2(window.position.x + (window.size.x - crop.x) * 0.5, window.position.y)
+	return Rect2(origin, crop)
+
+
+static func make_portrait(unit_id: int, dest_size: Vector2) -> Texture2D:
+	var source := get_icon(unit_id)
+	var region := portrait_source_rect(source, dest_size)
+	if region.position == Vector2.ZERO and region.size.is_equal_approx(source.get_size()):
+		return source
+	var atlas := AtlasTexture.new()
+	atlas.atlas = source
+	atlas.region = region
+	return atlas
+
+
+static func get_model_scene(unit_id: int) -> PackedScene:
+	if unit_id < 1:
+		return null
+	if _models.has(unit_id):
+		return _models[unit_id] as PackedScene
+	var scene: PackedScene = null
+	var dir_path := "res://models/characters/%03d" % unit_id
+	var dir := DirAccess.open(dir_path)
+	if dir != null:
+		for file_name in dir.get_files():
+			if file_name.get_extension().to_lower() != "glb":
+				continue
+			scene = load(dir_path.path_join(file_name)) as PackedScene
+			if scene != null:
+				break
+	_models[unit_id] = scene
+	return scene
 
 
 static func get_unit(unit_id: int) -> Dictionary:
@@ -55,7 +106,7 @@ static func _synergy_name_list(unit_id: int) -> PackedStringArray:
 			names.append(str(entry))
 		return names
 	for synergy_id in get_synergies(unit_id):
-		names.append(SynergyCatalog.get_synergy_name(int(synergy_id)))
+		names.append(str(synergy_id))
 	return names
 
 

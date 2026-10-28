@@ -9,7 +9,6 @@ signal slot_clicked(slot_index: int)
 const COLUMNS := 3
 const TITLE_TAB_OVERLAP := 8.0
 const FRAME_BLEED := 1.16
-const PLACEHOLDER_TEXTURE := preload("res://images/placeholder.png")
 const BENCH_FRAME := preload("res://images/ui/bench.png")
 
 var _title_tab: Panel
@@ -133,25 +132,21 @@ func _draw() -> void:
 		if not occupied:
 			continue
 		var portrait := _portrait_rect(frame)
-		_draw_cover(PLACEHOLDER_TEXTURE, portrait)
+		_draw_cover(UnitCatalog.get_icon(int(slot.get("unit_id", -1))), portrait)
 		var stars := str(slot.get("stars", ""))
 		if not stars.is_empty():
 			_draw_outlined(font, portrait.position + Vector2(4.0, 16.0), stars, HORIZONTAL_ALIGNMENT_RIGHT, portrait.size.x - 8.0, 14, Color(1, 0.92, 0.55))
 		var cost := int(slot.get("cost", 0))
-		var caption := str(slot.get("name", ""))
 		if cost > 0:
-			caption = "%d %s" % [cost, caption]
-		_draw_outlined(font, portrait.position + Vector2(4.0, portrait.size.y - 4.0), caption, HORIZONTAL_ALIGNMENT_LEFT, portrait.size.x - 8.0, 13, Color(0.96, 0.97, 1))
+			_draw_cost_corner(font, portrait, cost)
+		_draw_outlined(font, portrait.position + Vector2(4.0, portrait.size.y - 4.0), str(slot.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, portrait.size.x - 8.0, 13, Color(0.96, 0.97, 1))
 
 
 func _draw_cover(texture: Texture2D, dest: Rect2) -> void:
-	var tex_size := texture.get_size()
-	if tex_size.x <= 0.0 or tex_size.y <= 0.0 or dest.size.x <= 0.0 or dest.size.y <= 0.0:
+	var region := UnitCatalog.portrait_source_rect(texture, dest.size)
+	if region.size.x <= 0.0 or region.size.y <= 0.0:
 		return
-	var scale := maxf(dest.size.x / tex_size.x, dest.size.y / tex_size.y)
-	var crop := dest.size / scale
-	var origin := (tex_size - crop) * 0.5
-	draw_texture_rect_region(texture, dest, Rect2(origin, crop))
+	draw_texture_rect_region(texture, dest, region)
 
 
 func _frame_rect(cell: Rect2) -> Rect2:
@@ -164,6 +159,23 @@ func _portrait_rect(frame: Rect2) -> Rect2:
 		frame.position + frame.size * Vector2(0.12, 0.1),
 		frame.size * Vector2(0.76, 0.68)
 	)
+
+
+func _draw_cost_corner(font: Font, portrait: Rect2, cost: int) -> void:
+	var leg := minf(portrait.size.x, portrait.size.y) * 0.46
+	var origin := portrait.position
+	var fill := CostColors.get_color(cost)
+	draw_colored_polygon(PackedVector2Array([
+		origin,
+		origin + Vector2(leg, 0.0),
+		origin + Vector2(0.0, leg),
+	]), fill)
+	draw_line(origin + Vector2(leg, 0.0), origin + Vector2(0.0, leg), Color(0, 0, 0, 0.55), 2.0)
+	var font_size := maxi(11, int(leg * 0.34))
+	var box := Rect2(origin + Vector2(leg * 0.04, leg * 0.01), Vector2(leg * 0.46, leg * 0.46))
+	var text_height := font.get_height(font_size)
+	var baseline := box.position.y + font.get_ascent(font_size) + maxf(0.0, (box.size.y - text_height) * 0.5)
+	_draw_outlined(font, Vector2(box.position.x, baseline), str(cost), HORIZONTAL_ALIGNMENT_CENTER, box.size.x, font_size, CostColors.get_shop_label_color(cost))
 
 
 func _draw_outlined(font: Font, pos: Vector2, text: String, alignment: HorizontalAlignment, width: float, font_size: int, color: Color) -> void:

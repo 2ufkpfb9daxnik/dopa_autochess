@@ -145,15 +145,29 @@ func get_wheel_slots() -> Array:
 	for slot_index in SLOTS_PER_FACE:
 		var placed := get_placed_unit(active_face, slot_index)
 		var resolved := get_resolved_unit(active_face, slot_index)
+		var shown := placed if placed != null else resolved
 		result.append({
 			"occupied": placed != null,
 			"fallback": placed == null and resolved != null,
+			"down": shown != null and shown.battle_ko,
 			"name": resolved.get_display_name() if resolved != null else "",
 			"stars": resolved.get_star_text() if resolved != null else "",
 			"cost": resolved.get_cost() if resolved != null else 0,
+			"unit_id": resolved.unit_id if resolved != null else -1,
+			"element": _attack_element(shown) if shown != null else "",
+			"debuffed": shown != null and shown.debuffed,
 			"number": int(_slot_numbers[active_face][slot_index]),
 		})
 	return result
+
+
+func _attack_element(unit: GameUnit) -> String:
+	var profile := CharacterText.load_profile(unit.unit_id)
+	var fields: Dictionary = profile.get("fields", {})
+	var label := str(fields.get("攻撃属性", "")).strip_edges()
+	if label.is_empty():
+		return "炎"
+	return label
 
 
 func get_action_order() -> Array:
@@ -177,6 +191,15 @@ func get_action_order() -> Array:
 		return int(a["action_value"]) < int(b["action_value"])
 	)
 	return entries
+
+
+func get_circle_units() -> Array[GameUnit]:
+	var units: Array[GameUnit] = []
+	for face in _faces:
+		for unit in face:
+			if unit != null:
+				units.append(unit)
+	return units
 
 
 func get_all_units() -> Array[GameUnit]:
@@ -369,6 +392,77 @@ func try_move_unit_to_bench(unit: GameUnit, slot_index: int) -> bool:
 	return true
 
 
+func exile_debuffed_unit(unit: GameUnit) -> void:
+	if unit == null or unit.is_enemy or not unit.is_on_board():
+		return
+	if unit.debuff_home_slot < 0:
+		unit.debuff_home_face = unit.circle_face
+		unit.debuff_home_slot = unit.circle_slot
+	unit.debuffed = true
+	if unit.circle_slot >= FRONT_COUNT:
+		refresh_presentation()
+		units_changed.emit()
+		return
+	var face := unit.circle_face
+	var dest := -1
+	for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
+		if _faces[face][slot_index] == null:
+			dest = slot_index
+			break
+	if dest < 0:
+		for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
+			var occupant: GameUnit = _faces[face][slot_index]
+			if occupant != null and not occupant.debuffed:
+				dest = slot_index
+				break
+	if dest < 0:
+		refresh_presentation()
+		units_changed.emit()
+		return
+	_swap_circle_slots(unit, face, dest)
+
+
+func restore_debuffed_unit(unit: GameUnit) -> void:
+	if unit == null:
+		return
+	var face := unit.debuff_home_face
+	var slot := unit.debuff_home_slot
+	unit.debuffed = false
+	unit.debuff_home_face = -1
+	unit.debuff_home_slot = -1
+	if face < 0 or slot < 0 or not unit.is_on_board():
+		refresh_presentation()
+		units_changed.emit()
+		return
+	if unit.circle_face != face or unit.circle_slot != slot:
+		_swap_circle_slots(unit, face, slot)
+		return
+	refresh_presentation()
+	units_changed.emit()
+
+
+func _swap_circle_slots(unit: GameUnit, face_index: int, slot_index: int) -> void:
+	if not _can_address(face_index, slot_index):
+		refresh_presentation()
+		units_changed.emit()
+		return
+	var occupant: GameUnit = _faces[face_index][slot_index]
+	if occupant == unit:
+		refresh_presentation()
+		units_changed.emit()
+		return
+	var src_face := unit.circle_face
+	var src_slot := unit.circle_slot
+	_detach(unit)
+	if occupant != null:
+		_detach(occupant)
+	_attach_circle(unit, face_index, slot_index)
+	if occupant != null and src_face >= 0 and src_slot >= 0:
+		_attach_circle(occupant, src_face, src_slot)
+	refresh_presentation()
+	units_changed.emit()
+
+
 func remove_unit(unit: GameUnit) -> void:
 	_detach(unit)
 	refresh_presentation()
@@ -408,13 +502,18 @@ func set_battle_mode(active: bool) -> void:
 
 
 func refresh_presentation() -> void:
+	var keep: Array[GameUnit] = []
+	_append_presented_units(keep)
 	for unit in get_all_units():
+		if keep.has(unit):
+			continue
 		unit.visible = false
 		unit.set_battle_walking(false)
 	for enemy in _enemy_slots:
-		if enemy != null and is_instance_valid(enemy):
-			enemy.visible = false
-			enemy.set_battle_walking(false)
+		if enemy == null or not is_instance_valid(enemy) or keep.has(enemy):
+			continue
+		enemy.visible = false
+		enemy.set_battle_walking(false)
 	if absf(_visual_shift) > 0.001:
 		_show_sliding_allies()
 	else:
@@ -431,6 +530,34 @@ func refresh_presentation() -> void:
 			_show_unit(enemy, ENEMY_STANDS[slot_index], ENEMY_YAW)
 
 
+func _append_presented_units(keep: Array[GameUnit]) -> void:
+	if absf(_visual_shift) > 0.001:
+		var shown: Dictionary = {}
+		for slot_index in SLOTS_PER_FACE:
+			var ally := get_resolved_unit(active_face, slot_index)
+			if ally == null or shown.has(ally):
+				continue
+			if absf(_slide_offset(slot_index)) > 2.35:
+				continue
+			shown[ally] = true
+			keep.append(ally)
+	else:
+		for slot_index in FRONT_COUNT:
+			var ally := get_resolved_unit(active_face, slot_index)
+			if ally != null and not keep.has(ally):
+				keep.append(ally)
+	if not _in_battle:
+		return
+	for slot_index in FRONT_COUNT:
+		var enemy: GameUnit = _enemy_slots[slot_index]
+		if enemy != null and is_instance_valid(enemy) and not keep.has(enemy):
+			keep.append(enemy)
+
+
+func _slide_offset(slot_index: int) -> float:
+	return wrapf(float(slot_index - 1) + _visual_shift + 3.0, 0.0, 6.0) - 3.0
+
+
 func _show_unit(unit: GameUnit, stand: Vector3, yaw: float) -> void:
 	if unit.battle_ko:
 		unit.visible = unit.defeat_playing
@@ -438,7 +565,7 @@ func _show_unit(unit: GameUnit, stand: Vector3, yaw: float) -> void:
 	unit.visible = true
 	unit.global_position = stand
 	unit.rotation = Vector3(0.0, yaw, 0.0)
-	unit.set_battle_walking(_in_battle)
+	unit.set_battle_walking(true)
 
 
 func _show_sliding_allies() -> void:
@@ -447,7 +574,7 @@ func _show_sliding_allies() -> void:
 		var ally := get_resolved_unit(active_face, slot_index)
 		if ally == null or shown.has(ally):
 			continue
-		var from_center := wrapf(float(slot_index - 1) + _visual_shift + 3.0, 0.0, 6.0) - 3.0
+		var from_center := _slide_offset(slot_index)
 		if absf(from_center) > 2.35:
 			continue
 		shown[ally] = true
@@ -511,6 +638,7 @@ func _action_entry(unit: GameUnit, enemy: bool, front: bool) -> Dictionary:
 		"cost": unit.get_cost(),
 		"action_value": unit.action_value,
 		"unit_id": unit.unit_id,
+		"key": unit.get_instance_id(),
 		"enemy": enemy,
 		"front": front,
 	}

@@ -1,4 +1,8 @@
-"""Character editor. Serves the page and writes dump/characters/*.md.
+"""Character editor. Serves the page and writes src/data/characters/*.md.
+
+Star scales live in src/data/star_scales.json. A blank ★2+ cell is
+★1 × (that row's scale[star] / scale[★1]). Effect rows with no scale
+use effectDefault (1, 1.2, 1.5, 1.7). A filled cell is used as written.
 
 Run from the repository root:
     python leveleditor/server.py
@@ -14,11 +18,11 @@ from pathlib import Path
 from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
-CHAR_DIR = ROOT / "dump" / "characters"
+CHAR_DIR = ROOT / "src" / "data" / "characters"
 BASE_PATH = ROOT / "dump" / "characters_base.md"
 SYNERGY_PATH = ROOT / "dump" / "synergys_base.md"
 SYNERGY_TEXT_PATH = ROOT / "dump" / "synergys_text.md"
-SETTINGS_PATH = Path(__file__).with_name("settings.json")
+SETTINGS_PATH = ROOT / "src" / "data" / "star_scales.json"
 INDEX_PATH = Path(__file__).with_name("index.html")
 HOST = "127.0.0.1"
 PORT = 8765
@@ -38,6 +42,7 @@ ATTRIBUTES = ["炎", "水", "雷", "土", "氷", "風", "吸収"]
 ACTION_RATES = [("攻撃", "attack"), ("バフ/デバフ", "support"), ("ガード", "guard")]
 STAR_COUNT = 4
 DEFAULT_SCALES = [1.0, 3.5, 10.0, 28.0]
+EFFECT_DEFAULT = [1.0, 1.2, 1.5, 1.7]
 TOTAL_STATS = ["最大HP", "攻撃力", "速度"]
 
 
@@ -496,7 +501,12 @@ def load_settings() -> dict:
                 scales[name] = _scale_row(value, fallback)
     else:
         scales = {name: list(DEFAULT_SCALES) for name in NUMERIC_STATS}
-    return {"scales": scales, "standards": _clean_standards(data.get("standards", {}))}
+    effect = _scale_row(data.get("effectDefault"), EFFECT_DEFAULT)
+    return {
+        "scales": scales,
+        "standards": _clean_standards(data.get("standards", {})),
+        "effectDefault": effect,
+    }
 
 
 def save_settings(data: dict) -> dict:
@@ -513,6 +523,8 @@ def save_settings(data: dict) -> dict:
         settings["scales"] = merged
     if "standards" in data:
         settings["standards"] = _clean_standards(data["standards"])
+    if "effectDefault" in data:
+        settings["effectDefault"] = _scale_row(data.get("effectDefault"), EFFECT_DEFAULT)
     SETTINGS_PATH.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return settings
 

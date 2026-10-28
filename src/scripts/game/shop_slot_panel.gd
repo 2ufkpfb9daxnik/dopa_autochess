@@ -19,9 +19,11 @@ const _MIN_FONT := 7
 var _footer: VBoxContainer
 var _synergy_box: VBoxContainer
 var _name_line: FitLine
+var _cost_mark: CostCorner
 var _text_scale := 1.0
 var _synergy_lines: PackedStringArray = []
 var _name_text := ""
+var _shown_unit_id := -1
 
 
 class FitLine:
@@ -63,6 +65,25 @@ class FitLine:
 		draw_string(font, Vector2(0.0, baseline), source, HORIZONTAL_ALIGNMENT_CENTER, size.x, chosen, font_color)
 
 
+class CostCorner:
+	extends Control
+
+	var fill := Color(0, 0, 0, 0)
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		if fill.a <= 0.01 or size.x < 4.0 or size.y < 4.0:
+			return
+		draw_colored_polygon(PackedVector2Array([
+			Vector2.ZERO,
+			Vector2(size.x, 0.0),
+			Vector2(0.0, size.y),
+		]), fill)
+		draw_line(Vector2(size.x, 0.0), Vector2(0.0, size.y), Color(0, 0, 0, 0.55), 2.0)
+
+
 func _ready() -> void:
 	text = ""
 	flat = true
@@ -77,6 +98,7 @@ func _ready() -> void:
 func set_sold_out() -> void:
 	_content_root.visible = true
 	_empty_label.visible = false
+	_shown_unit_id = -1
 	_illustration.texture = PLACEHOLDER_TEXTURE
 	_illustration.modulate = Color(1.0, 1.0, 1.0, 0.22)
 	_synergy_lines = PackedStringArray()
@@ -92,8 +114,9 @@ func set_unit(unit_id: int) -> void:
 	var data := UnitCatalog.get_unit(unit_id)
 	_content_root.visible = true
 	_empty_label.visible = false
-	_illustration.texture = PLACEHOLDER_TEXTURE
+	_illustration.texture = UnitCatalog.make_portrait(unit_id, _portrait_dest())
 	_illustration.modulate = Color.WHITE
+	_shown_unit_id = unit_id
 	_cost_label.text = str(data["cost"])
 	_name_text = str(data["name"])
 	_stars_label.text = "★"
@@ -125,8 +148,15 @@ func _build_footer() -> void:
 	_cost_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_cost_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cost_label.autowrap_mode = TextServer.AUTOWRAP_OFF
-	_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_cost_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_cost_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.72))
+	_cost_label.add_theme_constant_override("shadow_offset_x", 1)
+	_cost_label.add_theme_constant_override("shadow_offset_y", 1)
+	_cost_mark = CostCorner.new()
+	add_child(_cost_mark)
+	move_child(_cost_mark, _cost_label.get_index())
+	move_child(_cost_label, _cost_mark.get_index() + 1)
 	_name_label.visible = false
 	_bottom_bar_panel.visible = false
 	_synergy_label.visible = false
@@ -178,8 +208,7 @@ func _refresh_text_layout() -> void:
 		return
 	_footer.position = Vector2(size.x * 0.12, size.y * 0.58)
 	_footer.size = Vector2(size.x * 0.76, size.y * 0.34)
-	_cost_label.position = Vector2(size.x * 0.11, size.y * 0.07)
-	_cost_label.size = Vector2(size.x * 0.28, size.y * 0.1)
+	_place_cost_mark()
 
 
 func _apply_font(label: Label, base_size: int, amount: float) -> void:
@@ -197,6 +226,32 @@ func _fit_frame() -> void:
 	_frame.position = origin
 	_frame.size = drawn
 	_refresh_text_layout()
+	_apply_portrait()
+
+
+func _portrait_dest() -> Vector2:
+	if _illustration != null and _illustration.size.x > 2.0 and _illustration.size.y > 2.0:
+		return _illustration.size
+	return Vector2(size.x * 0.86, size.y * 0.6)
+
+
+func _apply_portrait() -> void:
+	if _shown_unit_id < 1 or _illustration == null:
+		return
+	_illustration.texture = UnitCatalog.make_portrait(_shown_unit_id, _portrait_dest())
+
+
+func _place_cost_mark() -> void:
+	if _cost_mark == null or _cost_label == null or size.x < 2.0 or size.y < 2.0:
+		return
+	var leg := minf(size.x, size.y) * 0.46
+	var origin := Vector2(size.x * 0.055, size.y * 0.03)
+	_cost_mark.position = origin
+	_cost_mark.size = Vector2(leg, leg)
+	_cost_mark.queue_redraw()
+	var label_side := leg * 0.46
+	_cost_label.position = origin + Vector2(leg * 0.04, leg * 0.01)
+	_cost_label.size = Vector2(label_side, label_side)
 
 
 func apply_cost_style(cost: int) -> void:
@@ -206,9 +261,9 @@ func apply_cost_style(cost: int) -> void:
 	add_theme_stylebox_override("pressed", style)
 	add_theme_stylebox_override("disabled", style)
 	add_theme_stylebox_override("focus", style)
-	var cost_color := Color(0.95, 0.96, 0.98)
-	if cost > 0:
-		cost_color = CostColors.get_color(cost)
-		if cost_color.get_luminance() < 0.45:
-			cost_color = cost_color.lerp(Color.WHITE, 0.62)
-	_cost_label.add_theme_color_override("font_color", cost_color)
+	var show_mark := cost > 0 and not _cost_label.text.is_empty()
+	if _cost_mark != null:
+		_cost_mark.visible = show_mark
+		_cost_mark.fill = CostColors.get_color(cost) if show_mark else Color(0, 0, 0, 0)
+		_cost_mark.queue_redraw()
+	_cost_label.add_theme_color_override("font_color", CostColors.get_shop_label_color(cost))

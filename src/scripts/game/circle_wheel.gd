@@ -8,9 +8,19 @@ signal unit_drag_started(slot_index: int)
 signal unit_drag_moved(global_position: Vector2)
 signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_move_requested(from_slot: int, to_slot: int)
+signal unit_clicked(slot_index: int)
+signal debuff_cleanse_requested(slot_index: int)
 
-const PLACEHOLDER_TEXTURE := preload("res://images/placeholder.png")
 const RIM_GRAB := 40.0
+const FORMATION_COLORS := {
+	"炎": Color(0.93, 0.18, 0.12, 0.92),
+	"水": Color(0.16, 0.4, 0.96, 0.92),
+	"氷": Color(0.45, 0.88, 1.0, 0.92),
+	"風": Color(0.62, 0.9, 0.22, 0.92),
+	"雷": Color(1.0, 0.86, 0.15, 0.92),
+	"吸収": Color(0.64, 0.28, 0.95, 0.92),
+	"土": Color(0.96, 0.5, 0.12, 0.92),
+}
 const _MODE_NONE := 0
 const _MODE_ROTATE := 1
 const _MODE_UNIT := 2
@@ -29,6 +39,9 @@ var _accum := 0.0
 var _mode := _MODE_NONE
 var _visual_angle := 0.0
 var _spin_tween: Tween
+var _bubble_rects: Array[Rect2] = []
+var _bubble_slots: Array[int] = []
+var _poison_time := 0.0
 
 
 func _ready() -> void:
@@ -44,6 +57,13 @@ func _ready() -> void:
 	_cw_button = _make_rotate_button("↘", 1)
 	resized.connect(_layout_chrome)
 	_layout_chrome()
+
+
+func _process(delta: float) -> void:
+	if not _has_debuffed_slot():
+		return
+	_poison_time += delta
+	queue_redraw()
 
 
 func set_unit_drag_enabled(enabled: bool) -> void:
@@ -114,6 +134,11 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _begin_press(mouse_button: InputEventMouseButton) -> void:
+	var bubble_slot := _bubble_slot_at(mouse_button.position)
+	if bubble_slot >= 0:
+		debuff_cleanse_requested.emit(bubble_slot)
+		accept_event()
+		return
 	_commit_spin_now()
 	if _is_center(mouse_button.position):
 		center_pressed.emit()
@@ -136,10 +161,12 @@ func _end_press(mouse_button: InputEventMouseButton) -> void:
 		unit_drag_finished.emit(_press_slot, mouse_button.global_position)
 	elif _mode == _MODE_ROTATE:
 		_animate_to_nearest_step()
-	elif _mode == _MODE_NONE and _unit_drag_enabled:
+	elif _mode == _MODE_NONE:
 		var release_slot := _slot_at(mouse_button.position)
-		if _press_slot >= 0 and release_slot >= 0 and release_slot != _press_slot and _is_occupied(_press_slot):
+		if _press_slot >= 0 and release_slot >= 0 and release_slot != _press_slot and _is_occupied(_press_slot) and _unit_drag_enabled:
 			slot_move_requested.emit(_press_slot, release_slot)
+		elif _press_slot >= 0 and release_slot == _press_slot and _shows_unit(_press_slot):
+			unit_clicked.emit(_press_slot)
 	_pressing = false
 	_mode = _MODE_NONE
 	accept_event()
@@ -171,12 +198,71 @@ func _draw() -> void:
 		draw_colored_polygon(_wedge_polygon(_slot_center_angle(slot_index)), _slot_fill(slot_index))
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_portrait(slot_index)
+	_draw_formation_links()
 	draw_arc(center, inner, 0.0, TAU, 48, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_arc(center, outer, 0.0, TAU, 64, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_circle(center, inner - 3.0, Color(0.1, 0.11, 0.14, 0.96))
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_number(slot_index)
 		_draw_slot_label(slot_index)
+	_draw_debuff_bubbles()
+
+
+func _draw_formation_links() -> void:
+	for slot_index in BoardController.FRONT_COUNT - 1:
+		var element := _formation_element(slot_index, slot_index + 1)
+		if element.is_empty():
+			continue
+		var left := _slot_center_angle(slot_index)
+		var right := _slot_center_angle(slot_index + 1)
+		var mid := left + wrapf(right - left, -PI, PI) * 0.5
+		var color: Color = FORMATION_COLORS.get(element, Color(1, 1, 1, 0.9))
+		var points := _link_polygon(mid)
+		draw_colored_polygon(points, color)
+		var outline := points.duplicate()
+		outline.append(points[0])
+		draw_polyline(outline, Color(1, 1, 1, 0.7 * color.a), 2.0, true)
+
+
+func _formation_element(left_index: int, right_index: int) -> String:
+	if left_index >= _view_slots.size() or right_index >= _view_slots.size():
+		return ""
+	var left: Dictionary = _view_slots[left_index]
+	var right: Dictionary = _view_slots[right_index]
+	if not _links_formation(left) or not _links_formation(right):
+		return ""
+	var element := str(left.get("element", ""))
+	if element.is_empty() or element != str(right.get("element", "")):
+		return ""
+	return element
+
+
+func _links_formation(slot: Dictionary) -> bool:
+	if bool(slot.get("down", false)):
+		return false
+	return bool(slot.get("occupied", false)) or bool(slot.get("fallback", false))
+
+
+func _link_polygon(center_angle: float) -> PackedVector2Array:
+	var half := TAU / 18.0
+	var start := center_angle - half
+	var finish := center_angle + half
+	var points := PackedVector2Array()
+	var segments := 4
+	var center := _center()
+	var outer := _outer_radius()
+	var inner := _inner_radius()
+	var mid_radius := (inner + outer) * 0.5
+	var radial := (outer - inner) / 8.0
+	inner = mid_radius - radial * 0.5
+	outer = mid_radius + radial * 0.5
+	for step in segments + 1:
+		var angle := lerpf(start, finish, float(step) / float(segments))
+		points.append(center + Vector2(cos(angle), sin(angle)) * outer)
+	for step in segments + 1:
+		var angle := lerpf(start, finish, float(segments - step) / float(segments))
+		points.append(center + Vector2(cos(angle), sin(angle)) * inner)
+	return points
 
 
 func _slot_fill(slot_index: int) -> Color:
@@ -218,14 +304,61 @@ func _draw_slot_portrait(slot_index: int) -> void:
 		return
 	var points := _wedge_polygon(_slot_center_angle(slot_index))
 	var bounds := _polygon_bounds(points)
-	var cover := _cover_rect(bounds, PLACEHOLDER_TEXTURE)
-	var modulate := Color(1, 1, 1, 0.45) if bool(slot.get("fallback", false)) else Color.WHITE
+	var texture := UnitCatalog.get_icon(int(slot.get("unit_id", -1)))
+	var cover := _cover_rect(bounds, texture)
+	var poisoned := bool(slot.get("debuffed", false))
+	var modulate := Color(0.62, 1.0, 0.34, _slot_alpha(slot)) if poisoned else Color(1, 1, 1, _slot_alpha(slot))
 	var colors := PackedColorArray()
 	var uvs := PackedVector2Array()
 	for point in points:
 		colors.append(modulate)
 		uvs.append(Vector2((point.x - cover.position.x) / cover.size.x, (point.y - cover.position.y) / cover.size.y))
-	draw_polygon(points, colors, uvs, PLACEHOLDER_TEXTURE)
+	draw_polygon(points, colors, uvs, texture)
+	if poisoned:
+		var wash := 0.28 + 0.1 * sin(_poison_time * 5.0)
+		draw_colored_polygon(points, Color(0.28, 0.72, 0.08, wash))
+
+
+func _has_debuffed_slot() -> bool:
+	for slot in _view_slots:
+		if slot is Dictionary and bool(slot.get("debuffed", false)):
+			return true
+	return false
+
+
+func _draw_debuff_bubbles() -> void:
+	_bubble_rects.clear()
+	_bubble_slots.clear()
+	var font := ThemeDB.fallback_font
+	var font_size := 15
+	var text := "デバフ解除"
+	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	for slot_index in BoardController.SLOTS_PER_FACE:
+		if slot_index >= _view_slots.size():
+			continue
+		var slot: Dictionary = _view_slots[slot_index]
+		if not bool(slot.get("debuffed", false)):
+			continue
+		var angle := _slot_center_angle(slot_index)
+		var anchor := _center() + Vector2(cos(angle), sin(angle)) * ((_inner_radius() + _outer_radius()) * 0.5)
+		var box := Rect2(anchor + Vector2(-text_size.x * 0.5 - 12.0, -46.0), Vector2(text_size.x + 24.0, 34.0))
+		_bubble_rects.append(box)
+		_bubble_slots.append(slot_index)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(box.position.x + box.size.x * 0.5 - 7.0, box.end.y),
+			Vector2(box.position.x + box.size.x * 0.5 + 7.0, box.end.y),
+			anchor,
+		]), Color(0.1, 0.2, 0.06, 0.96))
+		draw_rect(box, Color(0.1, 0.22, 0.07, 0.96))
+		draw_rect(box, Color(0.68, 0.95, 0.28), false, 2.0)
+		draw_string(font, box.position + Vector2(12.0, 23.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.86, 1.0, 0.62))
+
+
+func _bubble_slot_at(point: Vector2) -> int:
+	for index in _bubble_rects.size():
+		if _bubble_rects[index].has_point(point):
+			return _bubble_slots[index]
+	return -1
 
 
 func _draw_slot_label(slot_index: int) -> void:
@@ -248,15 +381,24 @@ func _draw_slot_label(slot_index: int) -> void:
 	var name := str(slot.get("name", ""))
 	if fallback:
 		name = "補 %s" % name
+	var ink := Color(1, 1, 1, _slot_alpha(slot))
 	var name_width := band * 0.72
 	var name_pos := _clamp_to_wedge(pos + Vector2(-name_width * 0.35, band * 0.28), slot_index)
-	_draw_outlined_string(font, name_pos, name, HORIZONTAL_ALIGNMENT_LEFT, name_width, 13, Color.WHITE)
+	_draw_outlined_string(font, name_pos, name, HORIZONTAL_ALIGNMENT_LEFT, name_width, 13, ink)
 	var stars := str(slot.get("stars", ""))
 	if not stars.is_empty():
 		var star_pos := _clamp_to_wedge(pos + Vector2(band * 0.16, -4.0), slot_index)
-		_draw_outlined_string(font, star_pos, stars, HORIZONTAL_ALIGNMENT_LEFT, band * 0.4, 15, Color(1, 0.92, 0.45))
+		_draw_outlined_string(font, star_pos, stars, HORIZONTAL_ALIGNMENT_LEFT, band * 0.4, 15, Color(1, 0.92, 0.45, ink.a))
 	var number_pos := _clamp_to_wedge(_center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + 18.0) + Vector2(-10.0, 0.0), slot_index)
-	_draw_outlined_string(font, number_pos, str(int(slot.get("number", slot_index + 1))), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0))
+	_draw_outlined_string(font, number_pos, str(int(slot.get("number", slot_index + 1))), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0, ink.a))
+
+
+func _slot_alpha(slot: Dictionary) -> float:
+	if bool(slot.get("down", false)):
+		return 0.35
+	if bool(slot.get("fallback", false)):
+		return 0.45
+	return 1.0
 
 
 func _cover_rect(bounds: Rect2, texture: Texture2D) -> Rect2:
@@ -272,7 +414,14 @@ func _cover_rect(bounds: Rect2, texture: Texture2D) -> Rect2:
 		cover *= target.x / cover.x
 	if cover.y < target.y:
 		cover *= target.y / cover.y
-	return Rect2(bounds.get_center() - cover * 0.5, cover)
+	var shown := target.y / maxf(1.0, cover.y)
+	if shown > 0.5:
+		cover *= shown / 0.5
+	var shift := UnitCatalog.PORTRAIT_TOP_SHIFT
+	var span := target.y / maxf(1.0, cover.y)
+	if shift + span > 1.0:
+		shift = maxf(0.0, 1.0 - span)
+	return Rect2(Vector2(bounds.get_center().x - cover.x * 0.5, bounds.position.y - cover.y * shift), cover)
 
 
 func _polygon_bounds(points: PackedVector2Array) -> Rect2:
@@ -293,7 +442,7 @@ func _clamp_to_wedge(point: Vector2, slot_index: int) -> Vector2:
 
 
 func _draw_outlined_string(font: Font, pos: Vector2, text: String, alignment: HorizontalAlignment, width: float, font_size: int, color: Color) -> void:
-	var shadow := Color(0, 0, 0, 0.9)
+	var shadow := Color(0, 0, 0, 0.9 * color.a)
 	for offset in [Vector2(-1, 0), Vector2(1, 0), Vector2(0, -1), Vector2(0, 1)]:
 		draw_string(font, pos + offset, text, alignment, width, font_size, shadow)
 	draw_string(font, pos, text, alignment, width, font_size, color)
@@ -414,6 +563,13 @@ func _slot_at(point: Vector2) -> int:
 
 func _is_occupied(slot_index: int) -> bool:
 	return slot_index >= 0 and slot_index < _occupied.size() and _occupied[slot_index]
+
+
+func _shows_unit(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= _view_slots.size():
+		return false
+	var slot: Dictionary = _view_slots[slot_index]
+	return bool(slot.get("occupied", false)) or bool(slot.get("fallback", false))
 
 
 func _wedge_polygon(center_angle: float) -> PackedVector2Array:

@@ -37,6 +37,7 @@ func refresh_widgets() -> void:
 				"name": unit.get_display_name(),
 				"stars": unit.get_star_text(),
 				"cost": unit.get_cost(),
+				"unit_id": unit.unit_id,
 			})
 	_host._bench_board.set_slots(bench_view)
 	_host._action_order_bar.set_entries(_host.board.get_action_order())
@@ -81,6 +82,15 @@ func on_bench_drag_finished(_slot_index: int, global_position: Vector2) -> void:
 	finish_drag(global_position)
 
 
+func on_circle_unit_clicked(slot_index: int) -> void:
+	var unit: GameUnit = _host.board.get_placed_unit(_host.board.active_face, slot_index)
+	if unit == null:
+		unit = _host.board.get_resolved_unit(_host.board.active_face, slot_index)
+	if unit == null or _host._unit_inspect == null:
+		return
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
+
+
 func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
 	var unit: GameUnit = _host.board.get_placed_unit(_host.board.active_face, from_slot)
 	if unit == null:
@@ -90,18 +100,10 @@ func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
 
 
 func on_bench_slot_clicked(slot_index: int) -> void:
-	if not _host.session.is_prep() or _host._run_end_active:
-		return
 	var unit: GameUnit = _host.board.bench_units[slot_index]
-	if unit == null:
+	if unit == null or _host._unit_inspect == null:
 		return
-	GameAudio.play_select_character()
-	var dest: int = _host.board.find_empty_circle_slot(_host.board.active_face)
-	if dest < 0:
-		_host._log("この面は満員です")
-		return
-	if not _host.board.try_move_unit_to_circle(unit, _host.board.active_face, dest):
-		_host._log("配置上限です")
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
 
 
 func begin_drag(unit: GameUnit) -> void:
@@ -112,6 +114,9 @@ func begin_drag(unit: GameUnit) -> void:
 	_host._drag_bar.color = CostColors.get_color(cost)
 	_host._drag_cost_label.text = str(cost)
 	_host._drag_name_label.text = unit.get_display_name()
+	var drag_icon := _host._drag_preview.get_node_or_null("DragIcon") as TextureRect
+	if drag_icon != null:
+		drag_icon.texture = UnitCatalog.make_portrait(unit.unit_id, drag_icon.size)
 	_host._drag_stars_label.text = unit.get_star_text()
 	_host._drag_cost_label.add_theme_color_override("font_color", label_color)
 	_host._drag_name_label.add_theme_color_override("font_color", label_color)

@@ -2,13 +2,24 @@ extends Node
 
 const EFFECTS := "res://sounds/effects/"
 const BGM := "res://sounds/bgm/"
+const BATTLE := EFFECTS + "battle/"
 const SETTINGS_PATH := "user://audio_settings.cfg"
 const BGM_VOLUME_DB := -6.0
 const MUTED_VOLUME_DB := -80.0
 const MONEY_STAGGER := 0.1
 const MONEY_VOICES := 3
+const DOT_STAGGER := 0.08
+const ATTRIBUTE_FOLDERS := {
+	"fire": "fire",
+	"water": "water",
+	"thunder": "thunder",
+	"earth": "earth",
+	"ice": "ice",
+	"wind": "wind",
+	"absorb": "absorption",
+}
 
-enum BgmKind { NONE, CONSTRUCTION, BATTLE, SECRET, CLOCK, CLEAR, DEFEAT }
+enum BgmKind { NONE, CONSTRUCTION, BATTLE, SECRET, CLOCK, CLEAR, DEFEAT, WIN, LOSE }
 
 static var _node: GameAudio
 
@@ -16,6 +27,7 @@ var _bgm: AudioStreamPlayer
 var _bgm_kind: BgmKind = BgmKind.NONE
 var _bgm_enabled := true
 var _se_enabled := true
+var _effect_lists: Dictionary = {}
 
 
 func _enter_tree() -> void:
@@ -107,10 +119,61 @@ static func play_battle(secret: bool, clocktower: bool = false) -> void:
 	_node._play_bgm(_node._random_track("stdbattle"), BgmKind.BATTLE)
 
 
+static func play_result(won: bool) -> void:
+	if _node == null:
+		return
+	if won:
+		_node._play_bgm(BGM + "win.mp3", BgmKind.WIN)
+	else:
+		_node._play_bgm(BGM + "lose.mp3", BgmKind.LOSE)
+
+
 static func play_after_clear() -> void:
 	if _node == null:
 		return
 	_node._play_bgm(BGM + "after_clear.mp3", BgmKind.CLEAR)
+
+
+static func play_battle_attack() -> void:
+	if _node == null:
+		return
+	var folder := "blow" if randi() % 2 == 0 else "sword"
+	_node._play_random_effect(BATTLE + folder)
+
+
+static func play_battle_attribute(element: String) -> void:
+	if _node == null:
+		return
+	var folder := str(ATTRIBUTE_FOLDERS.get(element, ""))
+	if folder.is_empty():
+		return
+	_node._play_random_effect(BATTLE + "attributes/" + folder)
+
+
+static func play_battle_critical() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "critical")
+
+
+static func play_battle_break() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "break")
+
+
+static func play_battle_gauge() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "gauge")
+
+
+static func play_battle_dot(layers: int) -> void:
+	if _node == null or layers <= 0:
+		return
+	for index in layers:
+		var path := _node._random_effect(BATTLE + "dot")
+		_node._play_later(path, DOT_STAGGER * index)
 
 
 static func play_defeat() -> void:
@@ -165,12 +228,38 @@ func _random_track(prefix: String) -> String:
 	return paths[randi() % paths.size()]
 
 
+func _play_random_effect(folder: String) -> void:
+	_play_now(_random_effect(folder))
+
+
+func _random_effect(folder: String) -> String:
+	var dir := folder
+	if not dir.ends_with("/"):
+		dir += "/"
+	var cached: Variant = _effect_lists.get(dir, null)
+	var paths := PackedStringArray()
+	if cached is PackedStringArray:
+		paths = cached
+	else:
+		for file_name in DirAccess.get_files_at(dir):
+			if file_name.get_extension().to_lower() != "mp3":
+				continue
+			paths.append(dir.path_join(file_name))
+		_effect_lists[dir] = paths
+	if paths.is_empty():
+		return ""
+	return paths[randi() % paths.size()]
+
+
 func _play_now(path: String) -> void:
-	if not _se_enabled:
+	if path.is_empty() or not _se_enabled:
 		return
-	var stream := load(path) as AudioStream
+	var loaded := load(path) as AudioStream
+	if loaded == null:
+		return
+	var stream := loaded.duplicate() as AudioStream
 	if stream == null:
-		return
+		stream = loaded
 	var player := AudioStreamPlayer.new()
 	player.stream = stream
 	player.finished.connect(player.queue_free)

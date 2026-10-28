@@ -38,6 +38,12 @@ func show_end_screen() -> void:
 			_host._log("ゲームクリア")
 		GameSession.RunEndReason.VOLUNTARY_END:
 			pass
+	_host.run_end_overlay.z_index = 70
+	_host.run_end_review_bar.z_index = 70
+	_host.run_stats_panel.z_index = 70
+	var reason: GameSession.RunEndReason = _host.session.run_end_reason
+	_host._battle.set_clear_art(reason == GameSession.RunEndReason.CLEAR)
+	_host._battle.set_clear_stripes(reason == GameSession.RunEndReason.CLEAR or reason == GameSession.RunEndReason.VOLUNTARY_END)
 	_host._update_ui()
 
 
@@ -163,17 +169,17 @@ func stats_text() -> String:
 			unit.get_star_text(),
 			unit.get_cost(),
 		])
-	var synergies := SynergyTracker.get_active_synergies(_host.board.get_all_units())
+	var synergies := SynergyTracker.list_synergies(_host.board.get_circle_units())
 	if synergies.is_empty():
 		lines.append("")
-		lines.append("シナジー: 発動なし")
+		lines.append("シナジー: なし")
 	else:
 		lines.append("")
 		lines.append("シナジー:")
 		for entry in synergies:
-			lines.append("  %s Lv.%d (%d体)" % [
+			lines.append("  %s  %d人 / %d段階" % [
 				entry["name"],
-				entry["tier"],
 				entry["count"],
+				entry["stage_count"],
 			])
 	return "\n".join(lines)

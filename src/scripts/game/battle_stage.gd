@@ -27,6 +27,8 @@ void fragment() {
 var viewport_container: SubViewportContainer
 var background: TextureRect
 var ui_background: TextureRect
+var clear_art: ClearGeometry
+var clear_stripes: Control
 var shadow_layer: FootShadowLayer
 var world: SubViewport
 var battle_rect := Rect2()
@@ -35,6 +37,7 @@ var view_height := 320.0
 var _host: Node
 var _camera: Camera3D
 var _background_path := ""
+var _viewport_size := Vector2.ZERO
 
 
 func mount(host: Node, layer: CanvasLayer, camera: Camera3D, board: BoardController, units: Node3D, light: Node3D) -> void:
@@ -67,11 +70,9 @@ func mount(host: Node, layer: CanvasLayer, camera: Camera3D, board: BoardControl
 	edge_material.shader = edge_shader
 	background.material = edge_material
 	layer.add_child(background)
-	layer.move_child(background, 2)
 	shadow_layer = FootShadowLayer.new()
 	shadow_layer.setup(camera, units)
 	layer.add_child(shadow_layer)
-	layer.move_child(shadow_layer, 3)
 	viewport_container = SubViewportContainer.new()
 	viewport_container.name = "BattleViewport"
 	viewport_container.stretch = true
@@ -79,7 +80,13 @@ func mount(host: Node, layer: CanvasLayer, camera: Camera3D, board: BoardControl
 	viewport_container.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	viewport_container.offset_bottom = view_height
 	layer.add_child(viewport_container)
-	layer.move_child(viewport_container, 4)
+	clear_art = ClearGeometry.new()
+	clear_art.name = "ClearGeometry"
+	layer.add_child(clear_art)
+	clear_stripes = load("res://scripts/game/clear_stripes.gd").new() as Control
+	clear_stripes.name = "ClearStripes"
+	layer.add_child(clear_stripes)
+	_stack_stage(layer, backdrop)
 	var viewport := SubViewport.new()
 	viewport.name = "BattleWorld"
 	viewport.own_world_3d = true
@@ -128,14 +135,52 @@ func column_width(span_height: float) -> float:
 
 
 func place(viewport_size: Vector2) -> void:
+	_viewport_size = viewport_size
 	if ui_background != null:
 		_place_control(ui_background, Rect2(Vector2.ZERO, viewport_size))
 	_place_background()
 	_place_control(viewport_container, battle_rect)
 	if shadow_layer != null:
 		_place_control(shadow_layer, battle_rect)
+	if clear_art != null:
+		_place_control(clear_art, Rect2(Vector2.ZERO, viewport_size))
+	if clear_stripes != null:
+		_place_control(clear_stripes, Rect2(Vector2.ZERO, viewport_size))
 	if world != null:
 		world.size = Vector2i(maxi(8, int(battle_rect.size.x)), maxi(8, int(battle_rect.size.y)))
+
+
+func set_clear_art(active: bool) -> void:
+	if clear_art == null:
+		return
+	clear_art.visible = active
+	if active:
+		var screen := _viewport_size
+		if screen == Vector2.ZERO and _host != null:
+			screen = _host.get_viewport().get_visible_rect().size
+		_place_control(clear_art, Rect2(Vector2.ZERO, screen))
+
+
+func set_clear_stripes(active: bool) -> void:
+	if clear_stripes == null:
+		return
+	clear_stripes.visible = active
+	if active:
+		var screen := _viewport_size
+		if screen == Vector2.ZERO and _host != null:
+			screen = _host.get_viewport().get_visible_rect().size
+		_place_control(clear_stripes, Rect2(Vector2.ZERO, screen))
+		clear_stripes.queue_redraw()
+
+
+func _stack_stage(layer: CanvasLayer, backdrop: ColorRect) -> void:
+	var order: Array[Node] = [backdrop, ui_background, background, shadow_layer, viewport_container, clear_art, clear_stripes]
+	var index := 0
+	for node in order:
+		if node == null or node.get_parent() != layer:
+			continue
+		layer.move_child(node, index)
+		index += 1
 
 
 func reroll() -> void:

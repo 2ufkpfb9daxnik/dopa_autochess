@@ -100,11 +100,6 @@ offset_bottom = 520.0
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="SynergyTitle" type="Label" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 14
-text = "シナジー"
-
 [node name="ScrollContainer" type="ScrollContainer" parent="CanvasLayer/UI/SynergyPanel/SynergyVBox"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -322,7 +317,7 @@ layout_mode = 0
 [node name="SellDragLabelRight" type="Label" parent="CanvasLayer/UI/SellDragHintRight"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
-text = "売却 →"
+text = "売却"
 horizontal_alignment = 1
 vertical_alignment = 1
 

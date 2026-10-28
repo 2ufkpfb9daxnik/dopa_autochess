@@ -22,6 +22,7 @@ var _layout_position_ready := false
 var _placed_area := Rect2()
 var _has_placed := false
 var _hover_suspended := false
+var _modal_blocked := false
 var _capture_serial := 0
 var _zoom_tween: Tween
 
@@ -45,7 +46,9 @@ func setup(host: Node) -> void:
 		if slot == null:
 			push_error("ShopSlotPanel の生成に失敗しました")
 			continue
-		slot.pressed.connect(func() -> void: _host._on_action(GameAction.shop_buy(index)))
+		slot.pressed.connect(func() -> void:
+			_host._on_action(GameAction.shop_buy(index))
+		)
 		_host.shop_slots.add_child(slot)
 		slot.set_card_size(slot_size)
 
@@ -105,22 +108,21 @@ func place(area: Rect2) -> void:
 	_host.bottom_ui.offset_top = area.position.y
 	_host.bottom_ui.offset_right = area.end.x
 	_host.bottom_ui.offset_bottom = area.end.y
-	_host.sell_drag_hint_left.visible = false
-	_host.sell_drag_hint_right.z_index = 30
-	_host.sell_drag_hint_right.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_host.sell_drag_hint_right.offset_left = area.end.x - SELL_ZONE_WIDTH
-	_host.sell_drag_hint_right.offset_right = area.end.x
-	_host.sell_drag_hint_right.offset_top = area.position.y
-	_host.sell_drag_hint_right.offset_bottom = area.end.y
-	var sell_label := _host.sell_drag_hint_right.get_node_or_null("SellDragLabelRight") as Label
-	if sell_label != null:
-		sell_label.text = "売却"
 	_host.call_deferred("_position_coin_row_over_shop")
 	_schedule_rest_capture()
 
 
+func set_modal_blocked(blocked: bool) -> void:
+	_modal_blocked = blocked
+	if blocked:
+		_cancel_zoom_for_layout()
+	else:
+		_hover_suspended = false
+	_apply_slot_mouse_filter(not blocked)
+
+
 func update_hover() -> void:
-	if _hover_suspended or _host.shop_slots == null or _host.shop_panel == null or not _host.shop_panel.visible or _rest_size.x < 2.0:
+	if _modal_blocked or _hover_suspended or _host.shop_slots == null or _host.shop_panel == null or not _host.shop_panel.visible or _rest_size.x < 2.0:
 		return
 	var mouse: Vector2 = _host.get_viewport().get_mouse_position()
 	var inside_rest: bool = _scaled_rect(1.0).grow(8.0).has_point(mouse)
@@ -212,7 +214,8 @@ func _capture_rest_rect(serial: int) -> void:
 	_rest_size = _host.shop_slots.size
 	_layout_position = _host.shop_slots.position
 	_layout_position_ready = true
-	_hover_suspended = false
+	if not _modal_blocked:
+		_hover_suspended = false
 
 
 func _tween_zoom(shop_scale: float) -> void:
@@ -255,6 +258,17 @@ func _apply_display_scale(amount: float) -> void:
 			continue
 		slot.set_card_size(card)
 		slot.set_text_scale(amount)
+
+
+func _apply_slot_mouse_filter(enabled: bool) -> void:
+	if _host == null or _host.shop_slots == null:
+		return
+	var filter := Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+	_host.shop_slots.mouse_filter = filter
+	for child in _host.shop_slots.get_children():
+		var slot := child as Control
+		if slot != null:
+			slot.mouse_filter = filter
 
 
 func _scaled_rect(shop_scale: float) -> Rect2:

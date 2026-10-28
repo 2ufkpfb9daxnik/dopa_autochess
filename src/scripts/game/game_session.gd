@@ -49,6 +49,10 @@ func is_prep() -> bool:
 	return phase == Phase.PREP
 
 
+func _economy_open() -> bool:
+	return phase == Phase.PREP or phase == Phase.BATTLE
+
+
 func is_route_choice() -> bool:
 	return phase == Phase.ROUTE_CHOICE
 
@@ -59,6 +63,16 @@ func get_level() -> int:
 
 func get_board_unit_cap() -> int:
 	return PlayerLevel.get_board_unit_cap(get_level())
+
+
+func debug_jump_round(target: int) -> void:
+	if not is_prep() or is_run_over():
+		return
+	round_number = clampi(target, 1, 99)
+	if round_number > NORMAL_MAX_ROUND:
+		extended_mode = true
+		max_round = maxi(max_round, round_number)
+	state_changed.emit()
 
 
 func refresh_shop() -> void:
@@ -100,7 +114,7 @@ func try_buy_shop_slot(slot_index: int, bench_full: bool) -> int:
 
 
 func try_reroll() -> bool:
-	if not is_prep() or shop_locked:
+	if not _economy_open() or shop_locked:
 		return false
 	if free_rerolls > 0:
 		free_rerolls -= 1
@@ -115,7 +129,7 @@ func try_reroll() -> bool:
 
 
 func try_buy_exp() -> bool:
-	if not is_prep() or coins < EXP_COST:
+	if not _economy_open() or coins < EXP_COST:
 		return false
 	coins -= EXP_COST
 	experience += EXP_GAIN

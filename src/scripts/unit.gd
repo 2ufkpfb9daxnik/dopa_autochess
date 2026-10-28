@@ -9,6 +9,36 @@ const ACTION_VALUE_NUMERATOR := 10000
 const HP_BAR_WIDTH := 0.46
 const HP_BAR_HEIGHT := 0.05
 const HP_LAG_SECONDS := 0.45
+const CATALOG_CLIPS := {
+	1: {
+		"idle": "look_around_001",
+		"cast_a_spell": "agree_001",
+		"fold_arms": "afraid_001",
+		"hit_to_head": "hit_to_side_001",
+		"defeat": "fall_001",
+	},
+	2: {
+		"idle": "agree_001",
+		"cast_a_spell": "この背中に背負っている銃で敵を射撃します。",
+		"fold_arms": "make_a_call_01_001",
+		"hit_to_head": "hit_to_side_001",
+		"defeat": "fall_001",
+	},
+	4: {
+		"idle": "turn_001",
+		"cast_a_spell": "box_01_001",
+		"fold_arms": "後ろの鐘に隠れます。_001",
+		"hit_to_head": "hit_to_head_001",
+		"defeat": "",
+	},
+	6: {
+		"idle": "warm_up",
+		"cast_a_spell": "crossover_dribble",
+		"fold_arms": "dance_01",
+		"hit_to_head": "hit_to_head",
+		"defeat": "dive",
+	},
+}
 
 var unit_id: int = -1
 var stars: int = 1
@@ -18,6 +48,9 @@ var circle_slot: int = -1
 var bench_index: int = -1
 var action_value: int = 1
 var battle_ko := false
+var debuffed := false
+var debuff_home_face := -1
+var debuff_home_slot := -1
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D
@@ -30,6 +63,7 @@ var _armature_rest := Transform3D.IDENTITY
 var _battle_walking := false
 var _clip_lock := false
 var defeat_playing := false
+var _catalog_model := false
 var _guard_shake_time := 0.0
 var _guard_shake_left := 0.0
 var _hp_root: Node3D
@@ -49,6 +83,7 @@ static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
 
 func _ready() -> void:
 	visible = false
+	_mount_catalog_model()
 	_apply_render_priority_to_visuals(self, UNIT_RENDER_PRIORITY)
 	_setup_model_animation()
 	_fit_model_to_board()
@@ -57,10 +92,37 @@ func _ready() -> void:
 	_apply_battle_walking_state()
 
 
+func _mount_catalog_model() -> void:
+	var scene := UnitCatalog.get_model_scene(unit_id)
+	if scene == null or model_root == null:
+		return
+	for child in model_root.get_children():
+		model_root.remove_child(child)
+		child.free()
+	model_root.add_child(scene.instantiate())
+	_catalog_model = true
+
+
 func hold_guard_pose() -> void:
 	play_battle_role("guard")
 	if _animation_player != null:
 		_animation_player.pause()
+
+
+func play_defeat_loop() -> void:
+	visible = true
+	label.visible = false
+	if _hp_root != null:
+		_hp_root.visible = false
+	var length := play_battle_role("defeat")
+	if _animation_player == null or length <= 0.0:
+		return
+	var anim_name := _animation_player.current_animation
+	var anim := _animation_player.get_animation(anim_name)
+	if anim == null:
+		return
+	anim.loop_mode = Animation.LOOP_LINEAR
+	_animation_player.play(anim_name)
 
 
 func play_guard_hit_shake() -> void:
@@ -143,13 +205,17 @@ func play_battle_role(role: String) -> float:
 	anim.loop_mode = Animation.LOOP_NONE
 	var speed := 1.35
 	var from := anim.length * 0.08
-	match role:
-		"guard":
-			speed = 1.0
-			from = anim.length * 0.55
-		"hit", "defeat":
-			speed = 1.0
-			from = 0.0
+	if _catalog_model:
+		speed = 1.0
+		from = 0.0
+	else:
+		match role:
+			"guard":
+				speed = 1.0
+				from = anim.length * 0.55
+			"hit", "defeat":
+				speed = 1.0
+				from = 0.0
 	_animation_player.speed_scale = speed
 	_animation_player.play(anim_name)
 	_animation_player.seek(from, true)
@@ -231,6 +297,8 @@ func _apply_battle_walking_state() -> void:
 func _find_clip(fragment: String) -> String:
 	if _animation_player == null:
 		return ""
+	if _catalog_model:
+		return _catalog_clip(fragment)
 	var fallback := ""
 	for anim_name in _animation_player.get_animation_list():
 		if anim_name == "RESET":
@@ -241,6 +309,19 @@ func _find_clip(fragment: String) -> String:
 		if fallback.is_empty():
 			fallback = anim_name
 	return fallback
+
+
+func _catalog_clip(fragment: String) -> String:
+	var table: Dictionary = CATALOG_CLIPS.get(unit_id, {})
+	var wanted := str(table.get(fragment, "")).replace(".", "_")
+	if wanted.is_empty():
+		return ""
+	if _animation_player.has_animation(wanted):
+		return wanted
+	for anim_name in _animation_player.get_animation_list():
+		if String(anim_name).begins_with(wanted) or wanted.begins_with(String(anim_name)):
+			return anim_name
+	return ""
 
 
 func _lock_model_position() -> void:

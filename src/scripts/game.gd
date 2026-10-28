@@ -33,16 +33,24 @@ var _last_prep_shop_ui_visible := true
 var _debug_roster_button: Button
 var _debug_roster_panel: PanelContainer
 var _debug_roster_grid: GridContainer
+var _debug_round_spin: SpinBox
 var _debug_roster_open := false
 const BATTLE_SPEEDS: Array[int] = [1, 2, 4, 8]
 var _battle_speed_index := 0
 var _battle_speed_button: Button
 var _battle_playing := false
+var _battle_result: BattleResult
+var _unit_inspect: UnitInspect
+var _debuff_ritual: DebuffRitual
 var _last_reroll_button_text := ""
 var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
 var _action_order_bar: ActionOrderBar
 var _comment_flow: CommentFlow
+var _synergy_list: VBoxContainer
+var _synergy_detail: PanelContainer
+var _synergy_detail_body: RichTextLabel
+var _synergy_open := ""
 var _log_column_rect := Rect2()
 var _log_body_rect := Rect2()
 var _drag_preview: Control
@@ -283,10 +291,10 @@ func _mount_side_controls() -> void:
 		shop_odds_badge,
 		shop_lock_button,
 		exp_hud_badge,
+		reroll_button,
 		round_badge,
 		hp_badge,
 		streak_badge,
-		reroll_button,
 		battle_button,
 		back_button,
 	]
@@ -350,7 +358,7 @@ func _mount_debug_grants() -> void:
 	if not OS.is_debug_build():
 		return
 	var button := Button.new()
-	button.text = "キャラ"
+	button.text = "デバッグ"
 	button.custom_minimum_size = Vector2(0, 36)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.add_theme_font_size_override("font_size", 14)
@@ -362,11 +370,36 @@ func _mount_debug_grants() -> void:
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	panel.z_index = 18
 	_apply_hud_badge_style(panel)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 8)
+	panel.add_child(box)
+	var round_row := HBoxContainer.new()
+	round_row.add_theme_constant_override("separation", 6)
+	box.add_child(round_row)
+	var round_label := Label.new()
+	round_label.text = "ラウンド"
+	round_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	round_row.add_child(round_label)
+	var spin := SpinBox.new()
+	spin.min_value = 1.0
+	spin.max_value = 99.0
+	spin.step = 1.0
+	spin.rounded = true
+	spin.value = 1.0
+	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	round_row.add_child(spin)
+	_debug_round_spin = spin
+	var jump := Button.new()
+	jump.text = "移動"
+	jump.pressed.connect(_jump_debug_round)
+	round_row.add_child(jump)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
+	box.add_child(scroll)
 	var grid := GridContainer.new()
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 2)
@@ -395,8 +428,10 @@ func _set_debug_roster_open(open: bool) -> void:
 	_debug_roster_open = open and session.is_prep() and not _run_end_active
 	_debug_roster_panel.visible = _debug_roster_open
 	if _debug_roster_button != null:
-		_debug_roster_button.text = "閉じる" if _debug_roster_open else "キャラ"
+		_debug_roster_button.text = "閉じる" if _debug_roster_open else "デバッグ"
 	if _debug_roster_open:
+		if _debug_round_spin != null:
+			_debug_round_spin.value = float(session.round_number)
 		_place_debug_roster()
 
 
@@ -423,6 +458,14 @@ func _place_debug_roster() -> void:
 			continue
 		slot.set_card_size(card)
 		slot.set_text_scale(1.0)
+
+
+func _jump_debug_round() -> void:
+	if _debug_round_spin == null or not OS.is_debug_build() or not session.is_prep() or _run_end_active:
+		return
+	var target := int(_debug_round_spin.value)
+	session.debug_jump_round(target)
+	_log("ラウンド %d に移動した" % session.round_number)
 
 
 func _grant_debug_unit(unit_id: int) -> void:
@@ -725,6 +768,8 @@ func _start_battle() -> void:
 		return
 	var battle_won: bool = bool(outcome.get("won", false))
 	var remaining_enemies: int = int(outcome.get("remaining", 0))
+	var hp_before := session.player_hp
+	var level_before := session.get_level()
 	session.finish_battle(battle_won, remaining_enemies)
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
@@ -732,16 +777,38 @@ func _start_battle() -> void:
 		var fought_round := session.round_number - 1
 		var damage := PlayerHp.calc_loss_damage(fought_round, remaining_enemies)
 		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
-	board.set_battle_mode(false)
 	battle_overlay.visible = false
+	board.set_battle_mode(false)
 	_battle.reroll()
-	if session.is_run_over():
-		_review.show_end_screen()
+	if _battle_result != null:
+		_battle_result.open(battle_won, _battle_result_body(battle_won, hp_before, level_before), hp_before, session.player_hp)
+	GameAudio.play_result(battle_won)
+	if not is_inside_tree():
 		return
-	GameAudio.play_construction()
+	if session.is_run_over():
+		if _battle_result != null:
+			_battle_result.show_routes(PackedStringArray(["確認"]), func(_index: int) -> void:
+				_battle_result.close()
+				if session.run_end_reason == GameSession.RunEndReason.DEFEAT:
+					GameAudio.play_defeat()
+				else:
+					GameAudio.play_after_clear()
+				_review.show_end_screen()
+			)
+		else:
+			_review.show_end_screen()
+		return
 	if session.phase == GameSession.Phase.EXTENSION_CHOICE:
+		extension_overlay.visible = false
 		input_handler.set_enabled(false)
 		prep_blocker.visible = true
+		if _battle_result != null:
+			_battle_result.show_routes(PackedStringArray(["延長する", "ここで終了"]), func(index: int) -> void:
+				if index == 0:
+					_on_continue_extension()
+				else:
+					_on_end_run()
+			)
 		_update_ui()
 		return
 	if session.phase == GameSession.Phase.ROUTE_CHOICE:
@@ -759,6 +826,46 @@ func _start_battle() -> void:
 			_show_income_feedback()
 	input_handler.set_enabled(session.is_prep())
 	_update_ui()
+
+
+func _battle_result_body(won: bool, hp_before: int, level_before: int) -> String:
+	var hp_after := session.player_hp
+	var lines: PackedStringArray = []
+	if won:
+		var hp_line := "HP  %d → %d" % [hp_before, hp_after]
+		if hp_after != hp_before:
+			var delta := hp_after - hp_before
+			hp_line += "  (%s%d)" % ["+" if delta > 0 else "", delta]
+		lines.append(hp_line)
+	var xp_line := "経験値 +%d" % GameSession.ROUND_END_FREE_XP
+	var level_after := session.get_level()
+	if level_after > level_before:
+		xp_line += "   Lv.%d" % level_after
+	lines.append(xp_line)
+	if won:
+		lines.append("連勝 %d" % session.win_streak)
+	else:
+		lines.append("連敗 %d" % session.loss_streak)
+	if session.is_run_over():
+		lines.append("")
+		lines.append("次のラウンドなし")
+		return "\n".join(lines)
+	var income := RoundIncome.calc_round_start_income(
+		session.coins_at_last_round_end,
+		session.get_level(),
+		session.get_active_streak(),
+		session.round_number
+	)
+	lines.append("")
+	lines.append("次の利子 %d" % int(income["holding"]))
+	lines.append("次の収入 +%d" % int(income["total"]))
+	lines.append("基本 %d / 利子 %d / 連勝敗 %d / ラウンド %d" % [
+		int(income["base"]),
+		int(income["holding"]),
+		int(income["streak"]),
+		int(income["round"]),
+	])
+	return "\n".join(lines)
 
 
 func _on_extension_choice_required() -> void:
@@ -780,18 +887,27 @@ func _on_route_choice_required() -> void:
 
 
 func _show_route_choice() -> void:
-	route_title_label.text = "ラウンド %d — ルートを選択" % session.round_number
-	for index in route_buttons.size():
-		if index >= session.route_options.size():
-			route_buttons[index].visible = false
-			continue
+	var lines := PackedStringArray()
+	for index in session.route_options.size():
 		var option: Dictionary = session.route_options[index]
-		route_buttons[index].visible = true
-		route_buttons[index].text = "%s\n%s\n%s" % [
+		lines.append("%s\n%s\n%s" % [
 			option["strength_label"],
 			option["enemy_label"],
 			option["reward_label"],
-		]
+		])
+	if _battle_result != null and _battle_result.visible:
+		route_overlay.visible = false
+		_battle_result.show_routes(lines, _on_route_selected)
+		prep_blocker.visible = true
+		input_handler.set_enabled(false)
+		return
+	route_title_label.text = "ラウンド %d — ルートを選択" % session.round_number
+	for index in route_buttons.size():
+		if index >= lines.size():
+			route_buttons[index].visible = false
+			continue
+		route_buttons[index].visible = true
+		route_buttons[index].text = lines[index]
 	route_overlay.visible = true
 	prep_blocker.visible = true
 	input_handler.set_enabled(false)
@@ -801,6 +917,9 @@ func _on_route_selected(index: int) -> void:
 	var route := session.select_route(index)
 	if route.is_empty():
 		return
+	if _battle_result != null:
+		_battle_result.close()
+	GameAudio.play_construction()
 	route_overlay.visible = false
 	prep_blocker.visible = false
 	shop_panel.visible = true
@@ -828,6 +947,13 @@ func _on_end_run() -> void:
 	extension_overlay.visible = false
 	_log("ランを終了した")
 	session.choose_extension(false)
+	if _battle_result != null and _battle_result.visible:
+		_battle_result.show_clear_banner()
+		_battle_result.show_routes(PackedStringArray(["確認"]), func(_index: int) -> void:
+			_battle_result.close()
+			_review.show_end_screen()
+		)
+		return
 	_review.show_end_screen()
 
 
@@ -907,21 +1033,165 @@ func _shop_ui_blocks_drop(screen_pos: Vector2) -> bool:
 	return shop_panel.get_global_rect().has_point(screen_pos)
 
 
+func _setup_synergy_list() -> void:
+	synergy_label.visible = false
+	var scroll := synergy_label.get_parent() as ScrollContainer
+	_synergy_list = VBoxContainer.new()
+	_synergy_list.name = "SynergyList"
+	_synergy_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_synergy_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_synergy_list.add_theme_constant_override("separation", 4)
+	scroll.add_child(_synergy_list)
+	var ui := $CanvasLayer/UI
+	_synergy_detail = PanelContainer.new()
+	_synergy_detail.name = "SynergyDetail"
+	_synergy_detail.visible = false
+	_synergy_detail.z_index = 30
+	_synergy_detail.mouse_filter = Control.MOUSE_FILTER_STOP
+	var margin := MarginContainer.new()
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		margin.add_theme_constant_override(side, 10)
+	_synergy_detail.add_child(margin)
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.custom_minimum_size = Vector2(280, 0)
+	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(detail_scroll)
+	_synergy_detail_body = RichTextLabel.new()
+	_synergy_detail_body.bbcode_enabled = true
+	_synergy_detail_body.fit_content = true
+	_synergy_detail_body.scroll_active = false
+	_synergy_detail_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_synergy_detail_body.custom_minimum_size = Vector2(280, 0)
+	_synergy_detail_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_synergy_detail_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_synergy_detail_body.add_theme_font_size_override("normal_font_size", 15)
+	detail_scroll.add_child(_synergy_detail_body)
+	ui.add_child(_synergy_detail)
+
+
 func _update_synergy_panel() -> void:
-	var active := SynergyTracker.get_active_synergies(board.get_all_units())
-	if active.is_empty():
-		synergy_label.text = "発動中なし"
+	if _synergy_list == null:
 		return
+	var entries := SynergyTracker.list_synergies(board.get_circle_units())
+	for child in _synergy_list.get_children():
+		_synergy_list.remove_child(child)
+		child.free()
+	if entries.is_empty():
+		var empty := Label.new()
+		empty.text = "なし"
+		empty.add_theme_font_size_override("font_size", 13)
+		empty.add_theme_color_override("font_color", Color(1, 1, 1, 0.45))
+		_synergy_list.add_child(empty)
+		_close_synergy_detail()
+		return
+	var still_open := false
+	for entry in entries:
+		if str(entry["name"]) == _synergy_open:
+			still_open = true
+		_synergy_list.add_child(_make_synergy_row(entry))
+	if _synergy_open.is_empty():
+		return
+	if not still_open:
+		_close_synergy_detail()
+		return
+	_fill_synergy_detail(_synergy_open, entries)
+	_place_synergy_detail()
+
+
+func _make_synergy_row(entry: Dictionary) -> Button:
+	var synergy_name := str(entry["name"])
+	var active := bool(entry["active"])
+	var color: Color = entry["color"]
+	var button := Button.new()
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	button.clip_text = false
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = Vector2(0, 46)
+	button.text = "%s\n%d人  %d段階" % [synergy_name, int(entry["count"]), int(entry["stage_count"])]
+	button.add_theme_font_size_override("font_size", 13)
+	var text_color := Color(1, 1, 1, 1.0 if active else 0.48)
+	button.add_theme_color_override("font_color", text_color)
+	button.add_theme_color_override("font_hover_color", text_color)
+	button.add_theme_color_override("font_pressed_color", text_color)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(color.r, color.g, color.b, 0.34 if active else 0.12)
+	style.border_color = Color(color.r, color.g, color.b, 1.0 if active else 0.4)
+	style.border_width_left = 5
+	style.content_margin_left = 8
+	style.content_margin_right = 6
+	style.content_margin_top = 3
+	style.content_margin_bottom = 3
+	style.corner_radius_top_left = 3
+	style.corner_radius_bottom_left = 3
+	button.add_theme_stylebox_override("normal", style)
+	var hover := style.duplicate() as StyleBoxFlat
+	hover.bg_color.a = minf(1.0, style.bg_color.a + 0.12)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	button.pressed.connect(_toggle_synergy_detail.bind(synergy_name))
+	return button
+
+
+func _toggle_synergy_detail(synergy_name: String) -> void:
+	if _synergy_detail.visible and _synergy_open == synergy_name:
+		_close_synergy_detail()
+		return
+	_synergy_open = synergy_name
+	_fill_synergy_detail(synergy_name, SynergyTracker.list_synergies(board.get_circle_units()))
+	_synergy_detail.visible = true
+	_place_synergy_detail()
+
+
+func _close_synergy_detail() -> void:
+	_synergy_open = ""
+	if _synergy_detail != null:
+		_synergy_detail.visible = false
+
+
+func _fill_synergy_detail(synergy_name: String, entries: Array[Dictionary]) -> void:
+	var entry := {}
+	for candidate in entries:
+		if str(candidate["name"]) == synergy_name:
+			entry = candidate
+			break
+	if entry.is_empty():
+		_close_synergy_detail()
+		return
+	var color: Color = entry["color"]
 	var lines: PackedStringArray = []
-	for entry in active:
-		var next_threshold := SynergyCatalog.TIERS[entry["tier"] - 1] if entry["tier"] > 0 else 2
-		var next_text := ""
-		if entry["tier"] < SynergyCatalog.TIERS.size():
-			next_text = " → 次 %d" % SynergyCatalog.TIERS[entry["tier"]]
-		lines.append("%s Lv.%d (%d/%d)%s" % [
-			entry["name"], entry["tier"], entry["count"], next_threshold, next_text
-		])
-	synergy_label.text = "\n".join(lines)
+	lines.append("[color=#%s][b]%s[/b][/color]" % [color.to_html(false), synergy_name])
+	lines.append("%d人 / %d段階" % [int(entry["count"]), int(entry["stage_count"])])
+	var summary := str(entry.get("summary", "")).strip_edges()
+	if not summary.is_empty():
+		lines.append("")
+		lines.append(summary)
+	var stages: Array = entry.get("stages", [])
+	if not stages.is_empty():
+		lines.append("")
+		lines.append("[b]段階[/b]")
+		var reached := int(entry["tier"])
+		for index in stages.size():
+			var stage: Dictionary = stages[index]
+			var row := "%d人  %s" % [int(stage.get("count", 0)), str(stage.get("effect", ""))]
+			if str(stage.get("effect", "")).is_empty():
+				row = "%d人" % int(stage.get("count", 0))
+			if index == reached - 1:
+				lines.append("[color=#%s]%s  ← 現在[/color]" % [color.to_html(false), row])
+			elif index < reached:
+				lines.append("[color=#ffffffaa]%s[/color]" % row)
+			else:
+				lines.append("[color=#ffffff77]%s[/color]" % row)
+	_synergy_detail_body.text = "\n".join(lines)
+
+
+func _place_synergy_detail() -> void:
+	if _synergy_detail == null or not _synergy_detail.visible or synergy_panel == null:
+		return
+	var height := minf(460.0, maxf(160.0, synergy_panel.size.y))
+	_synergy_detail.position = synergy_panel.position + Vector2(synergy_panel.size.x + 8.0, 0.0)
+	_synergy_detail.size = Vector2(320.0, height)
 
 
 func _setup_formation_ui() -> void:
@@ -936,6 +1206,7 @@ func _setup_formation_ui() -> void:
 	_drag_preview.custom_minimum_size = Vector2(76, 96)
 	_drag_preview.size = Vector2(76, 96)
 	var icon := TextureRect.new()
+	icon.name = "DragIcon"
 	icon.texture = preload("res://images/placeholder.png")
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -981,6 +1252,16 @@ func _setup_formation_ui() -> void:
 	_comment_flow.z_index = 0
 	ui.add_child(_comment_flow)
 	ui.move_child(_comment_flow, 0)
+	_battle_result = BattleResult.new()
+	_battle_result.name = "BattleResult"
+	_battle_result.z_index = 100
+	_battle_result.modal_changed = func(active: bool) -> void:
+		_shop.set_modal_blocked(active)
+	ui.add_child(_battle_result)
+	_unit_inspect = UnitInspect.new()
+	_unit_inspect.name = "UnitInspect"
+	ui.add_child(_unit_inspect)
+	_setup_synergy_list()
 	ui.add_child(_drag_preview)
 	_circle_wheel.rotate_steps.connect(func(steps: int) -> void: board.apply_spin_commit(steps))
 	_circle_wheel.visual_shift_changed.connect(func(shift: float) -> void: board.set_visual_shift(shift))
@@ -988,11 +1269,32 @@ func _setup_formation_ui() -> void:
 	_circle_wheel.unit_drag_started.connect(_formation.on_circle_drag_started)
 	_circle_wheel.unit_drag_finished.connect(_formation.on_circle_drag_finished)
 	_circle_wheel.slot_move_requested.connect(_formation.on_circle_slot_move)
+	_circle_wheel.unit_clicked.connect(_formation.on_circle_unit_clicked)
+	_circle_wheel.debuff_cleanse_requested.connect(_open_debuff_ritual)
+	_debuff_ritual = DebuffRitual.new()
+	_debuff_ritual.name = "DebuffRitual"
+	_debuff_ritual.cleared.connect(_on_debuff_cleared)
+	ui.add_child(_debuff_ritual)
 	_bench_board.unit_drag_started.connect(_formation.on_bench_drag_started)
 	_bench_board.unit_drag_finished.connect(_formation.on_bench_drag_finished)
 	_bench_board.slot_clicked.connect(_formation.on_bench_slot_clicked)
 	if not get_viewport().size_changed.is_connected(_layout_formation_ui):
 		get_viewport().size_changed.connect(_layout_formation_ui)
+
+
+func _open_debuff_ritual(slot_index: int) -> void:
+	var unit := board.get_placed_unit(board.active_face, slot_index)
+	if unit == null or not unit.debuffed or _debuff_ritual == null:
+		return
+	_debuff_ritual.open_for(unit)
+
+
+func _on_debuff_cleared(unit: GameUnit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	_combat.cleanse_debuff(unit)
+	_log("%s のデバフを解除した" % unit.get_display_name())
+	_formation.refresh_widgets()
 
 
 func _layout_formation_ui() -> void:
@@ -1034,6 +1336,7 @@ func _layout_formation_ui() -> void:
 	_shop.place(Rect2(cards_x, top, cards_w, shop_area_h))
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
+	_place_sell_zone(Rect2(_bench_board.position, _bench_board.size))
 	_place_side_column(right_x)
 	_place_debug_roster()
 	_layout_log_column()
@@ -1078,6 +1381,7 @@ func _layout_log_column() -> void:
 	var synergy_scroll := synergy_label.get_parent() as ScrollContainer
 	if synergy_scroll != null:
 		synergy_scroll.custom_minimum_size = Vector2(maxf(80.0, column.size.x - 24.0), 0.0)
+	_place_synergy_detail()
 
 
 func _layout_comment_flow() -> void:
@@ -1121,6 +1425,19 @@ func _fit_action_column_width() -> void:
 	action_column.custom_minimum_size.x = 0
 	var width := action_column.get_combined_minimum_size().x
 	_action_column_width = maxf(36.0, ceil(width))
+
+
+func _place_sell_zone(bench_rect: Rect2) -> void:
+	var zone := sell_drag_hint_right
+	zone.z_index = 30
+	zone.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	zone.offset_left = bench_rect.position.x - ShopBoard.SELL_ZONE_WIDTH
+	zone.offset_right = bench_rect.position.x
+	zone.offset_top = bench_rect.position.y
+	zone.offset_bottom = bench_rect.end.y
+	var sell_label := zone.get_node_or_null("SellDragLabelRight") as Label
+	if sell_label != null:
+		sell_label.text = "売却"
 
 
 func _place_side_column(column_x: float) -> void:
@@ -1209,11 +1526,12 @@ func _update_ui() -> void:
 	var reroll_text_changed := reroll_text != _last_reroll_button_text
 	if reroll_text_changed:
 		_last_reroll_button_text = reroll_text
-	reroll_button.disabled = not session.is_prep() or session.shop_locked or (
+	var economy_open := session.is_prep() or session.phase == GameSession.Phase.BATTLE
+	reroll_button.disabled = not economy_open or session.shop_locked or (
 		session.free_rerolls <= 0 and session.coins < GameSession.REROLL_COST
 	)
 	exp_button.text = "経験値+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
-	exp_button.disabled = not session.is_prep() or session.coins < GameSession.EXP_COST
+	exp_button.disabled = not economy_open or session.coins < GameSession.EXP_COST
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0

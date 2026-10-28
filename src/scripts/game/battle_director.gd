@@ -5,6 +5,8 @@ extends RefCounted
 # Hit chance is still a stand-in: battle.md does not give the curve.
 
 const AP_NUMERATOR := 65535
+const FORMATION_PAIR := 0.2
+const FORMATION_LINE := 0.4
 const STEP_TIME := 0.28
 const ATTACK_HIT_TIME := 1.05
 const ATTACK_AFTER_TIME := 0.28
@@ -93,6 +95,7 @@ func play() -> Dictionary:
 				jumper.unit.action_value = 0
 				_host._log("%s は行動せず、%s が割り込む" % [actor.unit.get_display_name(), jumper.unit.get_display_name()])
 			_refresh_bar()
+			await _wait(0.05)
 			continue
 		var was_buff: bool = await _act(actor)
 		if _host == null or not _host.is_inside_tree():
@@ -106,6 +109,34 @@ func play() -> Dictionary:
 	var remaining := _alive_count(true)
 	finish()
 	return {"won": won, "remaining": remaining}
+
+
+func cleanse_debuff(unit: GameUnit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	var unit_id := unit.get_instance_id()
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if int(fighter.kit.get("buff_target_id", -1)) == unit_id:
+			_clear_single_buff(fighter)
+	_host.board.restore_debuffed_unit(unit)
+	if _host.session.phase == GameSession.Phase.BATTLE:
+		_sync_queue()
+
+
+func _release_stale_debuffs() -> void:
+	var active: Dictionary = {}
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if not fighter.enemy:
+			continue
+		var target := _fighter_by_id(int(fighter.kit.get("buff_target_id", -1)))
+		if target != null and not target.enemy and is_instance_valid(target.unit):
+			active[target.unit] = true
+	var board: BoardController = _host.board
+	for unit in board.get_circle_units():
+		if unit.debuffed and not active.has(unit) and _fighters.has(unit.get_instance_id()):
+			board.restore_debuffed_unit(unit)
 
 
 func finish() -> void:
@@ -201,6 +232,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var raw := dealt
 	var guarded := target.guarding and raw > 0
 	dealt = _mitigate(target, raw)
+	_play_attack_sounds(actor, crit)
 	var absorbed := _apply_damage(target, dealt)
 	if guarded:
 		target.unit.popup_battle_text("ガード", Color(0.62, 0.84, 1.0))
@@ -241,6 +273,11 @@ func _support(actor: Fighter) -> void:
 		_set_single_buff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
 		foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
 		_host._log("%s が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
+		if actor.enemy and not foe.enemy:
+			_host.board.exile_debuffed_unit(foe.unit)
+			_release_stale_debuffs()
+			_sync_queue()
+			_host._log("%s はデバフで後衛に下がった" % foe.unit.get_display_name())
 	await _wait(BUFF_TIME)
 
 
@@ -408,6 +445,7 @@ func _fighter(unit: GameUnit, slot_hint: int) -> Fighter:
 	fighter.unit = unit
 	fighter.enemy = unit.is_enemy
 	_assign_placeholder(fighter, slot_hint)
+	_apply_synergy_stats(fighter)
 	_fighters[key] = fighter
 	return fighter
 
@@ -493,7 +531,7 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	var dealt_coef := 1.0 + bonus_extra
 	if use_general_bonus:
 		dealt_coef += attacker.bonus_damage
-	var element_coef := 1.0 + float(attacker.element_damage.get(element, 0.0))
+	var element_coef := 1.0 + float(attacker.element_damage.get(element, 0.0)) + _formation_bonus(attacker)
 	var resist := float(defender.element_resist.get(element, 0.0)) + defender.attribute_resist
 	if element == "thunder":
 		resist += float(defender.kit.get("received_thunder_resist", 0.0))
@@ -635,7 +673,7 @@ func _face_has_living_back(board: BoardController, face: int) -> bool:
 
 func _slot_is_living(board: BoardController, face: int, slot_index: int) -> bool:
 	var unit := board.get_placed_unit(face, slot_index)
-	return unit != null and is_instance_valid(unit) and not unit.battle_ko
+	return unit != null and is_instance_valid(unit) and not unit.battle_ko and not unit.debuffed
 
 
 func _alive_count(enemy: bool) -> int:
@@ -677,9 +715,46 @@ func _wait(seconds: float) -> void:
 
 
 func _refresh_bar() -> void:
-	if _host == null or _host._action_order_bar == null:
+	if _host == null:
 		return
-	_host._action_order_bar.set_entries(_host.board.get_action_order())
+	if _host._formation != null and _host._circle_wheel != null:
+		_host._formation.refresh_widgets()
+		return
+	if _host._action_order_bar != null:
+		_host._action_order_bar.set_entries(_host.board.get_action_order())
+
+
+func _apply_synergy_stats(fighter: Fighter) -> void:
+	if not fighter.kit.has("base_speed"):
+		fighter.kit["base_speed"] = fighter.speed
+	var bonus := SynergyTracker.bonuses_for(fighter.unit, _host.board.get_circle_units())
+	var hp_rate := float(bonus["hp"])
+	if hp_rate != 0.0:
+		fighter.max_hp = maxi(1, int(round(float(fighter.max_hp) * (1.0 + hp_rate))))
+		fighter.hp = fighter.max_hp
+	fighter.attack *= 1.0 + float(bonus["attack"])
+	fighter.defense *= 1.0 + float(bonus["defense"])
+	fighter.crit_damage += float(bonus["crit_damage"])
+	fighter.penetration = clampf(fighter.penetration + float(bonus["penetration"]), 0.0, 0.95)
+	fighter.bonus_damage += float(bonus["bonus_damage"])
+	fighter.attribute_resist += float(bonus["attribute_resist"])
+	fighter.damage_taken += float(bonus["damage_taken"])
+	fighter.kit["gauge_rate"] = float(bonus["gauge_rate"])
+	var speed_rate := float(bonus["speed"])
+	if speed_rate != 0.0:
+		var base_speed := int(fighter.kit.get("base_speed", fighter.speed))
+		fighter.kit["synergy_speed"] = int(round(float(base_speed) * speed_rate))
+		_recompute_speed(fighter, true)
+		fighter.ap = fighter.base_ap
+		fighter.saved_ap = fighter.base_ap
+		fighter.start_ap = fighter.base_ap
+
+
+func _scaled_gauge(fighter: Fighter, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	var rate := float(fighter.kit.get("gauge_rate", 0.0))
+	return maxi(0, int(round(float(amount) * (1.0 + rate))))
 
 
 func _init_timing(fighter: Fighter, speed: int) -> void:
@@ -698,6 +773,7 @@ func _recompute_speed(fighter: Fighter, keep_ap: bool) -> void:
 	if fighter.sheet_id == 3 and fighter.barrier > 0:
 		speed += int(fighter.kit.get("barrier_speed", 0))
 	speed -= int(fighter.kit.get("ayakawa_slow", 0))
+	speed += int(fighter.kit.get("synergy_speed", 0))
 	speed = maxi(1, speed)
 	var old := maxi(1, fighter.speed)
 	fighter.speed = speed
@@ -789,6 +865,33 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 	if int(defender.layers.get("absorb", 0)) > 0:
 		bonus += float(attacker.kit.get("received_absorb", 0.0))
 	return bonus
+
+
+func _formation_bonus(attacker: Fighter) -> float:
+	if attacker.enemy or attacker.stand_slot < 0 or attacker.stand_slot >= BoardController.FRONT_COUNT:
+		return 0.0
+	if attacker.element.is_empty():
+		return 0.0
+	var elements: Array[String] = ["", "", ""]
+	for entry in _side(attacker.enemy):
+		var ally: Fighter = entry
+		if ally.stand_slot < 0 or ally.stand_slot >= BoardController.FRONT_COUNT:
+			continue
+		elements[ally.stand_slot] = ally.element
+	var count := 0
+	var index := attacker.stand_slot
+	while index >= 0 and elements[index] == attacker.element:
+		count += 1
+		index -= 1
+	index = attacker.stand_slot + 1
+	while index < BoardController.FRONT_COUNT and elements[index] == attacker.element:
+		count += 1
+		index += 1
+	if count >= 3:
+		return FORMATION_LINE
+	if count == 2:
+		return FORMATION_PAIR
+	return 0.0
 
 
 func _neighbor_bonus(attacker: Fighter) -> float:
@@ -925,10 +1028,18 @@ func _add_layers(target: Fighter, element: String, count: int) -> void:
 	target.layers[element] = int(target.layers.get(element, 0)) + count
 
 
+func _play_attack_sounds(actor: Fighter, crit: bool) -> void:
+	GameAudio.play_battle_attack()
+	GameAudio.play_battle_attribute(actor.element)
+	if crit:
+		GameAudio.play_battle_critical()
+
+
 func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var stacks := int(target.layers.get(actor.element, 0))
 	if stacks <= 0 or not target.alive:
 		return
+	GameAudio.play_battle_dot(stacks)
 	var power := actor.attack * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
 	var rolled := _roll_damage(actor, target, false, _neighbor_bonus(actor), power, false)
 	var raw := int(rolled["amount"])
@@ -1110,7 +1221,8 @@ func _arita_skips(actor: Fighter) -> bool:
 func _arita_on_ap_loss(fighter: Fighter, was_buff: bool) -> void:
 	if fighter.sheet_id != 5 or not fighter.alive or int(fighter.kit.get("gauge", 0)) >= 100:
 		return
-	fighter.kit["gauge"] = int(fighter.kit.get("gauge", 0)) + int(fighter.kit.get("gauge_step", 10))
+	fighter.kit["gauge"] = int(fighter.kit.get("gauge", 0)) + _scaled_gauge(fighter, int(fighter.kit.get("gauge_step", 10)))
+	GameAudio.play_battle_gauge()
 	if int(fighter.kit.get("gauge", 0)) < 100:
 		return
 	if was_buff:
@@ -1124,9 +1236,10 @@ func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 	if not actor.alive:
 		return
 	if actor.sheet_id == 2:
-		var gauge := int(actor.kit.get("gauge", 0)) + 10
+		var gauge := int(actor.kit.get("gauge", 0)) + _scaled_gauge(actor, 10)
 		if was_buff:
-			gauge += int(actor.kit.get("gauge_buff_extra", 0))
+			gauge += _scaled_gauge(actor, int(actor.kit.get("gauge_buff_extra", 0)))
+		GameAudio.play_battle_gauge()
 		if gauge >= 100:
 			actor.kit["gauge"] = 0
 			actor.kit["empowered"] = true

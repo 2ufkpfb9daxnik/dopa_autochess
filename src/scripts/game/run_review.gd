@@ -137,7 +137,8 @@ func stats_text() -> String:
 	lines.append("延長モード: %s" % ("あり" if _host.session.extended_mode else "なし"))
 	lines.append("")
 	lines.append("サークル (%d / %d)" % [
-		_host.board.get_board_unit_count(),
+	
+			_host.board.get_board_unit_count(),
 		_host.session.get_board_unit_cap(),
 	])
 	for face_index in _host.board.get_unlocked_face_count():

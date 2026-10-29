@@ -2,7 +2,7 @@ extends Node3D
 
 const INCOME_FEEDBACK_DURATION := 2.0
 var _action_column_width := 72.0
-const BOTTOM_BUTTON_HEIGHT := 48
+const BOTTOM_BUTTON_HEIGHT := 80
 const BOTTOM_BAR_GAP := 12
 const COIN_ABOVE_SHOP_GAP := 4.0
 const BOTTOM_UI_MARGIN := 12.0
@@ -227,6 +227,43 @@ func _setup_bottom_ui_fonts() -> void:
 			(slot as ShopSlotPanel).add_theme_font_size_override("font_size", BOTTOM_UI_FONT_SHOP)
 
 
+func _attach_action_icons() -> void:
+	_set_button_icon(reroll_button, "res://images/status/refresh.png", "更新。ショップを更新する。")
+	_set_button_icon(exp_button, "res://images/status/xp.png", "経験値購入。経験値があがり、レベルが上がるとサークルに置くことができるキャラクターの数が増える。")
+
+
+func _set_button_icon(button: Button, path: String, tip: String) -> void:
+	button.icon = load(path)
+	button.expand_icon = true
+	button.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	button.add_theme_constant_override("icon_max_width", 64)
+	button.add_theme_constant_override("h_separation", 4)
+	button.tooltip_text = tip
+
+
+func _attach_held_coin_icon() -> void:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 4)
+	var icon := TextureRect.new()
+	icon.mouse_filter = Control.MOUSE_FILTER_STOP
+	icon.tooltip_text = "所持コイン"
+	icon.texture = load("res://images/status/coin.png")
+	icon.custom_minimum_size = Vector2(22, 22)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	coin_badge.remove_child(coin_label)
+	coin_badge.add_child(row)
+	row.add_child(icon)
+	row.add_child(coin_label)
+	coin_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	coin_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	coin_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	coin_label.tooltip_text = "所持コイン"
+
+
 func _apply_hud_badge_style(badge: PanelContainer) -> void:
 	var box := StyleBoxFlat.new()
 	box.bg_color = HUD_BADGE_BG
@@ -259,12 +296,14 @@ func _mount_side_controls() -> void:
 	exp_box.add_child(coin_badge)
 	exp_box.move_child(coin_badge, 0)
 	coin_label.add_theme_font_size_override("font_size", 14)
-	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_attach_held_coin_icon()
 	shop_lock_button.custom_minimum_size = Vector2(0, 32)
 	if exp_button.get_parent() != exp_box:
 		exp_button.get_parent().remove_child(exp_button)
 		exp_box.add_child(exp_button)
 	exp_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_attach_action_icons()
 	action_column.add_child(shop_odds_badge)
 	action_column.add_child(shop_lock_button)
 	var status_badges: Array[PanelContainer] = [round_badge, hp_badge, streak_badge]
@@ -502,8 +541,6 @@ func _setup_column_hover_tips() -> void:
 	_hover_tip.add_child(_hover_tip_label)
 	($CanvasLayer/UI as Control).add_child(_hover_tip)
 	_bind_hover_tip(hp_badge, "0になったらゲームオーバー。")
-	_bind_hover_tip(exp_button, "経験値があがり、レベルが上がるとサークルに置くことができるキャラクターの数が増える。")
-	_bind_hover_tip(reroll_button, "ショップを更新する。")
 
 
 func _bind_hover_tip(control: Control, text: String) -> void:
@@ -764,6 +801,8 @@ func _start_battle() -> void:
 	var outcome: Dictionary = await _combat.play()
 	_battle_playing = false
 	Engine.time_scale = 1.0
+	if _debuff_ritual != null:
+		_debuff_ritual.visible = false
 	if not is_inside_tree():
 		return
 	var battle_won: bool = bool(outcome.get("won", false))
@@ -937,6 +976,9 @@ func _on_route_selected(index: int) -> void:
 			_log("報酬: オーグメント (仮)")
 		"equipment":
 			_log("報酬: 装備 (仮)")
+	board.reset_circle_rotation()
+	if _circle_wheel != null:
+		_circle_wheel.reset_visual_spin()
 	_log("ラウンド %d 開始" % session.round_number)
 	_show_income_feedback()
 	input_handler.set_enabled(true)
@@ -1283,6 +1325,8 @@ func _setup_formation_ui() -> void:
 
 
 func _open_debuff_ritual(slot_index: int) -> void:
+	if session.phase != GameSession.Phase.BATTLE:
+		return
 	var unit := board.get_placed_unit(board.active_face, slot_index)
 	if unit == null or not unit.debuffed or _debuff_ritual == null:
 		return
@@ -1478,7 +1522,7 @@ func _update_ui() -> void:
 		_update_synergy_panel()
 		return
 	back_button.disabled = false
-	coin_label.text = "コイン: %d" % session.coins
+	coin_label.text = str(session.coins)
 	var streak_text := _format_streak_text()
 	streak_label.text = streak_text
 	var streak_visible := not streak_text.is_empty()
@@ -1519,9 +1563,9 @@ func _update_ui() -> void:
 	if _bench_board != null:
 		_bench_board.set_count(bench_count, board.bench_units.size())
 	bench_badge.visible = false
-	reroll_button.text = "更新 (%d)" % GameSession.REROLL_COST
+	reroll_button.text = "(%d)" % GameSession.REROLL_COST
 	if session.free_rerolls > 0:
-		reroll_button.text = "更新 (無料×%d)" % session.free_rerolls
+		reroll_button.text = "無料×%d" % session.free_rerolls
 	var reroll_text := reroll_button.text
 	var reroll_text_changed := reroll_text != _last_reroll_button_text
 	if reroll_text_changed:
@@ -1530,7 +1574,7 @@ func _update_ui() -> void:
 	reroll_button.disabled = not economy_open or session.shop_locked or (
 		session.free_rerolls <= 0 and session.coins < GameSession.REROLL_COST
 	)
-	exp_button.text = "経験値+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
+	exp_button.text = "+%d\n(%d)" % [GameSession.EXP_GAIN, GameSession.EXP_COST]
 	exp_button.disabled = not economy_open or session.coins < GameSession.EXP_COST
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP

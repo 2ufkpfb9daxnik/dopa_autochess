@@ -197,17 +197,20 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	if not _striped or size.x < 2.0 or size.y < 2.0:
+	if size.x < 2.0 or size.y < 2.0:
 		return
-	var normal := Vector2(-size.y, size.x).normalized()
-	var span := -Vector2(size.x, 0.0).dot(normal)
-	var thickness := 22.0
-	var period := 36.0
 	var triangle := PackedVector2Array([
 		Vector2.ZERO,
 		Vector2(size.x, 0.0),
 		Vector2(size.x, size.y),
 	])
+	if not _striped:
+		draw_colored_polygon(triangle, _fill)
+		return
+	var normal := Vector2(-size.y, size.x).normalized()
+	var span := -Vector2(size.x, 0.0).dot(normal)
+	var thickness := 22.0
+	var period := 36.0
 	var offset := -span
 	while offset < -0.5:
 		var near := minf(offset + thickness, 0.0)

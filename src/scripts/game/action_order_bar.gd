@@ -161,6 +161,8 @@ func _fit_row(row: Control, width: float, row_h: float) -> void:
 		return
 	var font_size := _value_font_size(value_label.text, width, row_h)
 	value_label.add_theme_font_size_override("font_size", font_size)
+	if value_label.text == "×":
+		value_label.add_theme_constant_override("outline_size", maxi(14, int(row_h * 0.12)))
 
 
 func _refresh_entry(row: Control, entry: Dictionary) -> void:
@@ -180,7 +182,7 @@ func _refresh_entry(row: Control, entry: Dictionary) -> void:
 		icon.modulate.a = 0.45 if not on_front else 1.0
 	var value_label := row.get_node_or_null("Value") as Label
 	if value_label != null:
-		value_label.text = str(entry.get("action_value", 0))
+		_apply_value(value_label, entry)
 
 
 func _make_entry(entry: Dictionary) -> Control:
@@ -223,11 +225,10 @@ func _make_entry(entry: Dictionary) -> Control:
 	if not on_front:
 		icon.modulate.a = 0.45
 	root.add_child(icon)
-	var value_text := str(entry.get("action_value", 0))
 	var value_label := Label.new()
 	value_label.name = "Value"
 	value_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	value_label.text = value_text
+	_apply_value(value_label, entry)
 	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	value_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -236,7 +237,7 @@ func _make_entry(entry: Dictionary) -> Control:
 	value_label.offset_right = -6.0
 	value_label.offset_bottom = 0.0
 	value_label.z_index = 3
-	value_label.add_theme_font_size_override("font_size", _value_font_size(value_text, width, height))
+	value_label.add_theme_font_size_override("font_size", _value_font_size(value_label.text, width, height))
 	value_label.add_theme_color_override("font_color", Color(1.0, 0.97, 0.82))
 	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
 	value_label.add_theme_constant_override("outline_size", 12)
@@ -244,7 +245,15 @@ func _make_entry(entry: Dictionary) -> Control:
 	return root
 
 
+func _apply_value(label: Label, entry: Dictionary) -> void:
+	var down := bool(entry.get("down", false))
+	label.text = "×" if down else str(entry.get("action_value", 0))
+	label.add_theme_color_override("font_color", Color(1.0, 0.42, 0.36) if down else Color(1.0, 0.97, 0.82))
+
+
 func _value_font_size(value_text: String, width: float, height: float) -> int:
+	if value_text == "×":
+		return maxi(48, int(height * 1.25))
 	var font_size := int(height * 0.72)
 	var estimated := float(value_text.length()) * float(font_size) * 0.58
 	if estimated > width - 8.0:

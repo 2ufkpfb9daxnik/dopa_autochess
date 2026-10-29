@@ -114,14 +114,27 @@ func play() -> Dictionary:
 func cleanse_debuff(unit: GameUnit) -> void:
 	if unit == null or not is_instance_valid(unit):
 		return
-	var unit_id := unit.get_instance_id()
-	for key in _fighters.keys():
-		var fighter: Fighter = _fighters[key]
-		if int(fighter.kit.get("buff_target_id", -1)) == unit_id:
-			_clear_single_buff(fighter)
+	_clear_debuffs_on_target(unit.get_instance_id())
 	_host.board.restore_debuffed_unit(unit)
 	if _host.session.phase == GameSession.Phase.BATTLE:
 		_sync_queue()
+
+
+func _clear_battle_debuffs() -> void:
+	if _host == null:
+		return
+	var board: BoardController = _host.board
+	var changed := false
+	for unit in board.get_circle_units():
+		if not unit.debuffed:
+			continue
+		unit.debuffed = false
+		unit.debuff_home_face = -1
+		unit.debuff_home_slot = -1
+		changed = true
+	if changed:
+		board.refresh_presentation()
+		board.units_changed.emit()
 
 
 func _release_stale_debuffs() -> void:
@@ -130,9 +143,11 @@ func _release_stale_debuffs() -> void:
 		var fighter: Fighter = _fighters[key]
 		if not fighter.enemy:
 			continue
-		var target := _fighter_by_id(int(fighter.kit.get("buff_target_id", -1)))
-		if target != null and not target.enemy and is_instance_valid(target.unit):
-			active[target.unit] = true
+		for entry in fighter.kit.get("debuffs", []):
+			var item: Dictionary = entry
+			var target := _fighter_by_id(int(item.get("target_id", -1)))
+			if target != null and not target.enemy and is_instance_valid(target.unit):
+				active[target.unit] = true
 	var board: BoardController = _host.board
 	for unit in board.get_circle_units():
 		if unit.debuffed and not active.has(unit) and _fighters.has(unit.get_instance_id()):
@@ -143,6 +158,7 @@ func finish() -> void:
 	if _motion != null:
 		_motion.kill()
 		_motion = null
+	_clear_battle_debuffs()
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
 		var unit := fighter.unit
@@ -180,7 +196,7 @@ func _attack(actor: Fighter) -> void:
 	if actor.sheet_id == 3 and bool(actor.kit.get("force_hit", false)):
 		forced = true
 		actor.kit["force_hit"] = false
-	var primary := _pick_attack_target(actor)
+	var primary := _cover_for_ktrnksy(actor, _pick_attack_target(actor))
 	var name := actor.unit.get_display_name()
 	if primary == null or not is_instance_valid(primary.unit):
 		_host._log("%s の攻撃は対象がいない" % name)
@@ -206,7 +222,7 @@ func _attack(actor: Fighter) -> void:
 
 
 func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, forced: bool) -> void:
-	if direct and actor.sheet_id == 3:
+	if direct and (actor.sheet_id == 3 or actor.sheet_id == 104):
 		actor.kit["last_target_id"] = target.unit.get_instance_id()
 	var attacker_name := actor.unit.get_display_name()
 	var target_name := target.unit.get_display_name()
@@ -232,6 +248,8 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var raw := dealt
 	var guarded := target.guarding and raw > 0
 	dealt = _mitigate(target, raw)
+	var cap_before := dealt
+	dealt = _ktrnksy_cap(target, dealt, direct)
 	_play_attack_sounds(actor, crit)
 	var absorbed := _apply_damage(target, dealt)
 	if guarded:
@@ -239,7 +257,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	if dealt > 0:
 		var color := Color(1.0, 0.86, 0.35) if crit else Color(1.0, 0.95, 0.9)
 		target.unit.popup_battle_text("-%d" % dealt, color)
-	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded))
+	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded, "ダメージ", cap_before))
 	_on_damage_dealt(actor, target, dealt, absorbed)
 	if target.guarding and target.alive and is_instance_valid(target.unit):
 		target.unit.play_guard_hit_shake()
@@ -270,14 +288,14 @@ func _support(actor: Fighter) -> void:
 			_host._log("%s のデバフは対象がいない" % actor.unit.get_display_name())
 			await _wait(0.25)
 			return
-		_set_single_buff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
+		_add_debuff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
 		foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
 		_host._log("%s が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
 		if actor.enemy and not foe.enemy:
-			_host.board.exile_debuffed_unit(foe.unit)
+			_host.board.mark_debuffed_unit(foe.unit)
+			_host._log("%s はデバフを受けた" % foe.unit.get_display_name())
 			_release_stale_debuffs()
 			_sync_queue()
-			_host._log("%s はデバフで後衛に下がった" % foe.unit.get_display_name())
 	await _wait(BUFF_TIME)
 
 
@@ -374,6 +392,7 @@ func _sync_queue() -> void:
 			fighter.in_queue = true
 		unit.action_value = fighter.ap
 		unit.set_battle_hp(fighter.hp, fighter.max_hp)
+		_show_gauge(fighter)
 	_publish_waiting_ap(board)
 	_refresh_bar()
 
@@ -535,6 +554,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	var resist := float(defender.element_resist.get(element, 0.0)) + defender.attribute_resist
 	if element == "thunder":
 		resist += float(defender.kit.get("received_thunder_resist", 0.0))
+	if element == "fire":
+		resist += float(defender.kit.get("received_fire_resist", 0.0))
 	var resist_coef := 1.0 - resist
 	var taken_coef := 1.0 + defender.damage_taken
 	var crit := allow_crit and randf() < attacker.crit_rate
@@ -673,7 +694,7 @@ func _face_has_living_back(board: BoardController, face: int) -> bool:
 
 func _slot_is_living(board: BoardController, face: int, slot_index: int) -> bool:
 	var unit := board.get_placed_unit(face, slot_index)
-	return unit != null and is_instance_valid(unit) and not unit.battle_ko and not unit.debuffed
+	return unit != null and is_instance_valid(unit) and not unit.battle_ko
 
 
 func _alive_count(enemy: bool) -> int:
@@ -750,6 +771,15 @@ func _apply_synergy_stats(fighter: Fighter) -> void:
 		fighter.start_ap = fighter.base_ap
 
 
+func _show_gauge(fighter: Fighter) -> void:
+	if not is_instance_valid(fighter.unit):
+		return
+	if not fighter.kit.has("gauge"):
+		fighter.unit.set_battle_gauge(0, 0)
+		return
+	fighter.unit.set_battle_gauge(int(fighter.kit.get("gauge", 0)), 100)
+
+
 func _scaled_gauge(fighter: Fighter, amount: int) -> int:
 	if amount <= 0:
 		return 0
@@ -788,15 +818,20 @@ func _threat(fighter: Fighter) -> int:
 	var value := fighter.priority
 	if fighter.sheet_id == 3 and fighter.barrier > 0:
 		value += int(fighter.kit.get("priority_bonus", 0))
+	if fighter.sheet_id == 104 and int(fighter.kit.get("gauge", 0)) >= 50:
+		value += int(fighter.kit.get("gauge_threat", 0))
 	return value
 
 
-func _damage_log(attacker_name: String, target_name: String, raw: int, dealt: int, hp_lost: int, crit: bool, guarded: bool, kind: String = "ダメージ") -> String:
+func _damage_log(attacker_name: String, target_name: String, raw: int, dealt: int, hp_lost: int, crit: bool, guarded: bool, kind: String = "ダメージ", cap_before: int = -1) -> String:
 	var text := "%s が %s に %d の%s" % [attacker_name, target_name, dealt, kind]
 	if crit:
 		text += "（クリティカル）"
+	var before_cap := dealt if cap_before < 0 else cap_before
 	if guarded:
-		text += "。ガードで %d カット（ガードなしなら %d）" % [raw - dealt, raw]
+		text += "。ガードで %d カット（ガードなしなら %d）" % [raw - before_cap, raw]
+	if cap_before > dealt:
+		text += "。被ダメージ上限で %d カット" % [cap_before - dealt]
 	var soaked := dealt - hp_lost
 	if soaked > 0:
 		text += "。バリアが %d 吸収し、HPは %d 減った" % [soaked, hp_lost]
@@ -815,6 +850,8 @@ func _describe_effect(kind: String, amount: float) -> String:
 			return "吸収ダメージ %+d%%" % int(round(amount * 100.0))
 		"thunder_resist":
 			return "雷耐性 %+d%%" % int(round(-amount * 100.0))
+		"fire_resist":
+			return "炎のダメージ耐性 %+d%%" % int(round(-amount * 100.0))
 		_:
 			return kind
 
@@ -840,6 +877,7 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 	if left > 0:
 		target.hp = maxi(0, target.hp - left)
 	target.unit.set_battle_hp(target.hp, target.max_hp)
+	_show_gauge(target)
 	if target.hp <= 0:
 		target.alive = false
 		target.in_queue = false
@@ -1054,6 +1092,7 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 
 func _on_fighter_down(dead: Fighter) -> void:
 	_clear_buffs_touching(dead)
+	_release_stale_debuffs()
 	if _living_sheet(not dead.enemy, 4) == null:
 		return
 	var amount := int(dead.layers.get("absorb", 0))
@@ -1131,6 +1170,37 @@ func _debuff_target(actor: Fighter) -> Fighter:
 	return _extreme(_opponents(actor), "threat", true)
 
 
+func _add_debuff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
+	if not is_instance_valid(target.unit):
+		return
+	_apply_buff_value(target, kind, amount)
+	var list: Array = actor.kit.get("debuffs", [])
+	list.append({
+		"target_id": target.unit.get_instance_id(),
+		"kind": kind,
+		"amount": amount,
+	})
+	actor.kit["debuffs"] = list
+
+
+func _clear_debuffs_on_target(target_id: int) -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		var list: Array = fighter.kit.get("debuffs", [])
+		if list.is_empty():
+			continue
+		var kept: Array = []
+		for entry in list:
+			var item: Dictionary = entry
+			if int(item.get("target_id", -1)) != target_id:
+				kept.append(item)
+				continue
+			var target := _fighter_by_id(target_id)
+			if target != null:
+				_apply_buff_value(target, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
+		fighter.kit["debuffs"] = kept
+
+
 func _set_single_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
 	_clear_single_buff(actor)
 	_apply_buff_value(target, kind, amount)
@@ -1152,6 +1222,8 @@ func _apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
 			target.kit["received_absorb"] = float(target.kit.get("received_absorb", 0.0)) + amount
 		"thunder_resist":
 			target.kit["received_thunder_resist"] = float(target.kit.get("received_thunder_resist", 0.0)) - amount
+		"fire_resist":
+			target.kit["received_fire_resist"] = float(target.kit.get("received_fire_resist", 0.0)) - amount
 
 
 func _clear_single_buff(actor: Fighter) -> void:
@@ -1175,10 +1247,13 @@ func _clear_buffs_touching(dead: Fighter) -> void:
 	var dead_id := dead.unit.get_instance_id()
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if fighter == dead or int(fighter.kit.get("buff_target_id", -1)) == dead_id:
+		if fighter == dead and fighter.uses_buff:
+			_clear_single_buff(fighter)
+		elif int(fighter.kit.get("buff_target_id", -1)) == dead_id:
 			_clear_single_buff(fighter)
 		if fighter == dead or int(fighter.kit.get("copy_target_id", -1)) == dead_id:
 			_clear_copy(fighter)
+	_clear_debuffs_on_target(dead_id)
 
 
 func _note_arita_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
@@ -1193,6 +1268,7 @@ func _note_arita_buff(actor: Fighter, target: Fighter, kind: String, amount: flo
 		if int(ally.kit.get("gauge", 0)) >= 100:
 			_arita_copy(ally)
 			ally.kit["gauge"] = 0
+			_show_gauge(ally)
 
 
 func _arita_copy(arita: Fighter) -> void:
@@ -1224,15 +1300,112 @@ func _arita_on_ap_loss(fighter: Fighter, was_buff: bool) -> void:
 	fighter.kit["gauge"] = int(fighter.kit.get("gauge", 0)) + _scaled_gauge(fighter, int(fighter.kit.get("gauge_step", 10)))
 	GameAudio.play_battle_gauge()
 	if int(fighter.kit.get("gauge", 0)) < 100:
+		_show_gauge(fighter)
 		return
 	if was_buff:
 		_arita_copy(fighter)
 		fighter.kit["gauge"] = 0
 	else:
 		fighter.kit["gauge"] = 100
+	_show_gauge(fighter)
+
+
+func _cover_for_ktrnksy(actor: Fighter, primary: Fighter) -> Fighter:
+	if primary == null or not primary.alive or actor.enemy == primary.enemy:
+		return primary
+	var chosen: Fighter = null
+	var best := -1
+	for entry in _side(primary.enemy):
+		var ally: Fighter = entry
+		if ally.sheet_id != 104 or ally == primary or not ally.alive or ally.hp <= 0:
+			continue
+		if not bool(ally.kit.get("cover_armed", false)) or bool(ally.kit.get("cover_used", false)):
+			continue
+		var threat := _threat(ally)
+		if _threat(primary) >= threat:
+			continue
+		if chosen == null or threat > best or (threat == best and ally.unit.unit_id < chosen.unit.unit_id):
+			chosen = ally
+			best = threat
+	if chosen == null:
+		return primary
+	chosen.kit["cover_used"] = true
+	chosen.kit["cover_armed"] = false
+	_host._log("%s が %s の代わりに攻撃を受ける" % [chosen.unit.get_display_name(), primary.unit.get_display_name()])
+	return chosen
+
+
+func _ktrnksy_cap(target: Fighter, amount: int, direct: bool) -> int:
+	if target.sheet_id != 104 or amount <= 0 or not target.alive or target.hp <= 0:
+		return amount
+	var ratio := float(target.kit.get("cap_ratio", 0.5))
+	var tight := direct and bool(target.kit.get("tight_cap", false))
+	if tight:
+		ratio = maxf(0.0, ratio - float(target.kit.get("full_cap_cut", 0.0)))
+	var capped := mini(amount, maxi(0, int(round(float(target.max_hp) * ratio))))
+	if tight and amount > 0:
+		target.kit["tight_cap"] = false
+	return capped
+
+
+func _ktrnksy_on_ally_action(actor: Fighter) -> void:
+	if not is_instance_valid(actor.unit) or not _has_synergy(actor, "ギリシャ語通訳"):
+		return
+	var step := _greek_gauge_step(actor.enemy)
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if ally.sheet_id != 104 or not ally.alive or ally.hp <= 0:
+			continue
+		_ktrnksy_add_gauge(ally, step)
+
+
+func _greek_gauge_step(enemy: bool) -> int:
+	var count := 0
+	for entry in _side(enemy):
+		var ally: Fighter = entry
+		if ally.alive and ally.hp > 0 and _has_synergy(ally, "ギリシャ語通訳"):
+			count += 1
+	if count >= 9:
+		return 18
+	if count >= 7:
+		return 16
+	if count >= 5:
+		return 14
+	if count >= 3:
+		return 12
+	return 10
+
+
+func _has_synergy(fighter: Fighter, synergy_name: String) -> bool:
+	if not is_instance_valid(fighter.unit):
+		return false
+	return synergy_name in SynergyTracker.names_of(fighter.unit.unit_id)
+
+
+func _ktrnksy_add_gauge(fighter: Fighter, step: int) -> void:
+	var gain := _scaled_gauge(fighter, step)
+	if gain <= 0 or not is_instance_valid(fighter.unit):
+		return
+	var gauge := int(fighter.kit.get("gauge", 0)) + gain
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		_show_gauge(fighter)
+		_host._log("%s のゲージが %d になった" % [fighter.unit.get_display_name(), gauge])
+		return
+	fighter.kit["gauge"] = 0
+	_show_gauge(fighter)
+	fighter.kit["tight_cap"] = true
+	if not bool(fighter.kit.get("cover_used", false)):
+		fighter.kit["cover_armed"] = true
+	fighter.ap = 0
+	fighter.unit.action_value = 0
+	fighter.unit.popup_battle_text("ゲージ", Color(1.0, 0.72, 0.28))
+	_host._log("%s のゲージが満ち、行動が回る" % fighter.unit.get_display_name())
 
 
 func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
+	_ktrnksy_on_ally_action(actor)
 	if not actor.alive:
 		return
 	if actor.sheet_id == 2:
@@ -1246,6 +1419,7 @@ func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 			_host._log("%s の次の氷攻撃が強くなる" % actor.unit.get_display_name())
 		else:
 			actor.kit["gauge"] = gauge
+		_show_gauge(actor)
 		_recompute_speed(actor, false)
 	if actor.sheet_id == 5:
 		_arita_on_ap_loss(actor, was_buff)

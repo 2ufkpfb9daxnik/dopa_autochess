@@ -13,6 +13,7 @@ const UNITS: Array[Dictionary] = [
 	{"id": 4, "name": "アヅチ", "cost": 7, "color": Color(0.58, 0.28, 0.88), "synergies": [], "synergy_names": ["パプリカ", "伊豆は飛鳥", "時をかける少女", "カーテンコール"]},
 	{"id": 5, "name": "アリタ", "cost": 3, "color": Color(0.95, 0.86, 0.22), "synergies": [], "synergy_names": ["ポップミュージック", "月2-263", "虚人たち"]},
 	{"id": 6, "name": "アヤカワ", "cost": 6, "color": Color(0.18, 0.18, 0.24), "synergies": [], "synergy_names": ["モンスター", "時をかける少女", "狂気の沙汰も金次第"]},
+	{"id": 104, "name": "KTRNKSY", "cost": 2, "color": Color(0.86, 0.28, 0.2), "synergies": [], "synergy_names": ["わたしのグランパ", "時をかける少女", "ギリシャ語通訳"]},
 ]
 
 

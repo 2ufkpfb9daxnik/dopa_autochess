@@ -151,6 +151,14 @@ static func _binds_for(unit_id: int) -> Array:
 				["土の被ダメージ", "earth_vuln", true],
 				["速度の低下", "slow", false],
 			]
+		104:
+			return [
+				["上限", "cap_ratio", true],
+				["満ちたときの上限", "full_cap_cut", true],
+				["狙われやすさ", "gauge_threat", false],
+				["開始時のゲージ", "gauge", false],
+				["炎のダメージ耐性", "buff_amount", true],
+			]
 	return []
 
 
@@ -170,3 +178,6 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["gauge_step"] = 10
 		6:
 			sheet["buff_kind"] = "highest_attack_bonus"
+		104:
+			sheet["buff_kind"] = "fire_resist"
+			sheet["uses_buff"] = false

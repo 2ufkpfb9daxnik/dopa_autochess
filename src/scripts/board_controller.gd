@@ -115,6 +115,40 @@ func set_visual_shift(shift: float) -> void:
 	refresh_presentation()
 
 
+func reset_circle_rotation() -> void:
+	_visual_shift = 0.0
+	for face_index in _faces.size():
+		_restore_face_home(face_index)
+	refresh_presentation()
+	units_changed.emit()
+
+
+func _restore_face_home(face_index: int) -> void:
+	var numbers: Array = _slot_numbers[face_index]
+	var home := 0
+	for slot_index in SLOTS_PER_FACE:
+		if int(numbers[slot_index]) == 1:
+			home = slot_index
+			break
+	if home == 0:
+		return
+	var shift := SLOTS_PER_FACE - home
+	var face: Array = _faces[face_index]
+	var rotated := _make_face()
+	var rotated_numbers: Array = []
+	rotated_numbers.resize(SLOTS_PER_FACE)
+	for slot_index in SLOTS_PER_FACE:
+		var source := posmod(slot_index - shift, SLOTS_PER_FACE)
+		var unit: GameUnit = face[source]
+		rotated[slot_index] = unit
+		if unit != null:
+			unit.circle_face = face_index
+			unit.circle_slot = slot_index
+		rotated_numbers[slot_index] = numbers[source]
+	_faces[face_index] = rotated
+	_slot_numbers[face_index] = rotated_numbers
+
+
 func apply_spin_commit(steps: int) -> void:
 	_visual_shift = 0.0
 	if posmod(steps, SLOTS_PER_FACE) == 0:
@@ -175,17 +209,21 @@ func get_action_order() -> Array:
 	var seen: Dictionary = {}
 	for slot_index in SLOTS_PER_FACE:
 		var unit := get_resolved_unit(active_face, slot_index)
-		if unit == null or unit.battle_ko or seen.has(unit):
+		if unit == null or seen.has(unit):
 			continue
 		seen[unit] = true
 		entries.append(_action_entry(unit, false, slot_index < FRONT_COUNT))
 	if _in_battle:
 		for slot_index in SLOTS_PER_FACE:
 			var enemy: GameUnit = _enemy_slots[slot_index]
-			if enemy == null or enemy.battle_ko:
+			if enemy == null:
 				continue
 			entries.append(_action_entry(enemy, true, slot_index < FRONT_COUNT))
 	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_down := bool(a.get("down", false))
+		var b_down := bool(b.get("down", false))
+		if a_down != b_down:
+			return not a_down
 		if int(a["action_value"]) == int(b["action_value"]):
 			return int(a.get("unit_id", 0)) < int(b.get("unit_id", 0))
 		return int(a["action_value"]) < int(b["action_value"])
@@ -392,51 +430,23 @@ func try_move_unit_to_bench(unit: GameUnit, slot_index: int) -> bool:
 	return true
 
 
-func exile_debuffed_unit(unit: GameUnit) -> void:
+func mark_debuffed_unit(unit: GameUnit) -> void:
 	if unit == null or unit.is_enemy or not unit.is_on_board():
 		return
 	if unit.debuff_home_slot < 0:
 		unit.debuff_home_face = unit.circle_face
 		unit.debuff_home_slot = unit.circle_slot
 	unit.debuffed = true
-	if unit.circle_slot >= FRONT_COUNT:
-		refresh_presentation()
-		units_changed.emit()
-		return
-	var face := unit.circle_face
-	var dest := -1
-	for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
-		if _faces[face][slot_index] == null:
-			dest = slot_index
-			break
-	if dest < 0:
-		for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
-			var occupant: GameUnit = _faces[face][slot_index]
-			if occupant != null and not occupant.debuffed:
-				dest = slot_index
-				break
-	if dest < 0:
-		refresh_presentation()
-		units_changed.emit()
-		return
-	_swap_circle_slots(unit, face, dest)
+	refresh_presentation()
+	units_changed.emit()
 
 
 func restore_debuffed_unit(unit: GameUnit) -> void:
 	if unit == null:
 		return
-	var face := unit.debuff_home_face
-	var slot := unit.debuff_home_slot
 	unit.debuffed = false
 	unit.debuff_home_face = -1
 	unit.debuff_home_slot = -1
-	if face < 0 or slot < 0 or not unit.is_on_board():
-		refresh_presentation()
-		units_changed.emit()
-		return
-	if unit.circle_face != face or unit.circle_slot != slot:
-		_swap_circle_slots(unit, face, slot)
-		return
 	refresh_presentation()
 	units_changed.emit()
 
@@ -641,6 +651,7 @@ func _action_entry(unit: GameUnit, enemy: bool, front: bool) -> Dictionary:
 		"key": unit.get_instance_id(),
 		"enemy": enemy,
 		"front": front,
+		"down": unit.battle_ko,
 	}
 
 

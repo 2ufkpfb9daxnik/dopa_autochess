@@ -11,6 +11,28 @@ const DETAIL_ORDER: PackedStringArray = [
 	"属性補正",
 ]
 const SKIP_DETAIL: PackedStringArray = ["header", "簡単な説明文", "フレーバー"]
+const STATUS_ICONS := {
+	"HP": "res://images/status/hp.png",
+	"最大HP": "res://images/status/hp.png",
+	"攻撃": "res://images/status/attack.png",
+	"攻撃力": "res://images/status/attack.png",
+	"防御": "res://images/status/guard.png",
+	"防御力": "res://images/status/guard.png",
+	"ガード": "res://images/status/guard.png",
+	"速度": "res://images/status/speed.png",
+	"属性耐性": "res://images/status/resist.png",
+	"優先度": "res://images/status/priority.png",
+	"ターゲット優先度": "res://images/status/priority.png",
+	"会心": "res://images/status/crit_rate.png",
+	"クリティカル率": "res://images/status/crit_rate.png",
+	"クリティカルダメージ倍率": "res://images/status/crit_mult.png",
+	"使用": "res://images/status/use.png",
+	"攻撃属性": "res://images/status/use.png",
+	"得意": "res://images/status/strong.png",
+	"苦手": "res://images/status/weak.png",
+	"コスト": "res://images/status/coin.png",
+	"コイン": "res://images/status/coin.png",
+}
 const ATTRIBUTE_ICONS := {
 	"炎": {"path": "res://images/attributes/fire.png", "aspect": 0.7855},
 	"水": {"path": "res://images/attributes/water.png", "aspect": 0.6284},
@@ -27,6 +49,10 @@ static func load_profile(unit_id: int) -> Dictionary:
 	if not FileAccess.file_exists(path):
 		return {}
 	return _parse(FileAccess.get_file_as_string(path))
+
+
+static func status_icon(label: String) -> String:
+	return str(STATUS_ICONS.get(label.strip_edges(), ""))
 
 
 static func attribute_icon(attr_name: String) -> String:
@@ -46,7 +72,7 @@ static func with_attribute_icons(text: String, px: int) -> String:
 		var entry: Dictionary = ATTRIBUTE_ICONS[attr_name]
 		var path := str(entry.get("path", ""))
 		var width := maxi(1, int(round(float(px) * float(entry.get("aspect", 1.0)))))
-		var tag := "[img=%dx%d]%s[/img]" % [width, px, path]
+		var tag := "[hint=%s属性][img=%dx%d]%s[/img][/hint]" % [attr_name, width, px, path]
 		result = result.replace(str(attr_name), tag)
 	return result
 
@@ -64,7 +90,7 @@ static func summary_info(unit_id: int, stars: int) -> Dictionary:
 		"attack": str(fields.get("攻撃属性", "")).strip_edges(),
 		"strong": _split_csv(str(fields.get("得意属性3つ", ""))),
 		"weak": _split_csv(str(fields.get("苦手属性3つ", ""))),
-		"stats": _stat_line(unit_id, stars),
+		"stat_rows": stat_rows(unit_id, stars),
 		"brief": str(sections.get("簡単な説明文", "")).strip_edges(),
 	}
 
@@ -116,19 +142,23 @@ static func _parse(text: String) -> Dictionary:
 	return {"fields": fields, "sections": sections}
 
 
-static func _stat_line(unit_id: int, stars: int) -> String:
+static func stat_rows(unit_id: int, stars: int) -> Array:
 	var sheet := CharacterSheet.make(unit_id, stars)
 	if sheet.is_empty():
-		return ""
-	return "HP %d  攻撃 %d  防御 %d  速度 %d\n属性耐性 %s  優先度 %d  会心 %s" % [
-		int(sheet["hp"]),
-		int(round(float(sheet["attack"]))),
-		int(round(float(sheet["defense"]))),
-		int(sheet["speed"]),
-		_signed_percent(float(sheet["attribute_resist"])),
-		int(sheet["priority"]),
-		_signed_percent(float(sheet["crit_rate"])),
+		return []
+	return [
+		_stat_item("HP", str(int(sheet["hp"]))),
+		_stat_item("攻撃", str(int(round(float(sheet["attack"]))))),
+		_stat_item("防御", str(int(round(float(sheet["defense"]))))),
+		_stat_item("速度", str(int(sheet["speed"]))),
+		_stat_item("属性耐性", _signed_percent(float(sheet["attribute_resist"]))),
+		_stat_item("優先度", str(int(sheet["priority"]))),
+		_stat_item("会心", _signed_percent(float(sheet["crit_rate"]))),
 	]
+
+
+static func _stat_item(label: String, value: String) -> Dictionary:
+	return {"label": label, "value": value, "icon": status_icon(label)}
 
 
 static func _split_csv(value: String) -> PackedStringArray:

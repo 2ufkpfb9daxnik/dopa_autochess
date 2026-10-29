@@ -42,6 +42,7 @@ var _spin_tween: Tween
 var _bubble_rects: Array[Rect2] = []
 var _bubble_slots: Array[int] = []
 var _poison_time := 0.0
+var _cleanse_enabled := false
 
 
 func _ready() -> void:
@@ -59,8 +60,15 @@ func _ready() -> void:
 	_layout_chrome()
 
 
+func set_cleanse_enabled(enabled: bool) -> void:
+	if _cleanse_enabled == enabled:
+		return
+	_cleanse_enabled = enabled
+	queue_redraw()
+
+
 func _process(delta: float) -> void:
-	if not _has_debuffed_slot():
+	if not _cleanse_enabled or not _has_debuffed_slot():
 		return
 	_poison_time += delta
 	queue_redraw()
@@ -78,6 +86,15 @@ func set_interaction_enabled(enabled: bool) -> void:
 	_cw_button.disabled = not enabled
 	_ccw_button.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
 	_cw_button.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+
+
+func reset_visual_spin() -> void:
+	if _spin_tween != null and _spin_tween.is_valid():
+		_spin_tween.kill()
+	_visual_angle = 0.0
+	_accum = 0.0
+	queue_redraw()
+	visual_shift_changed.emit(0.0)
 
 
 func set_view(center_text: String, slots: Array) -> void:
@@ -135,7 +152,7 @@ func _gui_input(event: InputEvent) -> void:
 
 func _begin_press(mouse_button: InputEventMouseButton) -> void:
 	var bubble_slot := _bubble_slot_at(mouse_button.position)
-	if bubble_slot >= 0:
+	if _cleanse_enabled and bubble_slot >= 0:
 		debuff_cleanse_requested.emit(bubble_slot)
 		accept_event()
 		return
@@ -166,7 +183,10 @@ func _end_press(mouse_button: InputEventMouseButton) -> void:
 		if _press_slot >= 0 and release_slot >= 0 and release_slot != _press_slot and _is_occupied(_press_slot) and _unit_drag_enabled:
 			slot_move_requested.emit(_press_slot, release_slot)
 		elif _press_slot >= 0 and release_slot == _press_slot and _shows_unit(_press_slot):
-			unit_clicked.emit(_press_slot)
+			if _cleanse_enabled and _press_slot >= BoardController.FRONT_COUNT and _slot_is_debuffed(_press_slot):
+				debuff_cleanse_requested.emit(_press_slot)
+			else:
+				unit_clicked.emit(_press_slot)
 	_pressing = false
 	_mode = _MODE_NONE
 	accept_event()
@@ -198,30 +218,89 @@ func _draw() -> void:
 		draw_colored_polygon(_wedge_polygon(_slot_center_angle(slot_index)), _slot_fill(slot_index))
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_portrait(slot_index)
-	_draw_formation_links()
 	draw_arc(center, inner, 0.0, TAU, 48, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_arc(center, outer, 0.0, TAU, 64, Color(0.08, 0.09, 0.12), 4.0, true)
 	draw_circle(center, inner - 3.0, Color(0.1, 0.11, 0.14, 0.96))
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_number(slot_index)
+		_draw_slot_outline(slot_index)
+	_draw_formation_links()
+	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_label(slot_index)
 	_draw_debuff_bubbles()
 
 
 func _draw_formation_links() -> void:
-	for slot_index in BoardController.FRONT_COUNT - 1:
-		var element := _formation_element(slot_index, slot_index + 1)
+	for slot_index in BoardController.SLOTS_PER_FACE:
+		var next := (slot_index + 1) % BoardController.SLOTS_PER_FACE
+		var element := _formation_element(slot_index, next)
 		if element.is_empty():
 			continue
 		var left := _slot_center_angle(slot_index)
-		var right := _slot_center_angle(slot_index + 1)
+		var right := _slot_center_angle(next)
 		var mid := left + wrapf(right - left, -PI, PI) * 0.5
 		var color: Color = FORMATION_COLORS.get(element, Color(1, 1, 1, 0.9))
-		var points := _link_polygon(mid)
-		draw_colored_polygon(points, color)
-		var outline := points.duplicate()
-		outline.append(points[0])
-		draw_polyline(outline, Color(1, 1, 1, 0.7 * color.a), 2.0, true)
+		_draw_soft_fan(mid, color)
+
+
+func _draw_soft_fan(center_angle: float, color: Color) -> void:
+	var half := TAU / 22.0
+	var radii := _fan_radii()
+	var layers := 5
+	for index in layers:
+		var spread := float(layers - 1 - index) / float(layers - 1)
+		var layer_color := color
+		layer_color.a *= lerpf(1.0, 0.16, spread)
+		_draw_fading_fan(center_angle, half * lerpf(1.0, 1.55, spread), radii.x, radii.y, layer_color)
+	var arc := Color(1, 1, 1, 0.7 * color.a)
+	_draw_fading_arc(center_angle, half, radii.y, arc)
+	_draw_fading_arc(center_angle, half, radii.x, arc)
+
+
+func _draw_fading_fan(center_angle: float, half: float, inner_radius: float, outer_radius: float, color: Color) -> void:
+	var segments := 16
+	var center := _center()
+	var points := PackedVector2Array()
+	var colors := PackedColorArray()
+	for step in segments + 1:
+		var amount := float(step) / float(segments)
+		var angle := lerpf(center_angle - half, center_angle + half, amount)
+		points.append(center + Vector2(cos(angle), sin(angle)) * outer_radius)
+		colors.append(_faded_color(color, amount))
+	for step in segments + 1:
+		var amount := float(segments - step) / float(segments)
+		var angle := lerpf(center_angle - half, center_angle + half, amount)
+		points.append(center + Vector2(cos(angle), sin(angle)) * inner_radius)
+		colors.append(_faded_color(color, amount))
+	draw_polygon(points, colors)
+
+
+func _draw_fading_arc(center_angle: float, half: float, radius: float, color: Color) -> void:
+	var segments := 16
+	var center := _center()
+	var points := PackedVector2Array()
+	var colors := PackedColorArray()
+	for step in segments + 1:
+		var amount := float(step) / float(segments)
+		var angle := lerpf(center_angle - half, center_angle + half, amount)
+		points.append(center + Vector2(cos(angle), sin(angle)) * radius)
+		colors.append(_faded_color(color, amount))
+	draw_polyline_colors(points, colors, 2.0, true)
+
+
+func _faded_color(color: Color, amount: float) -> Color:
+	var edge := absf(amount * 2.0 - 1.0)
+	var keep := 1.0 - edge
+	color.a *= keep * keep * (3.0 - 2.0 * keep)
+	return color
+
+
+func _fan_radii() -> Vector2:
+	var outer := _outer_radius()
+	var inner := _inner_radius()
+	var mid_radius := (inner + outer) * 0.5
+	var radial := (outer - inner) / 8.0
+	return Vector2(mid_radius - radial * 0.5, mid_radius + radial * 0.5)
 
 
 func _formation_element(left_index: int, right_index: int) -> String:
@@ -243,32 +322,12 @@ func _links_formation(slot: Dictionary) -> bool:
 	return bool(slot.get("occupied", false)) or bool(slot.get("fallback", false))
 
 
-func _link_polygon(center_angle: float) -> PackedVector2Array:
-	var half := TAU / 18.0
-	var start := center_angle - half
-	var finish := center_angle + half
-	var points := PackedVector2Array()
-	var segments := 4
-	var center := _center()
-	var outer := _outer_radius()
-	var inner := _inner_radius()
-	var mid_radius := (inner + outer) * 0.5
-	var radial := (outer - inner) / 8.0
-	inner = mid_radius - radial * 0.5
-	outer = mid_radius + radial * 0.5
-	for step in segments + 1:
-		var angle := lerpf(start, finish, float(step) / float(segments))
-		points.append(center + Vector2(cos(angle), sin(angle)) * outer)
-	for step in segments + 1:
-		var angle := lerpf(start, finish, float(segments - step) / float(segments))
-		points.append(center + Vector2(cos(angle), sin(angle)) * inner)
-	return points
-
-
 func _slot_fill(slot_index: int) -> Color:
-	if _slot_color_index(slot_index) % 2 == 0:
-		return Color(0.16, 0.45, 0.88)
-	return Color(0.95, 0.96, 0.97)
+	var base := Color(0.16, 0.45, 0.88) if _slot_color_index(slot_index) % 2 == 0 else Color(0.95, 0.96, 0.97)
+	if not _slot_is_debuffed(slot_index):
+		return base
+	var pulse := 0.5 + 0.5 * sin(_poison_time * 5.0)
+	return base.lerp(Color(0.55, 0.92, 0.12), 0.62 + pulse * 0.28)
 
 
 func _slot_color_index(slot_index: int) -> int:
@@ -307,7 +366,7 @@ func _draw_slot_portrait(slot_index: int) -> void:
 	var texture := UnitCatalog.get_icon(int(slot.get("unit_id", -1)))
 	var cover := _cover_rect(bounds, texture)
 	var poisoned := bool(slot.get("debuffed", false))
-	var modulate := Color(0.62, 1.0, 0.34, _slot_alpha(slot)) if poisoned else Color(1, 1, 1, _slot_alpha(slot))
+	var modulate := Color(0.48, 1.0, 0.18, _slot_alpha(slot)) if poisoned else Color(1, 1, 1, _slot_alpha(slot))
 	var colors := PackedColorArray()
 	var uvs := PackedVector2Array()
 	for point in points:
@@ -315,8 +374,8 @@ func _draw_slot_portrait(slot_index: int) -> void:
 		uvs.append(Vector2((point.x - cover.position.x) / cover.size.x, (point.y - cover.position.y) / cover.size.y))
 	draw_polygon(points, colors, uvs, texture)
 	if poisoned:
-		var wash := 0.28 + 0.1 * sin(_poison_time * 5.0)
-		draw_colored_polygon(points, Color(0.28, 0.72, 0.08, wash))
+		var wash := 0.42 + 0.16 * sin(_poison_time * 5.0)
+		draw_colored_polygon(points, Color(0.42, 0.86, 0.05, wash))
 
 
 func _has_debuffed_slot() -> bool:
@@ -326,32 +385,37 @@ func _has_debuffed_slot() -> bool:
 	return false
 
 
+func _slot_is_debuffed(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= _view_slots.size():
+		return false
+	return bool(_view_slots[slot_index].get("debuffed", false))
+
+
 func _draw_debuff_bubbles() -> void:
 	_bubble_rects.clear()
 	_bubble_slots.clear()
+	if not _cleanse_enabled:
+		return
 	var font := ThemeDB.fallback_font
-	var font_size := 15
+	var font_size := maxi(18, int(_outer_radius() * 0.12))
 	var text := "デバフ解除"
 	var text_size := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	for slot_index in BoardController.SLOTS_PER_FACE:
-		if slot_index >= _view_slots.size():
-			continue
-		var slot: Dictionary = _view_slots[slot_index]
-		if not bool(slot.get("debuffed", false)):
+		if slot_index < BoardController.FRONT_COUNT or not _slot_is_debuffed(slot_index):
 			continue
 		var angle := _slot_center_angle(slot_index)
-		var anchor := _center() + Vector2(cos(angle), sin(angle)) * ((_inner_radius() + _outer_radius()) * 0.5)
-		var box := Rect2(anchor + Vector2(-text_size.x * 0.5 - 12.0, -46.0), Vector2(text_size.x + 24.0, 34.0))
+		var outline := _wedge_polygon(angle)
+		outline.append(outline[0])
+		draw_polyline(outline, Color(0.72, 1.0, 0.18, 0.95), 5.0, true)
+		var anchor := _center() + Vector2(cos(angle), sin(angle)) * (_outer_radius() - 8.0)
+		var box := Rect2(anchor - Vector2(text_size.x * 0.5 + 10.0, text_size.y + 8.0), Vector2(text_size.x + 20.0, text_size.y + 14.0))
+		box.position.x = clampf(box.position.x, 4.0, size.x - box.size.x - 4.0)
+		box.position.y = clampf(box.position.y, 4.0, size.y - box.size.y - 4.0)
 		_bubble_rects.append(box)
 		_bubble_slots.append(slot_index)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(box.position.x + box.size.x * 0.5 - 7.0, box.end.y),
-			Vector2(box.position.x + box.size.x * 0.5 + 7.0, box.end.y),
-			anchor,
-		]), Color(0.1, 0.2, 0.06, 0.96))
-		draw_rect(box, Color(0.1, 0.22, 0.07, 0.96))
-		draw_rect(box, Color(0.68, 0.95, 0.28), false, 2.0)
-		draw_string(font, box.position + Vector2(12.0, 23.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.86, 1.0, 0.62))
+		draw_rect(box, Color(0.12, 0.22, 0.04, 0.96))
+		draw_rect(box, Color(0.78, 1.0, 0.22), false, 3.0)
+		draw_string(font, box.position + Vector2(10.0, text_size.y + 2.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.86, 1.0, 0.45))
 
 
 func _bubble_slot_at(point: Vector2) -> int:
@@ -359,6 +423,20 @@ func _bubble_slot_at(point: Vector2) -> int:
 		if _bubble_rects[index].has_point(point):
 			return _bubble_slots[index]
 	return -1
+
+
+func _draw_slot_outline(slot_index: int) -> void:
+	if slot_index >= _view_slots.size():
+		return
+	var slot: Dictionary = _view_slots[slot_index]
+	if not bool(slot.get("occupied", false)) and not bool(slot.get("fallback", false)):
+		return
+	var cost := int(slot.get("cost", 0))
+	if cost <= 0:
+		return
+	var outline := _wedge_polygon(_slot_center_angle(slot_index))
+	outline.append(outline[0])
+	draw_polyline(outline, CostColors.get_color(cost), 2.0, true)
 
 
 func _draw_slot_label(slot_index: int) -> void:
@@ -373,11 +451,6 @@ func _draw_slot_label(slot_index: int) -> void:
 	var pos := _center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + _outer_radius()) * 0.5
 	var band := _outer_radius() - _inner_radius()
 	var font := ThemeDB.fallback_font
-	var cost := int(slot.get("cost", 0))
-	if cost > 0:
-		var outline := _wedge_polygon(angle)
-		outline.append(outline[0])
-		draw_polyline(outline, CostColors.get_color(cost), 2.0, true)
 	var name := str(slot.get("name", ""))
 	if fallback:
 		name = "補 %s" % name

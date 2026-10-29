@@ -8,6 +8,7 @@ const UNIT_RENDER_PRIORITY := 2
 const ACTION_VALUE_NUMERATOR := 10000
 const HP_BAR_WIDTH := 0.46
 const HP_BAR_HEIGHT := 0.05
+const GAUGE_BAR_GAP := 0.02
 const HP_LAG_SECONDS := 0.45
 const CATALOG_CLIPS := {
 	1: {
@@ -63,12 +64,13 @@ var _armature_rest := Transform3D.IDENTITY
 var _battle_walking := false
 var _clip_lock := false
 var defeat_playing := false
-var _catalog_model := false
 var _guard_shake_time := 0.0
 var _guard_shake_left := 0.0
 var _hp_root: Node3D
 var _hp_lag_mesh: MeshInstance3D
 var _hp_fill_mesh: MeshInstance3D
+var _gauge_track: MeshInstance3D
+var _gauge_fill: MeshInstance3D
 var _hp_current := 0
 var _hp_max := 1
 var _hp_lag := -1.0
@@ -100,7 +102,6 @@ func _mount_catalog_model() -> void:
 		model_root.remove_child(child)
 		child.free()
 	model_root.add_child(scene.instantiate())
-	_catalog_model = true
 
 
 func hold_guard_pose() -> void:
@@ -205,7 +206,7 @@ func play_battle_role(role: String) -> float:
 	anim.loop_mode = Animation.LOOP_NONE
 	var speed := 1.35
 	var from := anim.length * 0.08
-	if _catalog_model:
+	if _named_battle_clips():
 		speed = 1.0
 		from = 0.0
 	else:
@@ -242,6 +243,21 @@ func set_battle_hp(current: int, maximum: int) -> void:
 	_hp_root.visible = true
 	_place_hp_bar()
 	_place_hp_meshes()
+
+
+func set_battle_gauge(current: int, maximum: int) -> void:
+	_ensure_hp_bar()
+	var show := maximum > 0
+	if _gauge_track != null:
+		_gauge_track.visible = show
+	if _gauge_fill == null:
+		return
+	_gauge_fill.visible = show
+	if not show:
+		return
+	var ratio := clampf(float(current) / float(maxi(maximum, 1)), 0.0, 1.0)
+	_gauge_fill.position.y = -(HP_BAR_HEIGHT + GAUGE_BAR_GAP)
+	_place_hp_fill(_gauge_fill, ratio)
 
 
 func popup_battle_text(text: String, color: Color) -> void:
@@ -297,7 +313,7 @@ func _apply_battle_walking_state() -> void:
 func _find_clip(fragment: String) -> String:
 	if _animation_player == null:
 		return ""
-	if _catalog_model:
+	if _named_battle_clips():
 		return _catalog_clip(fragment)
 	var fallback := ""
 	for anim_name in _animation_player.get_animation_list():
@@ -309,6 +325,10 @@ func _find_clip(fragment: String) -> String:
 		if fallback.is_empty():
 			fallback = anim_name
 	return fallback
+
+
+func _named_battle_clips() -> bool:
+	return CATALOG_CLIPS.has(unit_id)
 
 
 func _catalog_clip(fragment: String) -> String:
@@ -380,6 +400,14 @@ func _ensure_hp_bar() -> void:
 	_hp_fill_mesh = _make_hp_quad(Color(0.24, 0.78, 0.3), 5)
 	_hp_root.add_child(_hp_lag_mesh)
 	_hp_root.add_child(_hp_fill_mesh)
+	_gauge_track = _make_hp_quad(Color(0.32, 0.4, 0.48), 3)
+	_gauge_fill = _make_hp_quad(Color(0.25, 0.78, 0.98), 6)
+	_gauge_track.position.y = -(HP_BAR_HEIGHT + GAUGE_BAR_GAP)
+	_gauge_fill.position.y = _gauge_track.position.y
+	_gauge_track.visible = false
+	_gauge_fill.visible = false
+	_hp_root.add_child(_gauge_track)
+	_hp_root.add_child(_gauge_fill)
 
 
 func _make_hp_quad(color: Color, priority: int) -> MeshInstance3D:

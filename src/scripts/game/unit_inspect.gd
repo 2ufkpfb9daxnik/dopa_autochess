@@ -5,6 +5,7 @@ const PANEL_WIDTH := 480.0
 const SUMMARY_FONT := 20
 const DETAIL_FONT := 15
 const TABLE_FONT := 13
+const ROUNDED_ICON := preload("res://shaders/rounded_icon.gdshader")
 
 var _panel: PanelContainer
 var _summary_box: VBoxContainer
@@ -138,33 +139,139 @@ func _rebuild_summary(unit_id: int, stars: int) -> void:
 	rows += 1
 	var cost := str(info.get("cost", ""))
 	if not cost.is_empty():
-		height += _add_text_line("コスト %s" % cost, SUMMARY_FONT, width, rows)
+		height += _add_labeled_icon("コスト", cost, SUMMARY_FONT, rows)
 		rows += 1
 	var synergies := str(info.get("synergies", ""))
 	if not synergies.is_empty():
-		height += _add_text_line(synergies, SUMMARY_FONT, width, rows)
+		height += _add_synergy_chips(synergies, width, rows)
 		rows += 1
+	var role_rows: Array = []
 	var attack := str(info.get("attack", "")).strip_edges()
 	if not attack.is_empty():
-		height += _add_icon_line("攻撃属性", PackedStringArray([attack]), SUMMARY_FONT, rows)
-		rows += 1
+		role_rows.append({"caption": "使用", "names": PackedStringArray([attack])})
 	var strong := _as_strings(info.get("strong", []))
 	if not strong.is_empty():
-		height += _add_icon_line("得意", strong, SUMMARY_FONT, rows)
-		rows += 1
+		role_rows.append({"caption": "得意", "names": strong})
 	var weak := _as_strings(info.get("weak", []))
 	if not weak.is_empty():
-		height += _add_icon_line("苦手", weak, SUMMARY_FONT, rows)
+		role_rows.append({"caption": "苦手", "names": weak})
+	if not role_rows.is_empty():
+		height += _add_role_rows(role_rows, SUMMARY_FONT, rows)
 		rows += 1
-	var stats := str(info.get("stats", ""))
-	if not stats.is_empty():
-		height += _add_text_line(stats, SUMMARY_FONT, width, rows)
+	var stat_rows: Array = info.get("stat_rows", [])
+	if not stat_rows.is_empty():
+		height += _add_stat_rows(stat_rows, SUMMARY_FONT, rows)
 		rows += 1
 	var brief := str(info.get("brief", "")).strip_edges()
 	if not brief.is_empty():
 		height += _add_rich_line(brief, SUMMARY_FONT, width, rows)
 		rows += 1
 	_summary_height = height
+
+
+func _add_labeled_icon(label: String, value: String, font_size: int, rows: int) -> float:
+	var px := CharacterText.icon_px(font_size)
+	var line := _stat_pair({"label": label, "value": value, "icon": CharacterText.status_icon(label)}, font_size, px)
+	_summary_box.add_child(line)
+	var gap := 4.0 if rows > 0 else 0.0
+	return gap + maxf(float(px), float(font_size))
+
+
+func _add_stat_rows(entries: Array, font_size: int, rows: int) -> float:
+	var px := CharacterText.icon_px(font_size)
+	var height := 0.0
+	var index := 0
+	var line_index := 0
+	while index < entries.size():
+		var line := HBoxContainer.new()
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_theme_constant_override("separation", 14)
+		var end := mini(index + 4, entries.size())
+		for entry_index in range(index, end):
+			var item: Dictionary = entries[entry_index]
+			line.add_child(_stat_pair(item, font_size, px))
+		_summary_box.add_child(line)
+		var gap := 0.0
+		if line_index == 0 and rows > 0:
+			gap = 4.0
+		elif line_index > 0:
+			gap = 6.0
+		height += gap + maxf(float(px), float(font_size))
+		index = end
+		line_index += 1
+	return height
+
+
+func _stat_pair(item: Dictionary, font_size: int, px: int) -> HBoxContainer:
+	var pair := HBoxContainer.new()
+	pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pair.add_theme_constant_override("separation", 4)
+	pair.alignment = BoxContainer.ALIGNMENT_CENTER
+	var icon := _texture_icon(str(item.get("icon", "")), px)
+	if icon != null:
+		icon.tooltip_text = str(item.get("label", ""))
+		pair.add_child(icon)
+	var value := _make_label(font_size)
+	value.autowrap_mode = TextServer.AUTOWRAP_OFF
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	value.text = str(item.get("value", ""))
+	pair.add_child(value)
+	return pair
+
+
+func _add_synergy_chips(raw: String, width: float, rows: int) -> float:
+	var names := PackedStringArray()
+	for part in raw.replace("、", ",").split(","):
+		var synergy_name := part.strip_edges()
+		if not synergy_name.is_empty():
+			names.append(synergy_name)
+	if names.is_empty():
+		return 0.0
+	var flow := HFlowContainer.new()
+	flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flow.custom_minimum_size.x = width
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 6)
+	var font_size := 16
+	var chip_h := 32.0
+	var font := ThemeDB.fallback_font
+	var cursor := 0.0
+	var lines := 1
+	for synergy_name in names:
+		flow.add_child(_synergy_chip(synergy_name, font_size))
+		var chip_w := font.get_string_size(synergy_name, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x + 29.0
+		if cursor > 0.0 and cursor + chip_w > width:
+			lines += 1
+			cursor = chip_w + 6.0
+		else:
+			cursor += chip_w + 6.0
+	_summary_box.add_child(flow)
+	var gap := 4.0 if rows > 0 else 0.0
+	return gap + float(lines) * chip_h + float(maxi(lines - 1, 0)) * 6.0
+
+
+func _synergy_chip(synergy_name: String, font_size: int) -> PanelContainer:
+	var color := SynergyCatalog.color_of(synergy_name)
+	var chip := PanelContainer.new()
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(color.r, color.g, color.b, 0.34)
+	style.border_color = Color(color.r, color.g, color.b, 1.0)
+	style.set_border_width_all(2)
+	style.border_width_left = 5
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 3
+	style.content_margin_bottom = 3
+	style.set_corner_radius_all(3)
+	chip.add_theme_stylebox_override("panel", style)
+	var label := _make_label(font_size)
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.text = synergy_name
+	label.add_theme_color_override("font_color", Color(1, 1, 1))
+	chip.add_child(label)
+	return chip
 
 
 func _add_text_line(text: String, font_size: int, width: float, rows: int) -> float:
@@ -193,26 +300,45 @@ func _add_rich_line(text: String, font_size: int, width: float, rows: int) -> fl
 	return gap + text_h
 
 
-func _add_icon_line(caption: String, names: PackedStringArray, font_size: int, rows: int) -> float:
-	var row := HBoxContainer.new()
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_theme_constant_override("separation", 6)
-	row.alignment = BoxContainer.ALIGNMENT_BEGIN
-	var label := _make_label(font_size)
-	label.text = caption
-	row.add_child(label)
+func _add_role_rows(entries: Array, font_size: int, rows: int) -> float:
 	var px := CharacterText.icon_px(font_size)
-	for attr_name in names:
-		var icon := _attribute_icon(attr_name, px)
-		if icon == null:
-			var fallback := _make_label(font_size)
-			fallback.text = attr_name
-			row.add_child(fallback)
-		else:
-			row.add_child(icon)
-	_summary_box.add_child(row)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.mouse_filter = Control.MOUSE_FILTER_PASS
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 4)
+	for entry in entries:
+		var item: Dictionary = entry
+		var caption := str(item.get("caption", ""))
+		var slot := CenterContainer.new()
+		slot.custom_minimum_size = Vector2(px, px)
+		slot.mouse_filter = Control.MOUSE_FILTER_PASS
+		slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var caption_icon := _texture_icon(CharacterText.status_icon(caption), px)
+		if caption_icon != null:
+			caption_icon.tooltip_text = caption + "属性"
+			slot.add_child(caption_icon)
+		grid.add_child(slot)
+		var attrs := HBoxContainer.new()
+		attrs.mouse_filter = Control.MOUSE_FILTER_PASS
+		attrs.add_theme_constant_override("separation", 4)
+		attrs.alignment = BoxContainer.ALIGNMENT_CENTER
+		var names: PackedStringArray = item.get("names", PackedStringArray())
+		for attr_name in names:
+			var icon := _attribute_icon(attr_name, px)
+			if icon == null:
+				var fallback := _make_label(font_size)
+				fallback.autowrap_mode = TextServer.AUTOWRAP_OFF
+				fallback.text = attr_name
+				attrs.add_child(fallback)
+			else:
+				attrs.add_child(icon)
+		grid.add_child(attrs)
+	_summary_box.add_child(grid)
 	var gap := 4.0 if rows > 0 else 0.0
-	return gap + maxf(float(px), _block_height(label, 240.0))
+	var line_count := entries.size()
+	return gap + float(line_count) * float(px) + float(maxi(line_count - 1, 0)) * 4.0
 
 
 func _rebuild_detail(unit_id: int) -> void:
@@ -273,6 +399,12 @@ func _make_table(rows_value: Variant, font_size: int) -> Control:
 
 
 func _table_cell(text: String, font_size: int, header: bool, numeric_column: bool) -> Control:
+	var status_path := CharacterText.status_icon(text)
+	if not status_path.is_empty():
+		var status_icon := _texture_icon(status_path, CharacterText.icon_px(font_size))
+		if status_icon != null:
+			status_icon.tooltip_text = text
+			return status_icon
 	var icon_path := CharacterText.attribute_icon(text)
 	if not icon_path.is_empty():
 		var icon := _attribute_icon(text, CharacterText.icon_px(font_size))
@@ -299,7 +431,14 @@ func _table_cell(text: String, font_size: int, header: bool, numeric_column: boo
 
 
 func _attribute_icon(attr_name: String, px: int) -> TextureRect:
-	var path := CharacterText.attribute_icon(attr_name)
+	var icon := _texture_icon(CharacterText.attribute_icon(attr_name), px)
+	if icon != null:
+		var caption := attr_name.strip_edges()
+		icon.tooltip_text = caption if caption.ends_with("属性") else caption + "属性"
+	return icon
+
+
+func _texture_icon(path: String, px: int) -> TextureRect:
 	if path.is_empty() or not ResourceLoader.exists(path):
 		return null
 	var texture := load(path) as Texture2D
@@ -309,12 +448,16 @@ func _attribute_icon(attr_name: String, px: int) -> TextureRect:
 	if texture.get_height() > 0:
 		aspect = float(texture.get_width()) / float(texture.get_height())
 	var rect := TextureRect.new()
-	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rect.mouse_filter = Control.MOUSE_FILTER_STOP
 	rect.texture = texture
 	rect.custom_minimum_size = Vector2(maxf(1.0, float(px) * aspect), px)
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if path.ends_with("/speed.png"):
+		var material := ShaderMaterial.new()
+		material.shader = ROUNDED_ICON
+		rect.material = material
 	return rect
 
 
@@ -353,7 +496,8 @@ func _make_label(font_size: int) -> Label:
 
 func _make_rich(font_size: int, width: float) -> RichTextLabel:
 	var label := RichTextLabel.new()
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.hint_underlined = false
 	label.bbcode_enabled = true
 	label.fit_content = true
 	label.scroll_active = false

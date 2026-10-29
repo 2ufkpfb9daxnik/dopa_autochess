@@ -47,6 +47,7 @@ func refresh_widgets() -> void:
 	)
 	_host._circle_wheel.set_unit_drag_enabled(can_edit)
 	_host._circle_wheel.set_interaction_enabled(can_rotate)
+	_host._circle_wheel.set_cleanse_enabled(_host.session.phase == GameSession.Phase.BATTLE)
 	_host._bench_board.set_input_enabled(can_edit)
 
 

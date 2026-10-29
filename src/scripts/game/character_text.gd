@@ -42,6 +42,37 @@ const ATTRIBUTE_ICONS := {
 	"風": {"path": "res://images/attributes/wind.png", "aspect": 0.7489},
 	"吸収": {"path": "res://images/attributes/absorption.png", "aspect": 0.7087},
 }
+const STATUS_TOOLTIPS := {
+	"HP": "体力",
+	"最大HP": "最大体力",
+	"攻撃": "攻撃力",
+	"攻撃力": "攻撃力",
+	"防御": "防御力",
+	"防御力": "防御力",
+	"ガード": "防御力",
+	"速度": "行動の速さ",
+	"属性耐性": "属性ダメージへの耐性",
+	"優先度": "狙われやすさ",
+	"ターゲット優先度": "狙われやすさ",
+	"会心": "クリティカル率",
+	"クリティカル率": "クリティカル率",
+	"クリティカルダメージ倍率": "クリティカル時のダメージ倍率",
+	"使用": "このキャラの攻撃属性",
+	"攻撃属性": "このキャラの攻撃属性",
+	"得意": "得意な属性（与ダメージが増える）",
+	"苦手": "苦手な属性（与ダメージが減る）",
+	"コスト": "購入に必要なコイン",
+	"コイン": "購入に必要なコイン",
+}
+const ATTRIBUTE_TOOLTIPS := {
+	"炎": "炎属性",
+	"水": "水属性",
+	"雷": "雷属性",
+	"土": "土属性",
+	"氷": "氷属性",
+	"風": "風属性",
+	"吸収": "吸収属性",
+}
 
 
 static func load_profile(unit_id: int) -> Dictionary:
@@ -62,6 +93,18 @@ static func attribute_icon(attr_name: String) -> String:
 	return ""
 
 
+static func status_tooltip(label: String) -> String:
+	var key := label.strip_edges()
+	return str(STATUS_TOOLTIPS.get(key, key))
+
+
+static func attribute_tooltip(attr_name: String) -> String:
+	var key := attr_name.strip_edges()
+	if key.ends_with("属性"):
+		key = key.substr(0, key.length() - 2)
+	return str(ATTRIBUTE_TOOLTIPS.get(key, key if key.ends_with("属性") else key + "属性"))
+
+
 static func icon_px(font_size: int) -> int:
 	return maxi(int(round(float(font_size) * 2.2)), 1)
 
@@ -72,7 +115,8 @@ static func with_attribute_icons(text: String, px: int) -> String:
 		var entry: Dictionary = ATTRIBUTE_ICONS[attr_name]
 		var path := str(entry.get("path", ""))
 		var width := maxi(1, int(round(float(px) * float(entry.get("aspect", 1.0)))))
-		var tag := "[hint=%s属性][img=%dx%d]%s[/img][/hint]" % [attr_name, width, px, path]
+		var hint := attribute_tooltip(attr_name)
+		var tag := "[url=%s][img=%dx%d]%s[/img][/url]" % [hint, width, px, path]
 		result = result.replace(str(attr_name), tag)
 	return result
 

@@ -34,6 +34,8 @@ var loss_streak: int = 0
 var extended_mode: bool = false
 var max_round: int = NORMAL_MAX_ROUND
 var last_income_breakdown: Dictionary = {}
+var cleanse_income: int = 0
+var last_cleanse_income: int = 0
 var route_options: Array[Dictionary] = []
 var selected_route: Dictionary = {}
 var free_rerolls: int = 0
@@ -99,7 +101,7 @@ func toggle_shop_lock() -> void:
 
 
 func try_buy_shop_slot(slot_index: int, bench_full: bool) -> int:
-	if not is_prep() or slot_index >= shop_unit_ids.size():
+	if not _economy_open() or slot_index >= shop_unit_ids.size():
 		return -1
 	var unit_id: int = shop_unit_ids[slot_index]
 	if unit_id < 0:
@@ -145,6 +147,13 @@ func add_sell_income(amount: int) -> void:
 		GameAudio.play_money_gain()
 
 
+func note_cleanse_income(amount: int = 1) -> void:
+	if amount <= 0:
+		return
+	cleanse_income += amount
+	state_changed.emit()
+
+
 func add_free_experience(amount: int) -> void:
 	experience += amount
 	state_changed.emit()
@@ -158,6 +167,11 @@ func start_battle() -> void:
 
 
 func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
+	last_cleanse_income = cleanse_income
+	if cleanse_income > 0:
+		coins += cleanse_income
+		cleanse_income = 0
+		GameAudio.play_money_gain()
 	coins_at_last_round_end = coins
 	experience += ROUND_END_FREE_XP
 

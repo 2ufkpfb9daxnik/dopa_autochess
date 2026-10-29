@@ -125,6 +125,7 @@ static func play_result(won: bool) -> void:
 	if won:
 		_node._play_bgm(BGM + "win.mp3", BgmKind.WIN)
 	else:
+		_node._play_random_effect(BATTLE + "defeat")
 		_node._play_bgm(BGM + "lose.mp3", BgmKind.LOSE)
 
 
@@ -166,6 +167,38 @@ static func play_battle_gauge() -> void:
 	if _node == null:
 		return
 	_node._play_random_effect(BATTLE + "gauge")
+
+
+static func play_battle_fall() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "fall")
+
+
+static func play_battle_slay() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "slay")
+
+
+static func play_debuff_ritual(mode: int) -> void:
+	if _node == null:
+		return
+	var folder := "right_click"
+	match mode:
+		1:
+			folder = "circle"
+		2:
+			folder = "tap"
+		_:
+			folder = "right_click"
+	_node._play_random_effect(BATTLE + "debuff/" + folder)
+
+
+static func play_debuff_remove() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "debuff/remove")
 
 
 static func play_battle_dot(layers: int) -> void:

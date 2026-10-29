@@ -1,5 +1,6 @@
-"""Character editor. Serves the page and writes src/data/characters/*.md.
+"""Character / synergy / relic editor.
 
+Writes src/data/characters/*.md and src/data/relics/*.md.
 Star scales live in src/data/star_scales.json. A blank ★2+ cell is
 ★1 × (that row's scale[star] / scale[★1]). Effect rows with no scale
 use effectDefault (1, 1.2, 1.5, 1.7). A filled cell is used as written.
@@ -19,6 +20,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAR_DIR = ROOT / "src" / "data" / "characters"
+RELIC_DIR = ROOT / "src" / "data" / "relics"
 BASE_PATH = ROOT / "dump" / "characters_base.md"
 SYNERGY_PATH = ROOT / "dump" / "synergys_base.md"
 SYNERGY_TEXT_PATH = ROOT / "dump" / "synergys_text.md"
@@ -26,6 +28,24 @@ SETTINGS_PATH = ROOT / "src" / "data" / "star_scales.json"
 INDEX_PATH = Path(__file__).with_name("index.html")
 HOST = "127.0.0.1"
 PORT = 8765
+RELIC_CATEGORIES = [
+    "戦闘中の個体効果",
+    "戦闘中の部隊効果",
+    "配置・盤面操作",
+    "ショップ・通貨・購入",
+    "経験値・レベル・出現率",
+    "合成・売却・複製",
+    "勝敗・連勝・連敗",
+    "ラウンドをまたぐ成長",
+    "HP、防御の増強、回復",
+    "召喚物・盤面装置",
+    "シナジー追加",
+    "強い利益と明確な代償",
+    "クエスト・達成報酬",
+    "ラン開始時の戦略決定",
+    "確率・選択肢・情報操作",
+    "複数レリック間の相互作用",
+]
 
 NUMERIC_STATS = [
     "最大HP",
@@ -448,6 +468,108 @@ def load_characters() -> list[dict]:
     return characters
 
 
+def _parse_yes_no(value: str, default: bool = True) -> bool:
+    text = (value or "").strip()
+    if not text:
+        return default
+    if text in {"はい", "true", "True", "1", "yes", "YES"}:
+        return True
+    if text in {"いいえ", "false", "False", "0", "no", "NO"}:
+        return False
+    return default
+
+
+def _yes_no(value: bool) -> str:
+    return "はい" if value else "いいえ"
+
+
+def _parse_relic_effects(body: str) -> dict[str, float | int | None]:
+    effects: dict[str, float | int | None] = {}
+    for line in body.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2 or cells[0] in {"効果値", "---"} or set(cells[0]) <= {"-", ":"}:
+            continue
+        effects[cells[0]] = _optional_number(cells[1])
+    return effects
+
+
+def _render_relic_effects(effects: dict | None) -> list[str]:
+    if not effects:
+        return []
+    lines = [
+        "",
+        "## 効果値",
+        "",
+        "レリックが変える数値。単位は欄による。",
+        "",
+        "| 効果値 | 値 |",
+        "| --- | ---: |",
+    ]
+    for name, value in effects.items():
+        lines.append(f"| {name} | {_format_number(value)} |")
+    return lines
+
+
+def parse_relic(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    head, sections = _section_map(text)
+    fields: dict[str, str] = {}
+    for line in head.splitlines():
+        match = re.match(r"^-\s+([^:：]+)[:：]\s*(.*)$", line)
+        if match:
+            fields[match.group(1).strip()] = match.group(2).strip()
+    title = ""
+    for line in head.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            break
+    relic_id = fields.get("ID", path.stem).zfill(3)
+    return {
+        "id": relic_id,
+        "name": fields.get("名前", title),
+        "category": fields.get("分類", ""),
+        "equipable": _parse_yes_no(fields.get("装備可能", "はい")),
+        "combinable": _parse_yes_no(fields.get("合成可能", "はい")),
+        "brief": _find_section(sections, "簡単な説明文").strip(),
+        "detail": _find_section(sections, "詳細な説明文").strip(),
+        "effects": _parse_relic_effects(_find_section(sections, "効果値")),
+    }
+
+
+def render_relic(data: dict) -> str:
+    name = (data.get("name") or "").strip()
+    lines = [
+        f"# {name}",
+        "",
+        f"- ID: {str(data['id']).zfill(3)}",
+        f"- 名前: {name}",
+        f"- 分類: {data.get('category', '')}",
+        f"- 装備可能: {_yes_no(bool(data.get('equipable', True)))}",
+        f"- 合成可能: {_yes_no(bool(data.get('combinable', True)))}",
+        "",
+        "## 簡単な説明文",
+        "",
+        data.get("brief", "").strip(),
+        "",
+        "## 詳細な説明文",
+        "",
+        data.get("detail", "").strip(),
+        *_render_relic_effects(data.get("effects")),
+    ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def load_relics() -> list[dict]:
+    relics = []
+    if not RELIC_DIR.exists():
+        return relics
+    for path in sorted(RELIC_DIR.glob("*.md")):
+        relics.append(parse_relic(path))
+    return relics
+
+
 def _scale_row(values, fallback: list[float]) -> list[float]:
     source = values if isinstance(values, list) else fallback
     row = []
@@ -563,6 +685,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/synergy-text":
             self._send(200, json.dumps(load_synergy_texts(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
+        if path == "/api/relics":
+            payload = {
+                "relics": load_relics(),
+                "categories": RELIC_CATEGORIES,
+            }
+            self._send(200, json.dumps(payload, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
     def do_PUT(self) -> None:  # noqa: N802
@@ -584,6 +713,14 @@ class Handler(BaseHTTPRequestHandler):
             saved = save_synergy_text(name, str(data.get("text", "")), data.get("tiers") or [])
             self._send(200, json.dumps({"name": name, **saved}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
+        relic_match = re.fullmatch(r"/api/relics/(\d+)", path)
+        if relic_match:
+            relic_id = relic_match.group(1).zfill(3)
+            data["id"] = relic_id
+            RELIC_DIR.mkdir(parents=True, exist_ok=True)
+            (RELIC_DIR / f"{relic_id}.md").write_text(render_relic(data), encoding="utf-8")
+            self._send(200, json.dumps(parse_relic(RELIC_DIR / f"{relic_id}.md"), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            return
         match = re.fullmatch(r"/api/characters/(\d+)", path)
         if not match:
             self._send(404, b"not found", "text/plain; charset=utf-8")
@@ -602,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"character editor: http://{HOST}:{PORT}/")
+    print(f"editor: http://{HOST}:{PORT}/")
     server.serve_forever()
 
 

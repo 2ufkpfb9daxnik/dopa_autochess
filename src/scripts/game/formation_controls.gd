@@ -40,6 +40,8 @@ func refresh_widgets() -> void:
 				"unit_id": unit.unit_id,
 			})
 	_host._bench_board.set_slots(bench_view)
+	if _host._overflow_pile != null:
+		_host._overflow_pile.set_units(_host.board.get_overflow_units())
 	_host._action_order_bar.set_entries(_host.board.get_action_order())
 	var can_edit: bool = _host.session.is_prep() and not _host._run_end_active
 	var can_rotate: bool = not _host._run_end_active and (
@@ -49,6 +51,8 @@ func refresh_widgets() -> void:
 	_host._circle_wheel.set_interaction_enabled(can_rotate)
 	_host._circle_wheel.set_cleanse_enabled(_host.session.phase == GameSession.Phase.BATTLE)
 	_host._bench_board.set_input_enabled(can_edit)
+	if _host._overflow_pile != null:
+		_host._overflow_pile.set_input_enabled(can_edit)
 
 
 func on_center_pressed() -> void:
@@ -96,12 +100,37 @@ func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
 	var unit: GameUnit = _host.board.get_placed_unit(_host.board.active_face, from_slot)
 	if unit == null:
 		return
+	var dest_empty := _host.board.get_placed_unit(_host.board.active_face, to_slot) == null
+	if dest_empty and _host.board.would_exceed_board_limit(unit):
+		_host._show_board_notice(_host.NOTICE_CIRCLE_CAP)
+		return
 	if not _host.board.try_move_unit_to_circle(unit, _host.board.active_face, to_slot):
-		_host._log("そこには配置できません")
+		if _host.board.would_exceed_board_limit(unit):
+			_host._show_board_notice(_host.NOTICE_CIRCLE_CAP)
+		else:
+			_host._log("そこには配置できません")
 
 
 func on_bench_slot_clicked(slot_index: int) -> void:
 	var unit: GameUnit = _host.board.bench_units[slot_index]
+	if unit == null or _host._unit_inspect == null:
+		return
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
+
+
+func on_overflow_drag_started(index: int) -> void:
+	var unit: GameUnit = _host._overflow_pile.unit_at(index)
+	if unit == null:
+		return
+	begin_drag(unit)
+
+
+func on_overflow_drag_finished(_index: int, global_position: Vector2) -> void:
+	finish_drag(global_position)
+
+
+func on_overflow_clicked(index: int) -> void:
+	var unit: GameUnit = _host._overflow_pile.unit_at(index)
 	if unit == null or _host._unit_inspect == null:
 		return
 	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
@@ -135,12 +164,20 @@ func finish_drag(global_position: Vector2) -> void:
 		return
 	var circle_slot: int = _host._circle_wheel.slot_index_at_global(global_position)
 	if circle_slot >= 0:
+		var dest_empty := _host.board.get_placed_unit(_host.board.active_face, circle_slot) == null
+		if dest_empty and _host.board.would_exceed_board_limit(unit):
+			_host._show_board_notice(_host.NOTICE_CIRCLE_CAP)
+			return
 		if not _host.board.try_move_unit_to_circle(unit, _host.board.active_face, circle_slot):
-			_host._log("配置上限です")
+			if _host.board.would_exceed_board_limit(unit):
+				_host._show_board_notice(_host.NOTICE_CIRCLE_CAP)
+		_host._refresh_overflow_notice()
 		return
 	var bench_slot: int = _host._bench_board.slot_index_at_global(global_position)
 	if bench_slot >= 0:
 		_host.board.try_move_unit_to_bench(unit, bench_slot)
+		_host.board.try_absorb_overflow()
+		_host._refresh_overflow_notice()
 		return
 	if _host._get_sell_zone_side(global_position) >= 0:
 		_host._on_sell_requested(unit)
@@ -149,6 +186,10 @@ func finish_drag(global_position: Vector2) -> void:
 func unit_under_screen(screen_position: Vector2) -> GameUnit:
 	if _host._circle_wheel == null:
 		return null
+	if _host._overflow_pile != null:
+		var overflow_index: int = _host._overflow_pile.index_at_global(screen_position)
+		if overflow_index >= 0:
+			return _host._overflow_pile.unit_at(overflow_index)
 	var circle_slot: int = _host._circle_wheel.slot_index_at_global(screen_position)
 	if circle_slot >= 0:
 		return _host.board.get_placed_unit(_host.board.active_face, circle_slot)

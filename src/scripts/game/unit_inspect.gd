@@ -12,6 +12,9 @@ var _summary_box: VBoxContainer
 var _detail_scroll: ScrollContainer
 var _detail_box: VBoxContainer
 var _detail_button: Button
+var _tip: PanelContainer
+var _tip_label: Label
+var _tip_owner: Control
 var _anchor := Vector2.ZERO
 var _detailed := false
 var _summary_height := 0.0
@@ -36,20 +39,21 @@ func _ready() -> void:
 	_panel.add_theme_stylebox_override("panel", style)
 	add_child(_panel)
 	var box := VBoxContainer.new()
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_theme_constant_override("separation", 10)
 	_panel.add_child(box)
 	_summary_box = VBoxContainer.new()
-	_summary_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_summary_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_summary_box.add_theme_constant_override("separation", 4)
 	box.add_child(_summary_box)
 	_detail_scroll = ScrollContainer.new()
 	_detail_scroll.custom_minimum_size = Vector2(PANEL_WIDTH - 36.0, 280)
 	_detail_scroll.visible = false
 	_detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_detail_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(_detail_scroll)
 	_detail_box = VBoxContainer.new()
-	_detail_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_detail_box.mouse_filter = Control.MOUSE_FILTER_PASS
 	_detail_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_detail_box.add_theme_constant_override("separation", 8)
 	_detail_scroll.add_child(_detail_box)
@@ -61,6 +65,29 @@ func _ready() -> void:
 	_detail_button.custom_minimum_size = Vector2(120, 42)
 	_detail_button.pressed.connect(_toggle_detail)
 	buttons.add_child(_detail_button)
+	_tip = PanelContainer.new()
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip.visible = false
+	_tip.z_index = 20
+	var tip_style := StyleBoxFlat.new()
+	tip_style.bg_color = Color(0.98, 0.96, 0.88, 0.98)
+	tip_style.border_color = Color(0.35, 0.28, 0.12, 0.95)
+	tip_style.set_border_width_all(2)
+	tip_style.set_corner_radius_all(10)
+	tip_style.content_margin_left = 12
+	tip_style.content_margin_right = 12
+	tip_style.content_margin_top = 8
+	tip_style.content_margin_bottom = 8
+	tip_style.shadow_color = Color(0, 0, 0, 0.35)
+	tip_style.shadow_size = 8
+	_tip.add_theme_stylebox_override("panel", tip_style)
+	_tip_label = Label.new()
+	_tip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_tip_label.add_theme_font_size_override("font_size", 16)
+	_tip_label.add_theme_color_override("font_color", Color(0.12, 0.1, 0.06))
+	_tip.add_child(_tip_label)
+	add_child(_tip)
 
 
 func open_unit(unit_id: int, stars: int, anchor: Vector2) -> void:
@@ -84,6 +111,7 @@ func open_unit(unit_id: int, stars: int, anchor: Vector2) -> void:
 
 
 func close_card() -> void:
+	_hide_tip()
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -184,7 +212,7 @@ func _add_stat_rows(entries: Array, font_size: int, rows: int) -> float:
 	var line_index := 0
 	while index < entries.size():
 		var line := HBoxContainer.new()
-		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.mouse_filter = Control.MOUSE_FILTER_PASS
 		line.add_theme_constant_override("separation", 14)
 		var end := mini(index + 4, entries.size())
 		for entry_index in range(index, end):
@@ -204,12 +232,12 @@ func _add_stat_rows(entries: Array, font_size: int, rows: int) -> float:
 
 func _stat_pair(item: Dictionary, font_size: int, px: int) -> HBoxContainer:
 	var pair := HBoxContainer.new()
-	pair.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pair.mouse_filter = Control.MOUSE_FILTER_PASS
 	pair.add_theme_constant_override("separation", 4)
 	pair.alignment = BoxContainer.ALIGNMENT_CENTER
 	var icon := _texture_icon(str(item.get("icon", "")), px)
 	if icon != null:
-		icon.tooltip_text = str(item.get("label", ""))
+		_bind_tip(icon, CharacterText.status_tooltip(str(item.get("label", ""))))
 		pair.add_child(icon)
 	var value := _make_label(font_size)
 	value.autowrap_mode = TextServer.AUTOWRAP_OFF
@@ -317,7 +345,7 @@ func _add_role_rows(entries: Array, font_size: int, rows: int) -> float:
 		slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		var caption_icon := _texture_icon(CharacterText.status_icon(caption), px)
 		if caption_icon != null:
-			caption_icon.tooltip_text = caption + "属性"
+			_bind_tip(caption_icon, CharacterText.status_tooltip(caption))
 			slot.add_child(caption_icon)
 		grid.add_child(slot)
 		var attrs := HBoxContainer.new()
@@ -368,7 +396,7 @@ func _rebuild_detail(unit_id: int) -> void:
 func _make_table(rows_value: Variant, font_size: int) -> Control:
 	var rows: Array = rows_value if rows_value is Array else []
 	var frame := PanelContainer.new()
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.mouse_filter = Control.MOUSE_FILTER_PASS
 	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(1, 1, 1, 0.05)
@@ -376,7 +404,7 @@ func _make_table(rows_value: Variant, font_size: int) -> Control:
 	style.set_corner_radius_all(8)
 	frame.add_theme_stylebox_override("panel", style)
 	var grid := GridContainer.new()
-	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grid.mouse_filter = Control.MOUSE_FILTER_PASS
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 4)
@@ -403,7 +431,7 @@ func _table_cell(text: String, font_size: int, header: bool, numeric_column: boo
 	if not status_path.is_empty():
 		var status_icon := _texture_icon(status_path, CharacterText.icon_px(font_size))
 		if status_icon != null:
-			status_icon.tooltip_text = text
+			_bind_tip(status_icon, CharacterText.status_tooltip(text))
 			return status_icon
 	var icon_path := CharacterText.attribute_icon(text)
 	if not icon_path.is_empty():
@@ -433,8 +461,7 @@ func _table_cell(text: String, font_size: int, header: bool, numeric_column: boo
 func _attribute_icon(attr_name: String, px: int) -> TextureRect:
 	var icon := _texture_icon(CharacterText.attribute_icon(attr_name), px)
 	if icon != null:
-		var caption := attr_name.strip_edges()
-		icon.tooltip_text = caption if caption.ends_with("属性") else caption + "属性"
+		_bind_tip(icon, CharacterText.attribute_tooltip(attr_name))
 	return icon
 
 
@@ -449,6 +476,7 @@ func _texture_icon(path: String, px: int) -> TextureRect:
 		aspect = float(texture.get_width()) / float(texture.get_height())
 	var rect := TextureRect.new()
 	rect.mouse_filter = Control.MOUSE_FILTER_STOP
+	rect.mouse_default_cursor_shape = Control.CURSOR_HELP
 	rect.texture = texture
 	rect.custom_minimum_size = Vector2(maxf(1.0, float(px) * aspect), px)
 	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -459,6 +487,56 @@ func _texture_icon(path: String, px: int) -> TextureRect:
 		material.shader = ROUNDED_ICON
 		rect.material = material
 	return rect
+
+
+func _bind_tip(control: Control, text: String) -> void:
+	if control == null or text.is_empty():
+		return
+	control.set_meta("tip_text", text)
+	control.tooltip_text = ""
+	if not control.mouse_entered.is_connected(_on_tip_control_entered):
+		control.mouse_entered.connect(_on_tip_control_entered.bind(control))
+	if not control.mouse_exited.is_connected(_on_tip_control_exited):
+		control.mouse_exited.connect(_on_tip_control_exited.bind(control))
+
+
+func _on_tip_control_entered(control: Control) -> void:
+	if control == null or not is_instance_valid(control):
+		return
+	_show_tip(str(control.get_meta("tip_text", "")), control)
+
+
+func _on_tip_control_exited(control: Control) -> void:
+	if _tip_owner == control:
+		_hide_tip()
+
+
+func _show_tip(text: String, owner: Control = null, at_global: Variant = null) -> void:
+	if text.is_empty() or _tip == null or _tip_label == null:
+		return
+	_tip_owner = owner
+	_tip_label.text = text
+	_tip.visible = true
+	_tip.reset_size()
+	var tip_size := _tip.get_combined_minimum_size()
+	_tip.size = tip_size
+	var pos := get_global_mouse_position() + Vector2(14.0, -28.0)
+	if at_global is Vector2:
+		pos = at_global as Vector2
+	elif owner != null and is_instance_valid(owner):
+		var rect := owner.get_global_rect()
+		pos = Vector2(rect.get_center().x - tip_size.x * 0.5, rect.position.y - tip_size.y - 10.0)
+	var viewport_size := get_viewport().get_visible_rect().size
+	pos.x = clampf(pos.x, 8.0, maxf(8.0, viewport_size.x - tip_size.x - 8.0))
+	pos.y = clampf(pos.y, 8.0, maxf(8.0, viewport_size.y - tip_size.y - 8.0))
+	_tip.global_position = pos
+	_tip.move_to_front()
+
+
+func _hide_tip() -> void:
+	_tip_owner = null
+	if _tip != null:
+		_tip.visible = false
 
 
 func _as_strings(value: Variant) -> PackedStringArray:
@@ -498,6 +576,7 @@ func _make_rich(font_size: int, width: float) -> RichTextLabel:
 	var label := RichTextLabel.new()
 	label.mouse_filter = Control.MOUSE_FILTER_STOP
 	label.hint_underlined = false
+	label.meta_underlined = false
 	label.bbcode_enabled = true
 	label.fit_content = true
 	label.scroll_active = false
@@ -506,6 +585,17 @@ func _make_rich(font_size: int, width: float) -> RichTextLabel:
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("normal_font_size", font_size)
 	label.add_theme_color_override("default_color", Color(0.97, 0.96, 0.93))
+	label.meta_hover_started.connect(func(meta: Variant) -> void:
+		_show_tip(str(meta), label, get_global_mouse_position() + Vector2(12.0, -30.0))
+	)
+	label.meta_hover_ended.connect(func(_meta: Variant) -> void:
+		if _tip_owner == label:
+			_hide_tip()
+	)
+	label.mouse_exited.connect(func() -> void:
+		if _tip_owner == label:
+			_hide_tip()
+	)
 	return label
 
 

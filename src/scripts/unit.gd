@@ -2,6 +2,7 @@ class_name GameUnit
 extends StaticBody3D
 
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
+const STATUS_AURA_SHADER := preload("res://shaders/status_aura.gdshader")
 const MAX_STARS := 4
 const TARGET_MODEL_HEIGHT := 1.05
 const UNIT_RENDER_PRIORITY := 2
@@ -74,6 +75,12 @@ var _gauge_fill: MeshInstance3D
 var _hp_current := 0
 var _hp_max := 1
 var _hp_lag := -1.0
+var _buff_aura: Node3D
+var _debuff_aura: Node3D
+var _aura_time := 0.0
+var _aura_flash: Node3D
+var _has_buff_aura := false
+var _has_debuff_aura := false
 
 
 static func create(unit_id_value: int, star_count: int = 1) -> GameUnit:
@@ -141,6 +148,144 @@ func stop_guard_hit_shake() -> void:
 func _process(delta: float) -> void:
 	_process_guard_shake(delta)
 	_process_hp_lag(delta)
+	_process_status_aura(delta)
+
+
+func set_status_auras(has_buff: bool, has_debuff: bool) -> void:
+	_has_buff_aura = has_buff
+	_has_debuff_aura = has_debuff
+	if has_buff:
+		_buff_aura = _ensure_aura(_buff_aura, true)
+		_buff_aura.visible = true
+	elif _buff_aura != null:
+		_buff_aura.visible = false
+	if has_debuff:
+		_debuff_aura = _ensure_aura(_debuff_aura, false)
+		_debuff_aura.visible = true
+	elif _debuff_aura != null:
+		_debuff_aura.visible = false
+
+
+func clear_status_auras() -> void:
+	set_status_auras(false, false)
+	clear_aura_flash()
+
+
+func flash_status_aura(is_buff: bool) -> void:
+	clear_aura_flash()
+	_aura_flash = _make_aura_root(is_buff, true)
+	_aura_flash.name = "AuraFlash"
+	add_child(_aura_flash)
+
+
+func clear_aura_flash() -> void:
+	if _aura_flash != null and is_instance_valid(_aura_flash):
+		_aura_flash.queue_free()
+	_aura_flash = null
+
+
+func _process_status_aura(delta: float) -> void:
+	if not _has_buff_aura and not _has_debuff_aura and _aura_flash == null:
+		return
+	_aura_time += delta
+	if _buff_aura != null and _buff_aura.visible:
+		_animate_aura_root(_buff_aura, delta, 1.15, 1.0)
+	if _debuff_aura != null and _debuff_aura.visible:
+		_animate_aura_root(_debuff_aura, delta, -1.45, 1.15)
+	if _aura_flash != null and is_instance_valid(_aura_flash):
+		_animate_aura_root(_aura_flash, delta, 2.1, 1.35)
+
+
+func _animate_aura_root(root: Node3D, delta: float, spin: float, breath_speed: float) -> void:
+	root.rotation.y = wrapf(root.rotation.y + delta * spin, 0.0, TAU)
+	var breath := 1.0 + 0.045 * sin(_aura_time * (3.4 + breath_speed) + float(root.get_instance_id() % 7))
+	root.scale = Vector3(breath, 1.0 + 0.03 * sin(_aura_time * 2.7 + 0.8), breath)
+	for child in root.get_children():
+		if child is MeshInstance3D:
+			var mesh_instance := child as MeshInstance3D
+			mesh_instance.rotation.y = wrapf(mesh_instance.rotation.y + delta * spin * 0.35, 0.0, TAU)
+			mesh_instance.rotation.x = 0.08 * sin(_aura_time * 1.7 + mesh_instance.position.y)
+
+
+func _ensure_aura(current: Node3D, is_buff: bool) -> Node3D:
+	if current != null and is_instance_valid(current):
+		return current
+	var aura := _make_aura_root(is_buff, false)
+	aura.name = "BuffAura" if is_buff else "DebuffAura"
+	add_child(aura)
+	return aura
+
+
+func _make_aura_root(is_buff: bool, flash: bool) -> Node3D:
+	var root := Node3D.new()
+	var primary := Color(0.38, 0.98, 0.78, 0.72) if is_buff else Color(0.78, 0.32, 1.0, 0.78)
+	var secondary := Color(1.0, 0.88, 0.42, 0.58) if is_buff else Color(0.48, 0.95, 0.28, 0.62)
+	var density := 1.25 if flash else 1.0
+	root.add_child(_make_aura_shell(Vector3(0.0, 0.52, 0.0), Vector3(0.7, 1.05, 0.7), primary, 0.62, 2.4, density))
+	root.add_child(_make_aura_shell(Vector3(0.0, 0.48, 0.0), Vector3(0.86, 0.78, 0.86), secondary, 0.9, 3.3, density * 0.85))
+	root.add_child(_make_aura_shell(Vector3(0.0, 0.28, 0.0), Vector3(0.98, 0.42, 0.98), primary, 1.15, 1.8, density * 0.7))
+	return root
+
+
+func _make_aura_shell(offset: Vector3, mesh_scale: Vector3, color: Color, flow_speed: float, patch_scale: float, density: float) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.5
+	sphere.height = 1.0
+	sphere.radial_segments = 24
+	sphere.rings = 12
+	mesh_instance.mesh = sphere
+	mesh_instance.position = offset
+	mesh_instance.scale = mesh_scale
+	mesh_instance.material_override = _make_aura_material(color, flow_speed, patch_scale, density)
+	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mesh_instance
+
+
+func _make_aura_material(color: Color, flow_speed: float, patch_scale: float, density: float) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = STATUS_AURA_SHADER
+	mat.set_shader_parameter("aura_color", color)
+	mat.set_shader_parameter("flow_speed", flow_speed)
+	mat.set_shader_parameter("patch_scale", patch_scale)
+	mat.set_shader_parameter("threshold_low", 0.3)
+	mat.set_shader_parameter("threshold_high", 0.7)
+	mat.set_shader_parameter("rim_boost", 0.75)
+	mat.set_shader_parameter("density", density)
+	mat.render_priority = UNIT_RENDER_PRIORITY + 1
+	return mat
+
+
+static func make_transfer_orb(is_buff: bool) -> Node3D:
+	var root := Node3D.new()
+	var primary := Color(0.5, 1.0, 0.82, 0.85) if is_buff else Color(0.82, 0.38, 1.0, 0.88)
+	var secondary := Color(1.0, 0.92, 0.5, 0.7) if is_buff else Color(0.55, 0.98, 0.32, 0.72)
+	root.add_child(_make_transfer_shell(0.22, primary, 1.4, 3.2, 1.35))
+	root.add_child(_make_transfer_shell(0.34, secondary, 1.8, 2.2, 0.95))
+	return root
+
+
+static func _make_transfer_shell(radius: float, color: Color, flow_speed: float, patch_scale: float, density: float) -> MeshInstance3D:
+	var mesh_instance := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = radius
+	sphere.height = radius * 2.0
+	sphere.radial_segments = 18
+	sphere.rings = 10
+	mesh_instance.mesh = sphere
+	var mat := ShaderMaterial.new()
+	mat.shader = STATUS_AURA_SHADER
+	mat.set_shader_parameter("aura_color", color)
+	mat.set_shader_parameter("flow_speed", flow_speed)
+	mat.set_shader_parameter("patch_scale", patch_scale)
+	mat.set_shader_parameter("threshold_low", 0.28)
+	mat.set_shader_parameter("threshold_high", 0.66)
+	mat.set_shader_parameter("rim_boost", 0.55)
+	mat.set_shader_parameter("density", density)
+	mat.render_priority = UNIT_RENDER_PRIORITY + 2
+	mesh_instance.material_override = mat
+	mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mesh_instance
 
 
 func _process_guard_shake(delta: float) -> void:

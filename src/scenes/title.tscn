@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://cmrev2t6tdau4"]
+[gd_scene load_steps=4 format=3 uid="uid://cmrev2t6tdau4"]
 
 [ext_resource type="Script" uid="uid://dm6um7lyoxhg0" path="res://scripts/title.gd" id="1_title"]
 [ext_resource type="VideoStream" uid="uid://ddo01cfh81i3d" path="res://movies/title.ogv" id="2_video"]
+[ext_resource type="Script" uid="uid://dpwg81f21mmwa" path="res://scripts/title_cipher.gd" id="3_cipher"]
 
 [node name="Title" type="Control"]
 layout_mode = 3
@@ -25,31 +26,30 @@ autoplay = true
 expand = true
 loop = true
 
-[node name="TitleLabel" type="Label" parent="."]
+[node name="TitleLabel" type="Control" parent="."]
 layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -1211.0
-offset_top = -585.0
-offset_right = 34.0
-offset_bottom = 200.0
+offset_left = -1100.0
+offset_top = -1240.0
+offset_right = -24.0
+offset_bottom = -400.0
 grow_horizontal = 0
 grow_vertical = 0
-theme_override_constants/line_spacing = -500
-theme_override_font_sizes/font_size = 600
-text = "Dopa
-Auto
-chess"
-horizontal_alignment = 2
+script = ExtResource("3_cipher")
+font_size = 520
 
 [node name="StartButton" type="Button" parent="."]
 layout_mode = 1
-offset_left = -354.0
-offset_top = 469.0
-offset_right = 1848.0
-offset_bottom = 614.0
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -120.0
+grow_horizontal = 2
+grow_vertical = 0
 theme_override_font_sizes/font_size = 100
 text = "Start"

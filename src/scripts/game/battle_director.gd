@@ -11,7 +11,10 @@ const STEP_TIME := 0.28
 const ATTACK_HIT_TIME := 1.05
 const ATTACK_AFTER_TIME := 0.28
 const GUARD_TIME := 1.15
-const BUFF_TIME := 1.25
+const BUFF_TIME := 0.35
+const STATUS_RISE_TIME := 0.28
+const STATUS_FLY_TIME := 0.38
+const STATUS_FALL_TIME := 0.32
 
 var _host: Node
 var _fighters: Dictionary = {}
@@ -85,7 +88,7 @@ func play() -> Dictionary:
 		if _arita_skips(actor):
 			if is_instance_valid(actor.unit):
 				actor.unit.play_battle_role("idle")
-			_spend_action_points(spent, actor, false)
+			await _spend_action_points(spent, actor, false)
 			if actor.alive and is_instance_valid(actor.unit):
 				actor.ap = actor.base_ap
 				actor.unit.action_value = actor.ap
@@ -100,11 +103,11 @@ func play() -> Dictionary:
 		var was_buff: bool = await _act(actor)
 		if _host == null or not _host.is_inside_tree():
 			break
-		_spend_action_points(spent, actor, was_buff)
+		await _spend_action_points(spent, actor, was_buff)
 		if actor.alive and is_instance_valid(actor.unit):
 			actor.ap = actor.base_ap
 			actor.unit.action_value = actor.ap
-		_kits_after_turn(actor, was_buff)
+		await _kits_after_turn(actor, was_buff)
 		_refresh_bar()
 	var remaining := _alive_count(true)
 	finish()
@@ -116,6 +119,7 @@ func cleanse_debuff(unit: GameUnit) -> void:
 		return
 	_clear_debuffs_on_target(unit.get_instance_id())
 	_host.board.restore_debuffed_unit(unit)
+	_refresh_unit_aura(unit)
 	if _host.session.phase == GameSession.Phase.BATTLE:
 		_sync_queue()
 
@@ -162,7 +166,10 @@ func finish() -> void:
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
 		var unit := fighter.unit
-		if unit == null or not is_instance_valid(unit) or unit.is_enemy:
+		if unit == null or not is_instance_valid(unit):
+			continue
+		unit.clear_status_auras()
+		if unit.is_enemy:
 			continue
 		unit.battle_ko = false
 		unit.stop_guard_hit_shake()
@@ -251,6 +258,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var cap_before := dealt
 	dealt = _ktrnksy_cap(target, dealt, direct)
 	_play_attack_sounds(actor, crit)
+	_play_hit_fx(actor, target)
 	var absorbed := _apply_damage(target, dealt)
 	if guarded:
 		target.unit.popup_battle_text("ガード", Color(0.62, 0.84, 1.0))
@@ -278,17 +286,21 @@ func _support(actor: Fighter) -> void:
 		var ally := _buff_target(actor, kind)
 		if ally == null:
 			ally = actor
+		await _play_status_transfer(actor.unit, ally.unit, true)
 		_set_single_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
+		_refresh_unit_aura(ally.unit)
 		ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
 		_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
-		_note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
+		await _note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
 	else:
 		var foe := _debuff_target(actor)
 		if foe == null or not is_instance_valid(foe.unit):
 			_host._log("%s のデバフは対象がいない" % actor.unit.get_display_name())
 			await _wait(0.25)
 			return
+		await _play_status_transfer(actor.unit, foe.unit, false)
 		_add_debuff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
+		_refresh_unit_aura(foe.unit)
 		foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
 		_host._log("%s が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
 		if actor.enemy and not foe.enemy:
@@ -316,6 +328,10 @@ func _ko(fighter: Fighter) -> void:
 		return
 	unit.battle_ko = true
 	unit.stop_guard_hit_shake()
+	if fighter.enemy:
+		GameAudio.play_battle_slay()
+	else:
+		GameAudio.play_battle_fall()
 	unit.popup_battle_text("倒れた", Color(1.0, 0.45, 0.42))
 	_host._log("%s が倒れた" % unit.get_display_name())
 	_on_fighter_down(fighter)
@@ -434,7 +450,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 		var lost := before - fighter.ap
 		_shed_dot_layers(fighter, lost)
 		if fighter != actor and lost > 0:
-			_arita_on_ap_loss(fighter, was_buff)
+			await _arita_on_ap_loss(fighter, was_buff)
 		fighter.unit.action_value = fighter.ap
 	if actor.alive and is_instance_valid(actor.unit):
 		actor.ap = actor.base_ap
@@ -1073,6 +1089,15 @@ func _play_attack_sounds(actor: Fighter, crit: bool) -> void:
 		GameAudio.play_battle_critical()
 
 
+func _play_hit_fx(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null or not is_instance_valid(target.unit):
+		return
+	var parent: Node = _host.units_root if _host != null else null
+	if parent == null:
+		return
+	AttributeHitFx.play(parent, actor.element, target.unit.global_position)
+
+
 func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var stacks := int(target.layers.get(actor.element, 0))
 	if stacks <= 0 or not target.alive:
@@ -1199,6 +1224,76 @@ func _clear_debuffs_on_target(target_id: int) -> void:
 			if target != null:
 				_apply_buff_value(target, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
 		fighter.kit["debuffs"] = kept
+	var cleared := _fighter_by_id(target_id)
+	if cleared != null:
+		_refresh_unit_aura(cleared.unit)
+
+
+func _play_status_transfer(from_unit: GameUnit, to_unit: GameUnit, is_buff: bool) -> void:
+	if from_unit == null or to_unit == null or not is_instance_valid(from_unit) or not is_instance_valid(to_unit):
+		return
+	var parent: Node = _host.units_root if _host != null else null
+	if parent == null:
+		return
+	from_unit.flash_status_aura(is_buff)
+	await _wait(0.18)
+	var start := from_unit.global_position + Vector3(0.0, 0.7, 0.0)
+	var peak_from := from_unit.global_position + Vector3(0.0, 2.15, 0.0)
+	var peak_to := to_unit.global_position + Vector3(0.0, 2.15, 0.0)
+	var end := to_unit.global_position + Vector3(0.0, 0.7, 0.0)
+	var orb := GameUnit.make_transfer_orb(is_buff)
+	orb.name = "StatusTransfer"
+	parent.add_child(orb)
+	orb.global_position = start
+	from_unit.clear_aura_flash()
+	await _tween_node(orb, peak_from, STATUS_RISE_TIME)
+	if not is_instance_valid(orb):
+		return
+	await _tween_node(orb, peak_to, STATUS_FLY_TIME)
+	if not is_instance_valid(orb):
+		return
+	await _tween_node(orb, end, STATUS_FALL_TIME)
+	if is_instance_valid(orb):
+		orb.queue_free()
+
+
+func _tween_node(node: Node3D, dest: Vector3, duration: float) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if _motion != null:
+		_motion.kill()
+	_motion = node.create_tween()
+	_motion.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_motion.tween_property(node, "global_position", dest, duration)
+	await _motion.finished
+
+
+func _refresh_unit_aura(unit: GameUnit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	unit.set_status_auras(_unit_has_buff(unit), _unit_has_debuff(unit))
+
+
+func _unit_has_buff(unit: GameUnit) -> bool:
+	var unit_id := unit.get_instance_id()
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if int(fighter.kit.get("buff_target_id", -1)) == unit_id:
+			return true
+		if int(fighter.kit.get("copy_target_id", -1)) == unit_id:
+			return true
+	return false
+
+
+func _unit_has_debuff(unit: GameUnit) -> bool:
+	var unit_id := unit.get_instance_id()
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		for entry in fighter.kit.get("debuffs", []):
+			var item: Dictionary = entry
+			if int(item.get("target_id", -1)) == unit_id:
+				return true
+	return false
 
 
 func _set_single_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
@@ -1207,6 +1302,7 @@ func _set_single_buff(actor: Fighter, target: Fighter, kind: String, amount: flo
 	actor.kit["buff_target_id"] = target.unit.get_instance_id()
 	actor.kit["buff_kind_active"] = kind
 	actor.kit["buff_amount_active"] = amount
+	_refresh_unit_aura(target.unit)
 
 
 func _apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
@@ -1230,6 +1326,7 @@ func _clear_single_buff(actor: Fighter) -> void:
 	var target := _fighter_by_id(int(actor.kit.get("buff_target_id", -1)))
 	if target != null:
 		_apply_buff_value(target, str(actor.kit.get("buff_kind_active", "")), -float(actor.kit.get("buff_amount_active", 0.0)))
+		_refresh_unit_aura(target.unit)
 	actor.kit["buff_target_id"] = -1
 
 
@@ -1237,6 +1334,7 @@ func _clear_copy(arita: Fighter) -> void:
 	var target := _fighter_by_id(int(arita.kit.get("copy_target_id", -1)))
 	if target != null:
 		_apply_buff_value(target, str(arita.kit.get("copy_kind", "")), -float(arita.kit.get("copy_amount", 0.0)))
+		_refresh_unit_aura(target.unit)
 	arita.kit["copy_target_id"] = -1
 	arita.kit["copy_amount"] = 0.0
 
@@ -1266,7 +1364,7 @@ func _note_arita_buff(actor: Fighter, target: Fighter, kind: String, amount: flo
 		ally.kit["last_target_id"] = target.unit.get_instance_id()
 		ally.kit["last_amount"] = amount
 		if int(ally.kit.get("gauge", 0)) >= 100:
-			_arita_copy(ally)
+			await _arita_copy(ally)
 			ally.kit["gauge"] = 0
 			_show_gauge(ally)
 
@@ -1278,10 +1376,13 @@ func _arita_copy(arita: Fighter) -> void:
 		return
 	var kind := str(arita.kit.get("last_kind", ""))
 	var amount := float(arita.kit.get("last_amount", 0.0))
+	if is_instance_valid(arita.unit) and is_instance_valid(target.unit):
+		await _play_status_transfer(arita.unit, target.unit, true)
 	_apply_buff_value(target, kind, amount)
 	arita.kit["copy_target_id"] = target.unit.get_instance_id()
 	arita.kit["copy_kind"] = kind
 	arita.kit["copy_amount"] = amount
+	_refresh_unit_aura(target.unit)
 	_host._log("%s が %s へのバフをコピー（%s）" % [arita.unit.get_display_name(), target.unit.get_display_name(), _describe_effect(kind, amount)])
 
 
@@ -1303,7 +1404,7 @@ func _arita_on_ap_loss(fighter: Fighter, was_buff: bool) -> void:
 		_show_gauge(fighter)
 		return
 	if was_buff:
-		_arita_copy(fighter)
+		await _arita_copy(fighter)
 		fighter.kit["gauge"] = 0
 	else:
 		fighter.kit["gauge"] = 100
@@ -1422,7 +1523,7 @@ func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 		_show_gauge(actor)
 		_recompute_speed(actor, false)
 	if actor.sheet_id == 5:
-		_arita_on_ap_loss(actor, was_buff)
+		await _arita_on_ap_loss(actor, was_buff)
 
 
 func _fighter_by_id(instance_id: int) -> Fighter:

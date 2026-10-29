@@ -37,6 +37,28 @@ func _ready() -> void:
 	settings.offset_bottom = 84.0
 	settings.z_index = 10
 	add_child(settings)
+	resized.connect(_layout_chrome)
+	_layout_chrome()
+
+
+func _layout_chrome() -> void:
+	var start := $StartButton as Button
+	if start != null:
+		start.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		start.offset_left = 0.0
+		start.offset_right = 0.0
+		start.offset_top = -120.0
+		start.offset_bottom = 0.0
+	var title := $TitleLabel as Control
+	if title != null:
+		var lift := 520.0 * 0.5
+		if title is TitleCipher:
+			lift = float((title as TitleCipher).font_size) * 0.5
+		title.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		title.offset_right = -24.0
+		title.offset_bottom = -140.0 - lift
+		title.offset_left = -minf(size.x * 0.72, 1100.0)
+		title.offset_top = -minf(size.y * 0.78, 980.0) - lift
 
 
 func _process(_delta: float) -> void:

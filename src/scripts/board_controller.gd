@@ -23,6 +23,7 @@ const ALLY_YAW := PI
 const ENEMY_YAW := 0.0
 
 var bench_units: Array = []
+var overflow_units: Array = []
 var board_unit_limit: int = 1
 var active_face: int = 0
 
@@ -204,6 +205,36 @@ func _attack_element(unit: GameUnit) -> String:
 	return label
 
 
+func get_active_formation_elements() -> PackedStringArray:
+	var elements: Array[String] = []
+	for slot_index in FRONT_COUNT:
+		var unit := get_resolved_unit(active_face, slot_index)
+		if unit == null or unit.battle_ko:
+			elements.append("")
+		else:
+			elements.append(_attack_element(unit))
+	var found: Dictionary = {}
+	var ordered: PackedStringArray = []
+	for slot_index in FRONT_COUNT:
+		var element := elements[slot_index]
+		if element.is_empty() or found.has(element):
+			continue
+		var count := 0
+		var index := slot_index
+		while index >= 0 and elements[index] == element:
+			count += 1
+			index -= 1
+		index = slot_index + 1
+		while index < FRONT_COUNT and elements[index] == element:
+			count += 1
+			index += 1
+		if count < 2:
+			continue
+		found[element] = true
+		ordered.append(element)
+	return ordered
+
+
 func get_action_order() -> Array:
 	var entries: Array = []
 	var seen: Dictionary = {}
@@ -248,6 +279,10 @@ func get_all_units() -> Array[GameUnit]:
 				units.append(unit)
 	for unit in bench_units:
 		if unit != null:
+			units.append(unit)
+	_prune_overflow()
+	for unit in overflow_units:
+		if unit != null and is_instance_valid(unit):
 			units.append(unit)
 	return units
 
@@ -342,6 +377,62 @@ func bench_is_full() -> bool:
 	return find_empty_bench_slot() == -1
 
 
+func has_overflow() -> bool:
+	_prune_overflow()
+	return not overflow_units.is_empty()
+
+
+func get_overflow_units() -> Array:
+	_prune_overflow()
+	return overflow_units.duplicate()
+
+
+func push_overflow(unit: GameUnit) -> void:
+	if unit == null or not is_instance_valid(unit) or unit.is_enemy:
+		return
+	_detach(unit)
+	_remove_from_overflow(unit)
+	overflow_units.append(unit)
+	unit.visible = false
+	unit.set_battle_walking(false)
+	units_changed.emit()
+
+
+func take_overflow(index: int) -> GameUnit:
+	_prune_overflow()
+	if index < 0 or index >= overflow_units.size():
+		return null
+	var unit: GameUnit = overflow_units[index]
+	overflow_units.remove_at(index)
+	units_changed.emit()
+	return unit
+
+
+func try_absorb_overflow() -> void:
+	_prune_overflow()
+	var moved := false
+	while not overflow_units.is_empty():
+		var slot := find_empty_bench_slot()
+		if slot < 0:
+			break
+		var unit: GameUnit = overflow_units[0]
+		overflow_units.remove_at(0)
+		_attach_bench(unit, slot)
+		moved = true
+	if moved:
+		_finish_mutation()
+		return
+	units_changed.emit()
+
+
+func would_exceed_board_limit(unit: GameUnit) -> bool:
+	if unit == null or unit.is_enemy:
+		return false
+	if unit.is_on_board():
+		return false
+	return get_board_unit_count() >= board_unit_limit
+
+
 func find_empty_circle_slot(face_index: int) -> int:
 	if face_index < 0 or face_index >= _unlocked_faces:
 		return -1
@@ -387,7 +478,8 @@ func try_move_unit_to_circle(unit: GameUnit, face_index: int, slot_index: int) -
 	if occupant == unit:
 		return true
 	var from_bench := unit.is_on_bench()
-	if occupant == null and from_bench and get_board_unit_count() >= board_unit_limit:
+	var from_overflow := overflow_units.has(unit)
+	if occupant == null and (from_bench or from_overflow) and get_board_unit_count() >= board_unit_limit:
 		return false
 	var src_face := unit.circle_face
 	var src_slot := unit.circle_slot
@@ -399,6 +491,10 @@ func try_move_unit_to_circle(unit: GameUnit, face_index: int, slot_index: int) -
 	if occupant != null:
 		if from_bench:
 			_attach_bench(occupant, src_bench)
+		elif from_overflow:
+			overflow_units.append(occupant)
+			occupant.visible = false
+			occupant.set_battle_walking(false)
 		else:
 			_attach_circle(occupant, src_face, src_slot)
 	_finish_mutation()
@@ -414,6 +510,7 @@ func try_move_unit_to_bench(unit: GameUnit, slot_index: int) -> bool:
 	if occupant == unit:
 		return true
 	var from_circle := unit.is_on_board()
+	var from_overflow := overflow_units.has(unit)
 	var src_face := unit.circle_face
 	var src_slot := unit.circle_slot
 	var src_bench := unit.bench_index
@@ -424,8 +521,16 @@ func try_move_unit_to_bench(unit: GameUnit, slot_index: int) -> bool:
 	if occupant != null:
 		if from_circle:
 			_attach_circle(occupant, src_face, src_slot)
-		else:
+		elif src_bench >= 0:
 			_attach_bench(occupant, src_bench)
+		elif from_overflow:
+			overflow_units.append(occupant)
+			occupant.visible = false
+			occupant.set_battle_walking(false)
+		else:
+			overflow_units.append(occupant)
+			occupant.visible = false
+			occupant.set_battle_walking(false)
 	_finish_mutation()
 	return true
 
@@ -613,7 +718,21 @@ func _detach(unit: GameUnit) -> void:
 		_faces[unit.circle_face][unit.circle_slot] = null
 	if unit.is_on_bench() and unit.bench_index < bench_units.size() and bench_units[unit.bench_index] == unit:
 		bench_units[unit.bench_index] = null
+	_remove_from_overflow(unit)
 	unit.clear_location()
+
+
+func _remove_from_overflow(unit: GameUnit) -> void:
+	for index in range(overflow_units.size() - 1, -1, -1):
+		if overflow_units[index] == unit:
+			overflow_units.remove_at(index)
+
+
+func _prune_overflow() -> void:
+	for index in range(overflow_units.size() - 1, -1, -1):
+		var unit: GameUnit = overflow_units[index]
+		if unit == null or not is_instance_valid(unit):
+			overflow_units.remove_at(index)
 
 
 func _attach_circle(unit: GameUnit, face_index: int, slot_index: int) -> void:

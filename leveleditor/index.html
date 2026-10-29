@@ -56,26 +56,26 @@
   #status { color: var(--muted); min-width: 8em; }
   main { display: grid; grid-template-columns: 280px 1fr 280px; min-height: 0; }
   aside, section { min-height: 0; overflow: auto; }
-  #list-pane, #compare-pane, #synergy-list-pane, #synergy-summary { background: var(--panel); }
-  #list-pane, #synergy-list-pane { border-right: 1px solid var(--line); padding: 10px; }
-  #compare-pane, #synergy-summary { border-left: 1px solid var(--line); padding: 12px; }
-  #synergy-editor { padding: 14px 16px 40px; }
-  #synergy-query { width: 100%; margin-top: 6px; }
+  #list-pane, #compare-pane, #synergy-list-pane, #synergy-summary, #relic-list-pane, #relic-aside { background: var(--panel); }
+  #list-pane, #synergy-list-pane, #relic-list-pane { border-right: 1px solid var(--line); padding: 10px; }
+  #compare-pane, #synergy-summary, #relic-aside { border-left: 1px solid var(--line); padding: 12px; }
+  #synergy-editor, #relic-editor { padding: 14px 16px 40px; }
+  #synergy-query, #relic-query { width: 100%; margin-top: 6px; }
   #synergy-list-pane .row-actions input { flex: 1; width: auto; margin-top: 0; }
   #editor { padding: 14px 16px 40px; }
   .toolbar { display: flex; gap: 6px; margin: 8px 0; }
-  .toolbar select, .toolbar input, #synergy-filter, #query { width: 100%; margin-top: 6px; }
+  .toolbar select, .toolbar input, #synergy-filter, #query, #relic-category-filter { width: 100%; margin-top: 6px; }
   .checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
   .checks label { display: flex; gap: 4px; align-items: center; font-size: 13px; }
-  #list, #synergy-list { list-style: none; margin: 8px 0 0; padding: 0; }
-  #list li, #synergy-list li {
+  #list, #synergy-list, #relic-list { list-style: none; margin: 8px 0 0; padding: 0; }
+  #list li, #synergy-list li, #relic-list li {
     padding: 7px 8px;
     border-radius: 4px;
     cursor: pointer;
   }
-  #list li:hover, #synergy-list li:hover { background: var(--soft); }
-  #list li.active, #synergy-list li.active { background: #efe2c6; }
-  #list .meta, #synergy-list .meta, #written-count { color: var(--muted); font-size: 12px; }
+  #list li:hover, #synergy-list li:hover, #relic-list li:hover { background: var(--soft); }
+  #list li.active, #synergy-list li.active, #relic-list li.active { background: #efe2c6; }
+  #list .meta, #synergy-list .meta, #relic-list .meta, #written-count, #relic-written-count { color: var(--muted); font-size: 12px; }
   #written-count { margin: 8px 0 0; }
   .name-line { display: flex; gap: 6px; align-items: baseline; }
   .written { color: var(--good); font-weight: 700; }
@@ -120,10 +120,12 @@
   <nav class="tabbar">
     <button id="tab-characters" class="active" type="button">キャラクター</button>
     <button id="tab-synergies" type="button">シナジー</button>
+    <button id="tab-relics" type="button">レリック</button>
     <button id="tab-standards" type="button">基準</button>
   </nav>
   <button id="reload" type="button">再読み込み</button>
   <button id="save-char" class="primary char-only" type="button">このキャラを保存</button>
+  <button id="save-relic" class="primary relic-only" type="button" hidden>このレリックを保存</button>
   <span id="status"></span>
 </header>
 <main id="character-view">
@@ -175,6 +177,37 @@
   <section id="synergy-editor"></section>
   <aside id="synergy-summary"></aside>
 </main>
+<main id="relic-view" hidden>
+  <aside id="relic-list-pane">
+    <select id="relic-category-filter">
+      <option value="">すべての分類</option>
+    </select>
+    <input id="relic-query" type="search" placeholder="名前・ID">
+    <div class="toolbar">
+      <select id="relic-sort-key">
+        <option value="id">ID</option>
+        <option value="name">名前</option>
+        <option value="category">分類</option>
+        <option value="written">詳細</option>
+      </select>
+      <select id="relic-sort-dir">
+        <option value="1">昇順</option>
+        <option value="-1">降順</option>
+      </select>
+    </div>
+    <p id="relic-written-count"></p>
+    <ul id="relic-list"></ul>
+  </aside>
+  <section id="relic-editor"></section>
+  <aside id="relic-aside">
+    <h2>レリック</h2>
+    <p>名前と本体性能を書きます。合成の統一原理はここでは扱いません。</p>
+    <dl>
+      <dt>画像</dt>
+      <dd id="relic-image-note">src/images/relics の同ID</dd>
+    </dl>
+  </aside>
+</main>
 <main id="standard-view" hidden>
   <section>
     <div id="standard-editor"></div>
@@ -184,6 +217,8 @@
 <script>
 const STAR_LABELS = ["★1", "★2", "★3", "★4"];
 let characters = [];
+let relics = [];
+let relicCategories = [];
 let numericStats = [];
 let totalStats = [];
 const DEFAULT_SCALE = [1, 3.5, 10, 35];
@@ -194,6 +229,8 @@ let standards = {};
 let attributes = ["炎", "水", "雷", "土", "氷", "風", "吸収"];
 let selectedId = "";
 let draft = null;
+let selectedRelicId = "";
+let relicDraft = null;
 let mode = "characters";
 let selectedSynergy = "";
 let extraSynergies = [];
@@ -204,14 +241,19 @@ const statusEl = document.getElementById("status");
 function setStatus(text) { statusEl.textContent = text; }
 
 async function loadAll() {
-  const [charRes, setRes, textRes] = await Promise.all([
+  const [charRes, setRes, textRes, relicRes] = await Promise.all([
     fetch("/api/characters", { cache: "no-store" }),
     fetch("/api/settings", { cache: "no-store" }),
     fetch("/api/synergy-text", { cache: "no-store" }),
+    fetch("/api/relics", { cache: "no-store" }),
   ]);
   const payload = await charRes.json();
   const settings = await setRes.json();
+  const relicPayload = await relicRes.json();
   characters = payload.characters;
+  relics = relicPayload.relics || [];
+  relicCategories = relicPayload.categories || [];
+  if (!selectedRelicId && relics.length) selectedRelicId = relics[0].id;
   numericStats = payload.numericStats;
   totalStats = payload.totalStats;
   attributes = payload.attributes || attributes;
@@ -804,26 +846,191 @@ function renderStandardEditor() {
   `;
 }
 
+function hasRelicDetail(relic) {
+  return Boolean((relic.detail || "").trim() || (relic.brief || "").trim());
+}
+
+function listedRelic(relic) {
+  if (relicDraft && relicDraft.id === relic.id) return relicDraft;
+  return relic;
+}
+
+function relicSortValue(relic, key) {
+  if (key === "name") return relic.name;
+  if (key === "category") return relic.category || "";
+  if (key === "written") return hasRelicDetail(listedRelic(relic)) ? 1 : 0;
+  return relic.id;
+}
+
+function renderRelicCategoryFilter() {
+  const select = document.getElementById("relic-category-filter");
+  const current = select.value;
+  const names = new Set(relicCategories);
+  relics.forEach((relic) => {
+    if (relic.category) names.add(relic.category);
+  });
+  select.innerHTML = `<option value="">すべての分類</option>` + [...names].map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  if ([...names].includes(current) || current === "") select.value = current;
+}
+
+function renderRelicList() {
+  const category = document.getElementById("relic-category-filter").value;
+  const query = (document.getElementById("relic-query").value || "").trim().toLowerCase();
+  const sortKey = document.getElementById("relic-sort-key").value;
+  const sortDir = Number(document.getElementById("relic-sort-dir").value) || 1;
+  const rows = relics.filter((relic) => {
+    if (category && relic.category !== category) return false;
+    if (!query) return true;
+    return `${relic.id} ${relic.name}`.toLowerCase().includes(query);
+  });
+  rows.sort((a, b) => {
+    const left = relicSortValue(a, sortKey);
+    const right = relicSortValue(b, sortKey);
+    if (typeof left === "number" && typeof right === "number") return (left - right) * sortDir;
+    return String(left).localeCompare(String(right), "ja") * sortDir;
+  });
+  const written = rows.filter((relic) => hasRelicDetail(listedRelic(relic))).length;
+  document.getElementById("relic-written-count").textContent = `性能あり ${written} / ${rows.length}`;
+  const list = document.getElementById("relic-list");
+  list.innerHTML = "";
+  rows.forEach((relic) => {
+    const shown = listedRelic(relic);
+    const item = document.createElement("li");
+    if (relic.id === selectedRelicId) item.className = "active";
+    const mark = hasRelicDetail(shown) ? `<span class="written" title="性能あり">✓</span>` : "";
+    item.innerHTML = `<div class="name-line">${mark}<span>${escapeHtml(relic.id)} ${escapeHtml(shown.name)}</span></div><div class="meta">${escapeHtml(shown.category || "未分類")}</div>`;
+    item.addEventListener("click", () => selectRelic(relic.id));
+    list.appendChild(item);
+  });
+}
+
+function syncRelicDraftFromDom() {
+  if (!relicDraft) return;
+  const name = document.getElementById("r-name");
+  if (!name) return;
+  relicDraft.name = name.value;
+  relicDraft.category = document.getElementById("r-category").value;
+  relicDraft.equipable = document.getElementById("r-equipable").checked;
+  relicDraft.combinable = document.getElementById("r-combinable").checked;
+  relicDraft.brief = document.getElementById("r-brief").value;
+  relicDraft.detail = document.getElementById("r-detail").value;
+  const effects = {};
+  document.querySelectorAll("#relic-effect-rows tr").forEach((row) => {
+    const key = row.querySelector("[data-effect-name]").value.trim();
+    if (!key) return;
+    effects[key] = numberOrNull(row.querySelector("[data-effect-value]").value);
+  });
+  relicDraft.effects = effects;
+}
+
+function rememberRelicDraft() {
+  if (!relicDraft) return;
+  const index = relics.findIndex((relic) => relic.id === relicDraft.id);
+  if (index >= 0) relics[index] = structuredClone(relicDraft);
+}
+
+function selectRelic(id) {
+  if (relicDraft && relicDraft.id !== id) {
+    syncRelicDraftFromDom();
+    rememberRelicDraft();
+  }
+  selectedRelicId = id;
+  const source = relics.find((relic) => relic.id === id);
+  relicDraft = source ? structuredClone(source) : null;
+  renderRelicList();
+  renderRelicEditor();
+}
+
+function addRelicEffectRow(name = "", value = "") {
+  const body = document.getElementById("relic-effect-rows");
+  if (!body) return;
+  const row = document.createElement("tr");
+  row.innerHTML = `<td><input data-effect-name value="${escapeHtml(name)}"></td><td><input type="number" data-effect-value value="${value === null || value === undefined ? "" : escapeHtml(String(value))}"></td><td><button type="button" data-remove-effect>削除</button></td>`;
+  row.querySelector("[data-remove-effect]").addEventListener("click", () => row.remove());
+  body.appendChild(row);
+}
+
+function renderRelicEditor() {
+  const host = document.getElementById("relic-editor");
+  if (!relicDraft) {
+    host.innerHTML = "<p>レリックがありません。</p>";
+    document.getElementById("relic-image-note").textContent = "src/images/relics の同ID";
+    return;
+  }
+  const categories = [...new Set([...relicCategories, relicDraft.category].filter(Boolean))];
+  const categoryOptions = categories.map((name) => `<option value="${escapeHtml(name)}"${name === relicDraft.category ? " selected" : ""}>${escapeHtml(name)}</option>`).join("");
+  host.innerHTML = `
+    <h2>${escapeHtml(relicDraft.id)} ${escapeHtml(relicDraft.name || "")}</h2>
+    <div class="grid">
+      <label>名前</label><input id="r-name" value="${escapeHtml(relicDraft.name || "")}">
+      <label>分類</label><select id="r-category">${categoryOptions}</select>
+      <label>装備可能</label><label class="check-link"><input id="r-equipable" type="checkbox"${relicDraft.equipable ? " checked" : ""}>はい</label>
+      <label>合成可能</label><label class="check-link"><input id="r-combinable" type="checkbox"${relicDraft.combinable ? " checked" : ""}>はい</label>
+      <label>簡単な説明</label><textarea id="r-brief">${escapeHtml(relicDraft.brief || "")}</textarea>
+      <label>本体性能</label><textarea id="r-detail">${escapeHtml(relicDraft.detail || "")}</textarea>
+    </div>
+    <h3>効果値</h3>
+    <table>
+      <thead><tr><th>名前</th><th>値</th><th></th></tr></thead>
+      <tbody id="relic-effect-rows"></tbody>
+    </table>
+    <div class="row-actions"><button id="add-relic-effect" type="button">効果値を追加</button></div>
+  `;
+  Object.entries(relicDraft.effects || {}).forEach(([name, value]) => addRelicEffectRow(name, value));
+  document.getElementById("add-relic-effect").addEventListener("click", () => addRelicEffectRow());
+  document.getElementById("relic-image-note").textContent = `src/images/relics/${relicDraft.id}.png`;
+  host.querySelectorAll("textarea").forEach((node) => {
+    const fit = () => {
+      node.style.height = "auto";
+      node.style.height = `${Math.max(64, node.scrollHeight)}px`;
+    };
+    fit();
+    node.addEventListener("input", fit);
+  });
+}
+
 function showTab(tab) {
   if (mode === "standards") syncSettingsFromDom();
   if (tab !== mode) {
-    syncDraftFromDom();
-    rememberDraft();
+    if (mode === "characters") {
+      syncDraftFromDom();
+      rememberDraft();
+    }
+    if (mode === "relics") {
+      syncRelicDraftFromDom();
+      rememberRelicDraft();
+    }
   }
   mode = tab;
   document.getElementById("character-view").hidden = tab !== "characters";
   document.getElementById("synergy-view").hidden = tab !== "synergies";
+  document.getElementById("relic-view").hidden = tab !== "relics";
   document.getElementById("standard-view").hidden = tab !== "standards";
   document.getElementById("tab-characters").classList.toggle("active", tab === "characters");
   document.getElementById("tab-synergies").classList.toggle("active", tab === "synergies");
+  document.getElementById("tab-relics").classList.toggle("active", tab === "relics");
   document.getElementById("tab-standards").classList.toggle("active", tab === "standards");
   document.querySelectorAll(".char-only").forEach((node) => {
     node.hidden = tab !== "characters";
+  });
+  document.querySelectorAll(".relic-only").forEach((node) => {
+    node.hidden = tab !== "relics";
   });
   if (tab === "characters") {
     renderSynergyFilter();
     renderList();
     renderEditor();
+    return;
+  }
+  if (tab === "relics") {
+    renderRelicCategoryFilter();
+    if (!selectedRelicId && relics.length) selectedRelicId = relics[0].id;
+    if (selectedRelicId) selectRelic(selectedRelicId);
+    else {
+      relicDraft = null;
+      renderRelicList();
+      renderRelicEditor();
+    }
     return;
   }
   if (tab === "standards") {
@@ -1135,20 +1342,27 @@ document.getElementById("save-settings").addEventListener("click", async () => {
 document.getElementById("reload").addEventListener("click", async () => {
   const list = document.getElementById("list");
   const synergyList = document.getElementById("synergy-list");
+  const relicList = document.getElementById("relic-list");
   const editor = document.getElementById("editor");
   const listScroll = list.scrollTop;
   const synergyScroll = synergyList.scrollTop;
+  const relicScroll = relicList.scrollTop;
   const editorScroll = editor.scrollTop;
   try {
     await loadAll();
     if (mode === "synergies") {
       renderSynergyList();
       renderSynergyDetail();
+    } else if (mode === "relics") {
+      renderRelicCategoryFilter();
+      renderRelicList();
+      renderRelicEditor();
     } else if (mode === "standards") {
       renderStandardEditor();
     }
     list.scrollTop = listScroll;
     synergyList.scrollTop = synergyScroll;
+    relicList.scrollTop = relicScroll;
     editor.scrollTop = editorScroll;
     setStatus("再読み込みしました");
   } catch (error) {
@@ -1174,9 +1388,34 @@ document.getElementById("save-char").addEventListener("click", async () => {
   setStatus(`${saved.id} を保存しました`);
 });
 
+document.getElementById("save-relic").addEventListener("click", async () => {
+  if (!relicDraft) return;
+  syncRelicDraftFromDom();
+  const response = await fetch(`/api/relics/${relicDraft.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(relicDraft),
+  });
+  if (!response.ok) { setStatus("レリックの保存に失敗"); return; }
+  const saved = await response.json();
+  const index = relics.findIndex((relic) => relic.id === saved.id);
+  if (index >= 0) relics[index] = saved;
+  else relics.push(saved);
+  relicDraft = structuredClone(saved);
+  renderRelicCategoryFilter();
+  renderRelicList();
+  renderRelicEditor();
+  setStatus(`${saved.id} を保存しました`);
+});
+
 document.getElementById("tab-characters").addEventListener("click", () => showTab("characters"));
 document.getElementById("tab-synergies").addEventListener("click", () => showTab("synergies"));
+document.getElementById("tab-relics").addEventListener("click", () => showTab("relics"));
 document.getElementById("tab-standards").addEventListener("click", () => showTab("standards"));
+document.getElementById("relic-query").addEventListener("input", renderRelicList);
+document.getElementById("relic-category-filter").addEventListener("change", renderRelicList);
+document.getElementById("relic-sort-key").addEventListener("change", renderRelicList);
+document.getElementById("relic-sort-dir").addEventListener("change", renderRelicList);
 document.getElementById("synergy-query").addEventListener("input", renderSynergyList);
 document.getElementById("synergy-sort").addEventListener("change", renderSynergyList);
 document.getElementById("add-synergy").addEventListener("click", () => {

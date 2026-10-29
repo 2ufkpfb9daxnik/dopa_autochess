@@ -45,8 +45,14 @@ var _debuff_ritual: DebuffRitual
 var _last_reroll_button_text := ""
 var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
+var _overflow_pile: OverflowPile
+var _board_notice: BoardNotice
+var _formation_banner: FormationBanner
 var _action_order_bar: ActionOrderBar
 var _comment_flow: CommentFlow
+const NOTICE_CIRCLE_CAP := "プレイヤーレベルより多い人数のキャラクターをサークルに入れることはできません。"
+const NOTICE_BENCH_FULL := "ベンチの空きがありません。"
+const NOTICE_OVERFLOW := "キャラクターが溢れています！戦闘を開始できません。"
 var _synergy_list: VBoxContainer
 var _synergy_detail: PanelContainer
 var _synergy_detail_body: RichTextLabel
@@ -228,8 +234,8 @@ func _setup_bottom_ui_fonts() -> void:
 
 
 func _attach_action_icons() -> void:
-	_set_button_icon(reroll_button, "res://images/status/refresh.png", "更新。ショップを更新する。")
-	_set_button_icon(exp_button, "res://images/status/xp.png", "経験値購入。経験値があがり、レベルが上がるとサークルに置くことができるキャラクターの数が増える。")
+	_set_button_icon(reroll_button, "res://images/status/refresh.png", "ショップを更新する。")
+	_set_button_icon(exp_button, "res://images/status/xp.png", "経験値を購入し、レベルが上がるとサークルに置くことができるキャラクターの数が増える。")
 
 
 func _set_button_icon(button: Button, path: String, tip: String) -> void:
@@ -513,12 +519,15 @@ func _grant_debug_unit(unit_id: int) -> void:
 	var data := UnitCatalog.get_unit(unit_id)
 	if data.is_empty():
 		return
-	var slot := board.find_empty_bench_slot()
-	if slot < 0:
-		_log("ベンチが満杯です")
-		return
 	var unit := GameUnit.create(unit_id, 1)
 	units_root.add_child(unit)
+	var slot := board.find_empty_bench_slot()
+	if slot < 0:
+		board.push_overflow(unit)
+		GameAudio.play_buy()
+		_show_board_notice(NOTICE_OVERFLOW, true)
+		_log("%s が溢れた" % str(data["name"]))
+		return
 	if not board.place_on_bench(unit, slot):
 		unit.queue_free()
 		return
@@ -762,7 +771,10 @@ func _on_action(action: GameAction) -> void:
 
 
 func _buy_from_shop(slot_index: int) -> void:
-	var unit_id := session.try_buy_shop_slot(slot_index, board.bench_is_full())
+	if board.bench_is_full():
+		_show_board_notice(NOTICE_BENCH_FULL)
+		return
+	var unit_id := session.try_buy_shop_slot(slot_index, false)
 	if unit_id < 0:
 		return
 	GameAudio.play_buy()
@@ -776,6 +788,9 @@ func _buy_from_shop(slot_index: int) -> void:
 func _start_battle() -> void:
 	if not session.is_prep():
 		return
+	if board.has_overflow():
+		_show_board_notice(NOTICE_OVERFLOW, true)
+		return
 	if board.get_front_unit_count() <= 0:
 		_log("前衛に1人以上配置してください")
 		return
@@ -784,9 +799,8 @@ func _start_battle() -> void:
 	var secret_battle := session.extended_mode and session.round_number == session.max_round
 	GameAudio.play_battle(secret_battle, _battle.is_clock_tower())
 	session.start_battle()
-	input_handler.set_enabled(false)
-	prep_blocker.visible = true
-	battle_overlay.visible = true
+	prep_blocker.visible = false
+	battle_overlay.visible = false
 	board.set_battle_mode(true)
 	var enemy_count := EnemySpawn.spawn_for_battle(
 		board,
@@ -796,6 +810,7 @@ func _start_battle() -> void:
 	)
 	_log("敵 %d 体出現" % enemy_count)
 	_update_ui()
+	_announce_formation_bonus()
 	_battle_playing = true
 	_apply_battle_time_scale()
 	var outcome: Dictionary = await _combat.play()
@@ -885,6 +900,8 @@ func _battle_result_body(won: bool, hp_before: int, level_before: int) -> String
 		lines.append("連勝 %d" % session.win_streak)
 	else:
 		lines.append("連敗 %d" % session.loss_streak)
+	if session.last_cleanse_income > 0:
+		lines.append("デバフ解除の収益 +%d" % session.last_cleanse_income)
 	if session.is_run_over():
 		lines.append("")
 		lines.append("次のラウンドなし")
@@ -1018,6 +1035,8 @@ func _on_sell_requested(unit: GameUnit) -> void:
 	session.add_sell_income(refund)
 	board.remove_unit(unit)
 	unit.queue_free()
+	board.try_absorb_overflow()
+	_refresh_overflow_notice()
 	_log("%s %s を売却した (+%d)" % [name, stars, refund])
 
 
@@ -1025,6 +1044,23 @@ func _on_merges_applied(messages: Array[String]) -> void:
 	for message in messages:
 		_log("合成: %s" % message)
 		GameAudio.play_fusion()
+	board.try_absorb_overflow()
+	_refresh_overflow_notice()
+
+
+func _show_board_notice(text: String, persistent: bool = false) -> void:
+	if _board_notice == null:
+		return
+	_board_notice.show_notice(text, persistent)
+
+
+func _refresh_overflow_notice() -> void:
+	if _board_notice == null:
+		return
+	if board.has_overflow():
+		_show_board_notice(NOTICE_OVERFLOW, true)
+	elif _board_notice.is_persistent():
+		_board_notice.clear_persistent()
 
 
 func _show_income_feedback() -> void:
@@ -1287,8 +1323,18 @@ func _setup_formation_ui() -> void:
 	ui.move_child(_circle_wheel, insert_at)
 	ui.add_child(_bench_board)
 	ui.move_child(_bench_board, insert_at + 1)
+	_overflow_pile = OverflowPile.new()
+	_overflow_pile.name = "OverflowPile"
+	ui.add_child(_overflow_pile)
+	ui.move_child(_overflow_pile, insert_at + 2)
+	_board_notice = BoardNotice.new()
+	_board_notice.name = "BoardNotice"
+	ui.add_child(_board_notice)
+	_formation_banner = FormationBanner.new()
+	_formation_banner.name = "FormationBanner"
+	ui.add_child(_formation_banner)
 	ui.add_child(_action_order_bar)
-	ui.move_child(_action_order_bar, insert_at + 2)
+	ui.move_child(_action_order_bar, insert_at + 3)
 	_comment_flow = CommentFlow.new()
 	_comment_flow.name = "CommentFlow"
 	_comment_flow.z_index = 0
@@ -1305,7 +1351,7 @@ func _setup_formation_ui() -> void:
 	ui.add_child(_unit_inspect)
 	_setup_synergy_list()
 	ui.add_child(_drag_preview)
-	_circle_wheel.rotate_steps.connect(func(steps: int) -> void: board.apply_spin_commit(steps))
+	_circle_wheel.rotate_steps.connect(_on_circle_rotate_steps)
 	_circle_wheel.visual_shift_changed.connect(func(shift: float) -> void: board.set_visual_shift(shift))
 	_circle_wheel.center_pressed.connect(_formation.on_center_pressed)
 	_circle_wheel.unit_drag_started.connect(_formation.on_circle_drag_started)
@@ -1320,8 +1366,27 @@ func _setup_formation_ui() -> void:
 	_bench_board.unit_drag_started.connect(_formation.on_bench_drag_started)
 	_bench_board.unit_drag_finished.connect(_formation.on_bench_drag_finished)
 	_bench_board.slot_clicked.connect(_formation.on_bench_slot_clicked)
+	_overflow_pile.unit_drag_started.connect(_formation.on_overflow_drag_started)
+	_overflow_pile.unit_drag_finished.connect(_formation.on_overflow_drag_finished)
+	_overflow_pile.unit_clicked.connect(_formation.on_overflow_clicked)
 	if not get_viewport().size_changed.is_connected(_layout_formation_ui):
 		get_viewport().size_changed.connect(_layout_formation_ui)
+
+
+func _on_circle_rotate_steps(steps: int) -> void:
+	board.apply_spin_commit(steps)
+	if posmod(steps, BoardController.SLOTS_PER_FACE) == 0:
+		return
+	_announce_formation_bonus()
+
+
+func _announce_formation_bonus() -> void:
+	if _formation_banner == null:
+		return
+	var elements := board.get_active_formation_elements()
+	if elements.is_empty():
+		return
+	_formation_banner.show_elements(elements)
 
 
 func _open_debuff_ritual(slot_index: int) -> void:
@@ -1337,7 +1402,8 @@ func _on_debuff_cleared(unit: GameUnit) -> void:
 	if unit == null or not is_instance_valid(unit):
 		return
 	_combat.cleanse_debuff(unit)
-	_log("%s のデバフを解除した" % unit.get_display_name())
+	session.note_cleanse_income(1)
+	_log("%s のデバフを解除した（収益 +1）" % unit.get_display_name())
 	_formation.refresh_widgets()
 
 
@@ -1370,6 +1436,15 @@ func _layout_formation_ui() -> void:
 	_circle_wheel.z_index = 9
 	_circle_wheel.position = wheel_center - Vector2(wheel_size, wheel_size) * 0.5
 	_circle_wheel.size = Vector2(wheel_size, wheel_size)
+	if _board_notice != null:
+		var notice_top := _battle.battle_rect.end.y
+		var notice_bottom := _circle_wheel.position.y + wheel_size * 0.18
+		var notice_h := maxf(72.0, notice_bottom - notice_top)
+		_place_control(_board_notice, Rect2(battle_x, notice_top, battle_w, notice_h))
+	if _formation_banner != null:
+		var banner_h := maxf(96.0, _battle.view_height * 0.28)
+		var banner_top := _battle.battle_rect.position.y + _battle.view_height * 0.28
+		_place_control(_formation_banner, Rect2(battle_x, banner_top, battle_w, banner_h))
 	var right_x := shop_x
 	var right_bottom := bottom
 	var right_h := right_bottom - top
@@ -1380,6 +1455,7 @@ func _layout_formation_ui() -> void:
 	_shop.place(Rect2(cards_x, top, cards_w, shop_area_h))
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
+	_place_overflow_pile(right_x, cards_x, bench_top, bench_h)
 	_place_sell_zone(Rect2(_bench_board.position, _bench_board.size))
 	_place_side_column(right_x)
 	_place_debug_roster()
@@ -1448,6 +1524,22 @@ func _place_control(control: Control, rect: Rect2) -> void:
 	control.offset_top = rect.position.y
 	control.offset_right = rect.end.x
 	control.offset_bottom = rect.end.y
+
+
+func _place_overflow_pile(action_x: float, cards_x: float, bench_top: float, bench_h: float) -> void:
+	if _overflow_pile == null:
+		return
+	var units := board.get_overflow_units()
+	_overflow_pile.set_units(units)
+	if units.is_empty():
+		return
+	var pile_w := maxf(120.0, _overflow_pile.custom_minimum_size.x)
+	var pile_h := maxf(110.0, _overflow_pile.custom_minimum_size.y)
+	var left := action_x - pile_w * 0.55
+	var top := bench_top + bench_h - pile_h - 4.0
+	_overflow_pile.z_index = 35
+	_overflow_pile.position = Vector2(left, top)
+	_overflow_pile.size = Vector2(maxi(int(cards_x - left + 24.0), int(pile_w)), pile_h)
 
 
 func _place_top_bar(origin: Vector2) -> void:
@@ -1578,18 +1670,18 @@ func _update_ui() -> void:
 	exp_button.disabled = not economy_open or session.coins < GameSession.EXP_COST
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0
+	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()
 	if _debug_roster_button != null:
 		_debug_roster_button.disabled = not session.is_prep()
 		if not session.is_prep():
 			_set_debug_roster_open(false)
 	if _debug_roster_grid != null:
-		var debug_blocked := not session.is_prep() or board.bench_is_full()
+		var debug_blocked := not session.is_prep()
 		for child in _debug_roster_grid.get_children():
 			var card := child as BaseButton
 			if card != null:
 				card.disabled = debug_blocked
-	input_handler.set_enabled(session.is_prep())
+	input_handler.set_enabled(economy_open and not _run_end_active)
 	var show_prep_shop_ui := (
 		session.is_prep()
 		or session.phase == GameSession.Phase.BATTLE
@@ -1613,9 +1705,10 @@ func _update_ui() -> void:
 		var data := UnitCatalog.get_unit(unit_id)
 		slot.set_unit(unit_id)
 		var cost: int = data["cost"]
-		slot.disabled = not session.is_prep() or session.coins < cost or board.bench_is_full()
+		slot.disabled = not economy_open or session.coins < cost
+	_refresh_overflow_notice()
 	_update_synergy_panel()
-	if session.is_prep() and not _run_end_active:
+	if economy_open and not _run_end_active:
 		if reroll_text_changed:
 			_request_bottom_ui_refit()
 		else:

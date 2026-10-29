@@ -43,6 +43,7 @@ var _bubble_rects: Array[Rect2] = []
 var _bubble_slots: Array[int] = []
 var _poison_time := 0.0
 var _cleanse_enabled := false
+var _attribute_textures: Dictionary = {}
 
 
 func _ready() -> void:
@@ -227,6 +228,7 @@ func _draw() -> void:
 	_draw_formation_links()
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_slot_label(slot_index)
+		_draw_slot_attribute(slot_index)
 	_draw_debuff_bubbles()
 
 
@@ -447,23 +449,120 @@ func _draw_slot_label(slot_index: int) -> void:
 	var fallback := bool(slot.get("fallback", false))
 	if not occupied and not fallback:
 		return
+	var layout := _slot_label_layout(slot_index)
+	var font := ThemeDB.fallback_font
+	var ink := Color(1, 1, 1, _slot_alpha(slot))
+	_draw_outlined_string(font, layout["name_pos"], str(layout["name"]), HORIZONTAL_ALIGNMENT_LEFT, float(layout["name_width"]), 13, ink)
+	if not str(layout["stars"]).is_empty():
+		_draw_outlined_string(font, layout["star_pos"], str(layout["stars"]), HORIZONTAL_ALIGNMENT_LEFT, float(layout["star_width"]), 15, Color(1, 0.92, 0.45, ink.a))
+	_draw_outlined_string(font, layout["number_pos"], str(layout["number"]), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0, ink.a))
+
+
+func _slot_label_layout(slot_index: int) -> Dictionary:
+	var slot: Dictionary = _view_slots[slot_index]
 	var angle := _slot_center_angle(slot_index)
 	var pos := _center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + _outer_radius()) * 0.5
 	var band := _outer_radius() - _inner_radius()
-	var font := ThemeDB.fallback_font
 	var name := str(slot.get("name", ""))
-	if fallback:
+	if bool(slot.get("fallback", false)):
 		name = "補 %s" % name
-	var ink := Color(1, 1, 1, _slot_alpha(slot))
 	var name_width := band * 0.72
 	var name_pos := _clamp_to_wedge(pos + Vector2(-name_width * 0.35, band * 0.28), slot_index)
-	_draw_outlined_string(font, name_pos, name, HORIZONTAL_ALIGNMENT_LEFT, name_width, 13, ink)
 	var stars := str(slot.get("stars", ""))
-	if not stars.is_empty():
-		var star_pos := _clamp_to_wedge(pos + Vector2(band * 0.16, -4.0), slot_index)
-		_draw_outlined_string(font, star_pos, stars, HORIZONTAL_ALIGNMENT_LEFT, band * 0.4, 15, Color(1, 0.92, 0.45, ink.a))
+	var star_width := band * 0.4
+	var star_pos := _clamp_to_wedge(pos + Vector2(band * 0.16, -4.0), slot_index)
+	var number := str(int(slot.get("number", slot_index + 1)))
 	var number_pos := _clamp_to_wedge(_center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + 18.0) + Vector2(-10.0, 0.0), slot_index)
-	_draw_outlined_string(font, number_pos, str(int(slot.get("number", slot_index + 1))), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0, ink.a))
+	return {
+		"name": name,
+		"name_pos": name_pos,
+		"name_width": name_width,
+		"stars": stars,
+		"star_pos": star_pos,
+		"star_width": star_width,
+		"number": number,
+		"number_pos": number_pos,
+		"blocked": _slot_text_blocked_rects(name_pos, name_width, stars, star_pos, star_width, number_pos),
+	}
+
+
+func _slot_text_blocked_rects(name_pos: Vector2, name_width: float, stars: String, star_pos: Vector2, star_width: float, number_pos: Vector2) -> Array[Rect2]:
+	var blocked: Array[Rect2] = []
+	blocked.append(Rect2(name_pos + Vector2(-2.0, -14.0), Vector2(name_width + 4.0, 18.0)))
+	if not stars.is_empty():
+		blocked.append(Rect2(star_pos + Vector2(-2.0, -16.0), Vector2(star_width + 4.0, 20.0)))
+	blocked.append(Rect2(number_pos + Vector2(-2.0, -14.0), Vector2(28.0, 18.0)))
+	return blocked
+
+
+func _draw_slot_attribute(slot_index: int) -> void:
+	if slot_index >= _view_slots.size():
+		return
+	var slot: Dictionary = _view_slots[slot_index]
+	if not bool(slot.get("occupied", false)) and not bool(slot.get("fallback", false)):
+		return
+	var element := str(slot.get("element", "")).strip_edges()
+	if element.is_empty():
+		return
+	var texture := _attribute_texture(element)
+	if texture == null:
+		return
+	var entry: Variant = CharacterText.ATTRIBUTE_ICONS.get(element, {})
+	var aspect := 1.0
+	if entry is Dictionary:
+		aspect = float((entry as Dictionary).get("aspect", 1.0))
+	var band := _outer_radius() - _inner_radius()
+	var icon_h := clampf(band * 0.28, 18.0, 36.0)
+	var icon_w := maxf(10.0, icon_h * aspect)
+	var layout := _slot_label_layout(slot_index)
+	var blocked: Array = layout["blocked"]
+	var angle := _slot_center_angle(slot_index)
+	var half := TAU / 12.0
+	var radial_outer := _outer_radius() - maxf(icon_w, icon_h) * 0.55 - 8.0
+	var radial_mid := lerpf(_inner_radius(), _outer_radius(), 0.82)
+	var candidates: Array[Vector2] = [
+		Vector2(angle - half * 0.62, radial_outer),
+		Vector2(angle + half * 0.62, radial_outer),
+		Vector2(angle - half * 0.42, radial_mid),
+		Vector2(angle + half * 0.42, radial_mid),
+		Vector2(angle - half * 0.72, lerpf(_inner_radius(), _outer_radius(), 0.7)),
+		Vector2(angle + half * 0.72, lerpf(_inner_radius(), _outer_radius(), 0.7)),
+	]
+	var chosen := Vector2.ZERO
+	var found := false
+	for candidate in candidates:
+		var center := _center() + Vector2(cos(candidate.x), sin(candidate.x)) * candidate.y
+		var rect := Rect2(center - Vector2(icon_w, icon_h) * 0.5, Vector2(icon_w, icon_h)).grow(3.0)
+		if _rect_hits_blocked(rect, blocked):
+			continue
+		chosen = center
+		found = true
+		break
+	if not found:
+		chosen = _center() + Vector2(cos(angle - half * 0.68), sin(angle - half * 0.68)) * radial_outer
+	var rect := Rect2(chosen - Vector2(icon_w, icon_h) * 0.5, Vector2(icon_w, icon_h))
+	var alpha := _slot_alpha(slot)
+	draw_circle(chosen, maxf(icon_w, icon_h) * 0.56, Color(0.05, 0.06, 0.08, 0.7 * alpha))
+	draw_texture_rect(texture, rect, false, Color(1.0, 1.0, 1.0, alpha))
+
+
+func _rect_hits_blocked(rect: Rect2, blocked: Array) -> bool:
+	for entry in blocked:
+		if entry is Rect2 and rect.intersects(entry as Rect2):
+			return true
+	return false
+
+
+func _attribute_texture(element: String) -> Texture2D:
+	if _attribute_textures.has(element):
+		return _attribute_textures[element] as Texture2D
+	var path := CharacterText.attribute_icon(element)
+	if path.is_empty() or not ResourceLoader.exists(path):
+		_attribute_textures[element] = null
+		return null
+	var texture := load(path) as Texture2D
+	_attribute_textures[element] = texture
+	return texture
 
 
 func _slot_alpha(slot: Dictionary) -> float:

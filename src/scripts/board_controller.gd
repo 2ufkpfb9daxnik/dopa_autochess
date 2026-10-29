@@ -205,6 +205,26 @@ func _attack_element(unit: GameUnit) -> String:
 	return label
 
 
+func unit_element_key(unit: GameUnit) -> String:
+	if unit == null or not is_instance_valid(unit):
+		return ""
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	return str(sheet.get("element", ""))
+
+
+func formation_stack_count(slot_index: int, element_key: String) -> int:
+	if element_key.is_empty() or slot_index < 0 or slot_index >= SLOTS_PER_FACE:
+		return 0
+	var count := 0
+	for face_index in _unlocked_faces:
+		var unit := get_placed_unit(face_index, slot_index)
+		if unit == null or unit.battle_ko:
+			continue
+		if unit_element_key(unit) == element_key:
+			count += 1
+	return count
+
+
 func get_active_formation_elements() -> PackedStringArray:
 	var elements: Array[String] = []
 	for slot_index in FRONT_COUNT:
@@ -232,6 +252,21 @@ func get_active_formation_elements() -> PackedStringArray:
 			continue
 		found[element] = true
 		ordered.append(element)
+	for slot_index in FRONT_COUNT:
+		var stacks: Dictionary = {}
+		for face_index in _unlocked_faces:
+			var unit := get_placed_unit(face_index, slot_index)
+			if unit == null or unit.battle_ko:
+				continue
+			var element := _attack_element(unit)
+			if element.is_empty():
+				continue
+			stacks[element] = int(stacks.get(element, 0)) + 1
+		for element in stacks.keys():
+			if int(stacks[element]) < 2 or found.has(element):
+				continue
+			found[element] = true
+			ordered.append(str(element))
 	return ordered
 
 
@@ -455,6 +490,10 @@ func place_on_bench(unit: GameUnit, slot_index: int, trigger_merge: bool = true)
 		refresh_presentation()
 		units_changed.emit()
 	return true
+
+
+func resolve_merges() -> void:
+	_finish_mutation()
 
 
 func place_on_circle(unit: GameUnit, face_index: int, slot_index: int, trigger_merge: bool = true) -> bool:

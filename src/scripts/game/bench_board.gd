@@ -5,6 +5,9 @@ signal unit_drag_started(slot_index: int)
 signal unit_drag_moved(global_position: Vector2)
 signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_clicked(slot_index: int)
+signal relic_clicked(slot_index: int, relic_index: int)
+signal relic_drag_started(slot_index: int, relic_index: int)
+signal relic_drag_finished(slot_index: int, global_position: Vector2)
 
 const COLUMNS := 3
 const TITLE_TAB_OVERLAP := 8.0
@@ -19,6 +22,9 @@ var _pressing := false
 var _press_slot := -1
 var _press_pos := Vector2.ZERO
 var _dragging := false
+var _press_relic := false
+var _press_relic_index := -1
+var _relic_hits: Array = []
 
 
 func _ready() -> void:
@@ -89,12 +95,19 @@ func _gui_input(event: InputEvent) -> void:
 				return
 			_pressing = true
 			_dragging = false
+			var hit := _relic_hit(mouse_button.position)
+			_press_relic = hit.x == slot
+			_press_relic_index = hit.y if _press_relic else -1
 			_press_slot = slot
 			_press_pos = mouse_button.position
 			accept_event()
 		elif _pressing:
-			if _dragging:
+			if _dragging and _press_relic:
+				relic_drag_finished.emit(_press_slot, mouse_button.global_position)
+			elif _dragging:
 				unit_drag_finished.emit(_press_slot, mouse_button.global_position)
+			elif _press_relic:
+				relic_clicked.emit(_press_slot, _press_relic_index)
 			else:
 				slot_clicked.emit(_press_slot)
 			_pressing = false
@@ -104,8 +117,11 @@ func _gui_input(event: InputEvent) -> void:
 		var mouse_motion := event as InputEventMouseMotion
 		if not _dragging and mouse_motion.position.distance_to(_press_pos) > 8.0:
 			_dragging = true
-			unit_drag_started.emit(_press_slot)
-		if _dragging:
+			if _press_relic:
+				relic_drag_started.emit(_press_slot, _press_relic_index)
+			else:
+				unit_drag_started.emit(_press_slot)
+		if _dragging and not _press_relic:
 			unit_drag_moved.emit(mouse_motion.global_position)
 		accept_event()
 
@@ -122,6 +138,7 @@ func _layout_title_tab() -> void:
 
 
 func _draw() -> void:
+	_relic_hits.clear()
 	var font := ThemeDB.fallback_font
 	for slot_index in _slots.size():
 		var rect := _slot_rect(slot_index)
@@ -140,6 +157,40 @@ func _draw() -> void:
 		if cost > 0:
 			_draw_cost_corner(font, portrait, cost)
 		_draw_outlined(font, portrait.position + Vector2(4.0, portrait.size.y - 4.0), str(slot.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, portrait.size.x - 8.0, 13, Color(0.96, 0.97, 1))
+		_draw_relic_badges(slot_index, portrait, slot.get("relic_ids", []))
+
+
+func _draw_relic_badges(slot_index: int, portrait: Rect2, relic_ids: Array) -> void:
+	if relic_ids.is_empty():
+		return
+	var count := relic_ids.size()
+	var gap := 3.0
+	var plate_pad := 3.0
+	var avail := portrait.size.x - plate_pad * 2.0 - 4.0
+	var side := (avail - gap * float(maxi(count - 1, 0))) / float(count)
+	side = clampf(side, 12.0, 26.0)
+	var total := side * float(count) + gap * float(count - 1)
+	var origin := Vector2(
+		portrait.position.x + (portrait.size.x - total) * 0.5,
+		portrait.position.y + plate_pad + 2.0
+	)
+	for index in count:
+		var badge := Rect2(origin + Vector2((side + gap) * float(index), 0.0), Vector2(side, side))
+		var plate := badge.grow(plate_pad)
+		var texture := RelicCatalog.get_icon(int(relic_ids[index]))
+		if texture != null:
+			draw_rect(plate, Color(0.96, 0.96, 0.96))
+			draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
+			draw_texture_rect(texture, badge, false)
+		_relic_hits.append({"slot": slot_index, "index": index, "rect": plate})
+
+
+func _relic_hit(point: Vector2) -> Vector2i:
+	for hit in _relic_hits:
+		var rect: Rect2 = hit["rect"]
+		if rect.has_point(point):
+			return Vector2i(int(hit["slot"]), int(hit["index"]))
+	return Vector2i(-1, -1)
 
 
 func _draw_cover(texture: Texture2D, dest: Rect2) -> void:

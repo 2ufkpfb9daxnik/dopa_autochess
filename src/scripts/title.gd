@@ -1,12 +1,10 @@
 extends Control
 
-const FRAME_DIR := "res://images/frames"
+const FRAME_DIR := "res://images/frames/dance"
 
 var _video: VideoStreamPlayer
 var _frame_flash: TextureRect
 var _frame_paths: PackedStringArray = []
-var _last_stream_position := 0.0
-var _stream_position_ready := false
 var _hide_flash_next_frame := false
 
 
@@ -14,7 +12,10 @@ func _ready() -> void:
 	GameAudio.stop_bgm()
 	$StartButton.pressed.connect(_on_start_pressed)
 	_video = $Background as VideoStreamPlayer
-	_video.loop = true
+	## 内蔵ループだと finished が来ないので、手動で繋いでループ時に dance を出す。
+	_video.loop = false
+	if not _video.finished.is_connected(_on_video_finished):
+		_video.finished.connect(_on_video_finished)
 	_frame_paths = _list_frame_paths()
 	_frame_flash = TextureRect.new()
 	_frame_flash.name = "LoopFrame"
@@ -65,13 +66,11 @@ func _process(_delta: float) -> void:
 	if _hide_flash_next_frame:
 		_frame_flash.visible = false
 		_hide_flash_next_frame = false
-	if _video == null or not _video.is_playing():
-		return
-	var position := _video.stream_position
-	if _stream_position_ready and position + 0.05 < _last_stream_position:
-		_show_loop_frame()
-	_last_stream_position = position
-	_stream_position_ready = true
+
+
+func _on_video_finished() -> void:
+	_show_loop_frame()
+	_video.play()
 
 
 func _show_loop_frame() -> void:
@@ -102,6 +101,7 @@ func _list_frame_paths() -> PackedStringArray:
 		if file_name.get_extension().to_lower() != "png":
 			continue
 		paths.append(FRAME_DIR.path_join(file_name))
+	paths.sort()
 	return paths
 
 

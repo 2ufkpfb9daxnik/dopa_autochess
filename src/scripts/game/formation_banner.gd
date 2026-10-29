@@ -39,9 +39,20 @@ func show_elements(elements: PackedStringArray) -> void:
 	var parts: PackedStringArray = []
 	for element in elements:
 		parts.append("%s属性ダメージ上昇！！" % element)
-	_label.text = "\n".join(parts)
 	var accent: Color = ELEMENT_COLORS.get(elements[0], Color(1.0, 0.95, 0.82))
-	_label.add_theme_color_override("font_color", accent)
+	_show_banner("\n".join(parts), accent, HOLD)
+
+
+func show_message(text: String, color: Color = Color(1.0, 0.92, 0.45), hold: float = 2.6) -> void:
+	if text.is_empty():
+		return
+	_show_banner(text, color, hold)
+
+
+func _show_banner(text: String, color: Color, hold: float) -> void:
+	_label.text = text
+	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_label.add_theme_color_override("font_color", color)
 	_fit_font()
 	visible = true
 	if _tween != null and _tween.is_valid():
@@ -49,7 +60,7 @@ func show_elements(elements: PackedStringArray) -> void:
 	modulate.a = 0.0
 	_tween = create_tween()
 	_tween.tween_property(self, "modulate:a", 1.0, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	_tween.tween_interval(HOLD)
+	_tween.tween_interval(hold)
 	_tween.tween_property(self, "modulate:a", 0.0, FADE).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_tween.tween_callback(func() -> void:
 		visible = false

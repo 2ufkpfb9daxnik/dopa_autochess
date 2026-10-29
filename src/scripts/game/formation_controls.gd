@@ -23,9 +23,15 @@ func refresh_widgets() -> void:
 		_host.board.get_board_unit_count(),
 		_host.session.get_board_unit_cap(),
 	]
-	if _host.board.get_unlocked_face_count() <= 1:
-		center_text += "\nLv7で2面"
-	_host._circle_wheel.set_view(center_text, _host.board.get_wheel_slots())
+	if _host.session.get_level() >= 7:
+		center_text += "\n[font_size=22][color=#ffcf4a]面の移動！[/color][/font_size]"
+	var wheel_slots: Array = _host.board.get_wheel_slots()
+	for slot_index in wheel_slots.size():
+		var shown: GameUnit = _host.board.get_placed_unit(_host.board.active_face, slot_index)
+		if shown == null:
+			shown = _host.board.get_resolved_unit(_host.board.active_face, slot_index)
+		wheel_slots[slot_index]["relic_ids"] = _relic_ids_on(shown)
+	_host._circle_wheel.set_view(center_text, wheel_slots)
 	var bench_view: Array = []
 	for slot in _host.board.bench_units:
 		var unit := slot as GameUnit
@@ -38,6 +44,7 @@ func refresh_widgets() -> void:
 				"stars": unit.get_star_text(),
 				"cost": unit.get_cost(),
 				"unit_id": unit.unit_id,
+				"relic_ids": _relic_ids_on(unit),
 			})
 	_host._bench_board.set_slots(bench_view)
 	if _host._overflow_pile != null:
@@ -53,6 +60,34 @@ func refresh_widgets() -> void:
 	_host._bench_board.set_input_enabled(can_edit)
 	if _host._overflow_pile != null:
 		_host._overflow_pile.set_input_enabled(can_edit)
+	_refresh_relic_tray()
+
+
+func _refresh_relic_tray() -> void:
+	if _host._relic_tray == null:
+		return
+	var equipped := {}
+	for unit in _host.board.get_all_units():
+		var relic_unit := unit as GameUnit
+		if relic_unit == null:
+			continue
+		for uid in relic_unit.equipped_relic_uids:
+			equipped[uid] = true
+	var loose: Array = []
+	for item in _host.session.relics:
+		if equipped.has(int(item.get("uid", -1))):
+			continue
+		loose.append(item)
+	_host._relic_tray.set_entries(loose)
+
+
+func _relic_ids_on(unit: GameUnit) -> Array:
+	var ids: Array = []
+	if unit == null:
+		return ids
+	for uid in unit.equipped_relic_uids:
+		ids.append(_host.session.relic_id_of(int(uid)))
+	return ids
 
 
 func on_center_pressed() -> void:
@@ -93,7 +128,7 @@ func on_circle_unit_clicked(slot_index: int) -> void:
 		unit = _host.board.get_resolved_unit(_host.board.active_face, slot_index)
 	if unit == null or _host._unit_inspect == null:
 		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
 
 
 func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
@@ -115,7 +150,7 @@ func on_bench_slot_clicked(slot_index: int) -> void:
 	var unit: GameUnit = _host.board.bench_units[slot_index]
 	if unit == null or _host._unit_inspect == null:
 		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
 
 
 func on_overflow_drag_started(index: int) -> void:
@@ -133,7 +168,7 @@ func on_overflow_clicked(index: int) -> void:
 	var unit: GameUnit = _host._overflow_pile.unit_at(index)
 	if unit == null or _host._unit_inspect == null:
 		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position())
+	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
 
 
 func begin_drag(unit: GameUnit) -> void:

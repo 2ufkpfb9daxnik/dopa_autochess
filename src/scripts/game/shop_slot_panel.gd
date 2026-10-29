@@ -110,18 +110,19 @@ func set_sold_out() -> void:
 	_refresh_text_layout()
 
 
-func set_unit(unit_id: int) -> void:
+func set_unit(unit_id: int, price: int = -1) -> void:
 	var data := UnitCatalog.get_unit(unit_id)
+	var shown := int(data["cost"]) if price < 0 else price
 	_content_root.visible = true
 	_empty_label.visible = false
 	_illustration.texture = UnitCatalog.make_portrait(unit_id, _portrait_dest())
 	_illustration.modulate = Color.WHITE
 	_shown_unit_id = unit_id
-	_cost_label.text = str(data["cost"])
+	_cost_label.text = str(shown)
 	_name_text = str(data["name"])
 	_stars_label.text = "★"
 	_synergy_lines = _split_synergies(UnitCatalog.get_synergy_lines(unit_id))
-	apply_cost_style(int(data["cost"]))
+	apply_cost_style(shown)
 	_rebuild_lines()
 	_refresh_text_layout()
 

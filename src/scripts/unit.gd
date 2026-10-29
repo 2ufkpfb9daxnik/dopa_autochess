@@ -4,6 +4,7 @@ extends StaticBody3D
 const UNIT_SCENE := preload("res://scenes/unit.tscn")
 const STATUS_AURA_SHADER := preload("res://shaders/status_aura.gdshader")
 const MAX_STARS := 4
+const RELIC_EQUIP_CAP := 5
 const TARGET_MODEL_HEIGHT := 1.05
 const UNIT_RENDER_PRIORITY := 2
 const ACTION_VALUE_NUMERATOR := 10000
@@ -53,6 +54,7 @@ var battle_ko := false
 var debuffed := false
 var debuff_home_face := -1
 var debuff_home_slot := -1
+var equipped_relic_uids: Array[int] = []
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D

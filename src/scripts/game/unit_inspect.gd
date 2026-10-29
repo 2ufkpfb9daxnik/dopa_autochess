@@ -90,11 +90,30 @@ func _ready() -> void:
 	add_child(_tip)
 
 
-func open_unit(unit_id: int, stars: int, anchor: Vector2) -> void:
+func open_unit(unit_id: int, stars: int, anchor: Vector2, equipped_relic_ids: Array = []) -> void:
 	_anchor = anchor
 	_detailed = false
-	_rebuild_summary(unit_id, stars)
+	_rebuild_summary(unit_id, stars, equipped_relic_ids)
 	_rebuild_detail(unit_id)
+	_detail_scroll.visible = false
+	_detail_button.text = "詳細"
+	_detail_button.visible = _detail_box.get_child_count() > 0
+	visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	top_level = true
+	z_as_relative = false
+	z_index = 90
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = get_viewport().get_visible_rect().size
+	move_to_front()
+	call_deferred("_place_panel")
+
+
+func open_relic(relic_id: int, anchor: Vector2) -> void:
+	_anchor = anchor
+	_detailed = false
+	_rebuild_relic(relic_id)
 	_detail_scroll.visible = false
 	_detail_button.text = "詳細"
 	_detail_button.visible = _detail_box.get_child_count() > 0
@@ -153,7 +172,35 @@ func _place_panel() -> void:
 	_panel.size = panel_size
 
 
-func _rebuild_summary(unit_id: int, stars: int) -> void:
+func _rebuild_relic(relic_id: int) -> void:
+	_clear(_summary_box)
+	_clear(_detail_box)
+	var data := RelicCatalog.get_relic(relic_id)
+	var width := PANEL_WIDTH - 36.0
+	var height := 0.0
+	var title := _make_label(SUMMARY_FONT)
+	title.text = str(data.get("name", "レリック"))
+	title.custom_minimum_size.x = width
+	_summary_box.add_child(title)
+	height += _block_height(title, width)
+	var icon := _relic_icon(relic_id, 72)
+	if icon != null:
+		_summary_box.add_child(icon)
+		height += 8.0 + 72.0
+	var brief := str(data.get("brief", "")).strip_edges()
+	if not brief.is_empty():
+		height += _add_rich_line(brief, SUMMARY_FONT, width, 1)
+	_summary_height = height
+	var detail := str(data.get("detail", "")).strip_edges()
+	if not detail.is_empty():
+		var body := _make_label(DETAIL_FONT)
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(width, 0)
+		body.text = detail
+		_detail_box.add_child(body)
+
+
+func _rebuild_summary(unit_id: int, stars: int, equipped_relic_ids: Array = []) -> void:
 	_clear(_summary_box)
 	var info: Dictionary = CharacterText.summary_info(unit_id, stars)
 	var width := PANEL_WIDTH - 36.0
@@ -194,7 +241,55 @@ func _rebuild_summary(unit_id: int, stars: int) -> void:
 	if not brief.is_empty():
 		height += _add_rich_line(brief, SUMMARY_FONT, width, rows)
 		rows += 1
+	if not equipped_relic_ids.is_empty():
+		height += _add_equipped_relics(equipped_relic_ids, rows)
 	_summary_height = height
+
+
+func _add_equipped_relics(relic_ids: Array, rows: int) -> float:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_theme_constant_override("separation", 8)
+	var caption := _make_label(SUMMARY_FONT)
+	caption.text = "装備"
+	row.add_child(caption)
+	var icon_px := 48
+	if relic_ids.size() >= 4:
+		icon_px = 40
+	for relic_id in relic_ids:
+		var shown_id := int(relic_id)
+		if shown_id <= 0:
+			continue
+		var icon := _relic_icon(shown_id, icon_px)
+		if icon == null:
+			continue
+		var data := RelicCatalog.get_relic(shown_id)
+		var tip := str(data.get("brief", "")).strip_edges()
+		if tip.is_empty():
+			tip = str(data.get("name", ""))
+		_bind_tip(icon, tip)
+		icon.gui_input.connect(_on_equipped_icon_input.bind(shown_id, icon))
+		row.add_child(icon)
+	_summary_box.add_child(row)
+	return (4.0 if rows > 0 else 0.0) + float(icon_px)
+
+
+func _on_equipped_icon_input(event: InputEvent, relic_id: int, source: Control) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		open_relic(relic_id, source.get_global_rect().position)
+
+
+func _relic_icon(relic_id: int, px: int) -> TextureRect:
+	var texture := RelicCatalog.get_icon(relic_id)
+	if texture == null:
+		return null
+	var rect := TextureRect.new()
+	rect.mouse_filter = Control.MOUSE_FILTER_STOP
+	rect.texture = texture
+	rect.custom_minimum_size = Vector2(px, px)
+	rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	return rect
 
 
 func _add_labeled_icon(label: String, value: String, font_size: int, rows: int) -> float:

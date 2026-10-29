@@ -24,7 +24,6 @@ mouse_filter = 2
 stream = ExtResource("2_video")
 autoplay = true
 expand = true
-loop = true
 
 [node name="TitleLabel" type="Control" parent="."]
 layout_mode = 1

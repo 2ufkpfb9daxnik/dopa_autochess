@@ -30,34 +30,38 @@ const ENEMY_STARS: Dictionary = {
 
 
 static func generate_options(upcoming_round: int) -> Array[Dictionary]:
+	## ルート選択UIは廃止。敵強度だけラウンドから決めて1件返す。
+	return [default_for_round(upcoming_round)]
+
+
+static func default_for_round(upcoming_round: int) -> Dictionary:
+	var strength := Strength.MEDIUM
 	if BOSS_ROUNDS.has(upcoming_round):
-		return _generate_boss_options(upcoming_round)
-	var options: Array[Dictionary] = []
-	options.append(_make_option(Strength.WEAK))
-	options.append(_make_option(Strength.MEDIUM))
-	options.append(_make_option(Strength.STRONG))
-	if randf() < 0.18:
-		var replace_index := randi_range(0, 2)
-		options[replace_index] = _make_option(Strength.ELITE)
-	return options
-
-
-static func _generate_boss_options(upcoming_round: int) -> Array[Dictionary]:
-	return [
-		_make_option(Strength.BOSS),
-		_make_option(Strength.MEDIUM),
-		_make_option(Strength.WEAK),
-	]
-
-
-static func _make_option(strength: Strength) -> Dictionary:
-	var reward_type: String = REWARD_TYPES[randi_range(0, REWARD_TYPES.size() - 1)]
+		strength = Strength.BOSS
+	elif upcoming_round <= 3:
+		strength = Strength.WEAK
+	elif upcoming_round <= 8:
+		strength = Strength.MEDIUM
+	elif upcoming_round <= 14:
+		strength = Strength.STRONG
+	else:
+		strength = Strength.ELITE
 	return {
 		"strength": strength,
 		"strength_label": STRENGTH_LABELS[strength],
 		"enemy_label": ENEMY_STARS[strength],
-		"reward_type": reward_type,
-		"reward_label": REWARD_LABELS[reward_type],
+		"reward_type": "none",
+		"reward_label": "",
+	}
+
+
+static func _make_option(strength: Strength) -> Dictionary:
+	return {
+		"strength": strength,
+		"strength_label": STRENGTH_LABELS[strength],
+		"enemy_label": ENEMY_STARS[strength],
+		"reward_type": "none",
+		"reward_label": "",
 	}
 
 

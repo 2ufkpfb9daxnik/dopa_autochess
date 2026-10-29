@@ -40,5 +40,13 @@ static func get_xp_needed_for_next_level(level: int) -> int:
 	return XP_TO_LEVEL_UP[level - 1]
 
 
+static func xp_to_reach(level: int) -> int:
+	var total := 0
+	var steps := mini(level - 1, XP_TO_LEVEL_UP.size())
+	for index in steps:
+		total += XP_TO_LEVEL_UP[index]
+	return total
+
+
 static func get_max_holding_bonus(level: int) -> int:
 	return clampi(level, 1, MAX_LEVEL)

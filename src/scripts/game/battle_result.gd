@@ -73,13 +73,13 @@ func _ready() -> void:
 	_body = _make_label(20, HORIZONTAL_ALIGNMENT_RIGHT)
 	_title.z_index = 2
 	_body.z_index = 2
-	_hp_caption = _make_label(84, HORIZONTAL_ALIGNMENT_RIGHT)
+	_hp_caption = _make_label(84, HORIZONTAL_ALIGNMENT_LEFT)
 	_hp_caption.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_hp_caption.add_theme_constant_override("outline_size", 12)
 	_hp_caption.z_index = 2
 	_hp_caption.visible = false
 	_hp_caption.clip_contents = true
-	_hp_value = _make_label(200, HORIZONTAL_ALIGNMENT_RIGHT)
+	_hp_value = _make_label(200, HORIZONTAL_ALIGNMENT_LEFT)
 	_hp_value.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_hp_value.add_theme_constant_override("outline_size", 16)
 	_hp_value.z_index = 2
@@ -165,13 +165,15 @@ func show_routes(lines: PackedStringArray, pick: Callable) -> void:
 	_routes = VBoxContainer.new()
 	_routes.mouse_filter = Control.MOUSE_FILTER_STOP
 	_routes.z_index = 3
-	_routes.add_theme_constant_override("separation", 8)
+	_routes.add_theme_constant_override("separation", 16)
 	add_child(_routes)
+	var large := lines.size() <= 2
 	for index in lines.size():
 		var button := Button.new()
 		button.text = lines[index]
-		button.custom_minimum_size = Vector2(240, 64)
+		button.custom_minimum_size = Vector2(360, 110 if large else 64)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.add_theme_font_size_override("font_size", 56 if large else 28)
 		var picked := index
 		button.pressed.connect(func() -> void: pick.call(picked))
 		_routes.add_child(button)
@@ -257,16 +259,14 @@ func _layout_content() -> void:
 		_routes.position = Vector2(column_x, 332.0)
 		_routes.size = Vector2(text_w, 280.0)
 	if _hp_value != null and _hp_value.visible:
-		var gap := 24.0
-		var hp_right := column_x - gap
-		var hp_top := 8.0
-		var block_bottom := hp_top + 320.0
-		var min_x := block_bottom * size.x / maxf(1.0, size.y) + 12.0
-		var hp_w := maxf(180.0, hp_right - min_x)
-		_hp_caption.position = Vector2(hp_right - hp_w, hp_top)
+		## 右カラムの経験値と被らないよう、画面左端へ置く。
+		var left_pad := 28.0
+		var hp_top := size.y * 0.48
+		var hp_w := clampf(size.x * 0.42, 380.0, 720.0)
+		_hp_caption.position = Vector2(left_pad, hp_top)
 		_hp_caption.size = Vector2(hp_w, 96.0)
 		_fit_label_font(_hp_caption, 84, 36)
-		_hp_value.position = Vector2(hp_right - hp_w, _hp_caption.position.y + _hp_caption.size.y + 6.0)
+		_hp_value.position = Vector2(left_pad, _hp_caption.position.y + _hp_caption.size.y + 6.0)
 		_hp_value.size = Vector2(hp_w, 220.0)
 		_fit_label_font(_hp_value, 200, 64)
 	if _clear_mark != null:

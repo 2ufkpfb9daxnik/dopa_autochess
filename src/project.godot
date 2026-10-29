@@ -22,11 +22,3 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameAudio="*res://scripts/game/game_audio.gd"
-
-[editor_plugins]
-
-enabled=PackedStringArray("res://addons/Tripo3d_Godot_Bridge/plugin.cfg")
-
-[tripo_bridge]
-
-last_cleanup="2026-10-28T09:28:20"

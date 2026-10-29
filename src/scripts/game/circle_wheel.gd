@@ -9,6 +9,9 @@ signal unit_drag_moved(global_position: Vector2)
 signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_move_requested(from_slot: int, to_slot: int)
 signal unit_clicked(slot_index: int)
+signal relic_clicked(slot_index: int, relic_index: int)
+signal relic_drag_started(slot_index: int, relic_index: int)
+signal relic_drag_finished(slot_index: int, global_position: Vector2)
 signal debuff_cleanse_requested(slot_index: int)
 
 const RIM_GRAB := 40.0
@@ -24,10 +27,14 @@ const FORMATION_COLORS := {
 const _MODE_NONE := 0
 const _MODE_ROTATE := 1
 const _MODE_UNIT := 2
+const _MODE_RELIC := 3
 
 var _view_slots: Array = []
+var _relic_hits: Array = []
+var _press_relic := false
+var _press_relic_index := -1
 var _occupied: Array[bool] = []
-var _center_label: Label
+var _center_label: RichTextLabel
 var _ccw_button: Button
 var _cw_button: Button
 var _unit_drag_enabled := true
@@ -48,12 +55,16 @@ var _attribute_textures: Dictionary = {}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	_center_label = Label.new()
+	_center_label = RichTextLabel.new()
 	_center_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_center_label.bbcode_enabled = true
+	_center_label.scroll_active = false
+	_center_label.fit_content = false
+	_center_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_center_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_center_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_center_label.add_theme_font_size_override("font_size", 14)
-	_center_label.add_theme_color_override("font_color", Color(0.95, 0.94, 0.88))
+	_center_label.add_theme_font_size_override("normal_font_size", 14)
+	_center_label.add_theme_color_override("default_color", Color(0.95, 0.94, 0.88))
 	add_child(_center_label)
 	_ccw_button = _make_rotate_button("↙", -1)
 	_cw_button = _make_rotate_button("↘", 1)
@@ -162,9 +173,16 @@ func _begin_press(mouse_button: InputEventMouseButton) -> void:
 		center_pressed.emit()
 		accept_event()
 		return
-	var slot := _slot_at(mouse_button.position)
+	var hit := _relic_hit(mouse_button.position)
+	if hit.x >= 0:
+		_press_relic = true
+		_press_relic_index = hit.y
+		_press_slot = hit.x
+	else:
+		_press_relic = false
+		_press_relic_index = -1
+		_press_slot = _slot_at(mouse_button.position)
 	_pressing = true
-	_press_slot = slot
 	_press_pos = mouse_button.position
 	_last_angle = _angle_at(mouse_button.position)
 	_accum = 0.0
@@ -175,10 +193,14 @@ func _begin_press(mouse_button: InputEventMouseButton) -> void:
 func _end_press(mouse_button: InputEventMouseButton) -> void:
 	if not _pressing:
 		return
-	if _mode == _MODE_UNIT:
+	if _mode == _MODE_RELIC:
+		relic_drag_finished.emit(_press_slot, mouse_button.global_position)
+	elif _mode == _MODE_UNIT:
 		unit_drag_finished.emit(_press_slot, mouse_button.global_position)
 	elif _mode == _MODE_ROTATE:
 		_animate_to_nearest_step()
+	elif _mode == _MODE_NONE and _press_relic:
+		relic_clicked.emit(_press_slot, _press_relic_index)
 	elif _mode == _MODE_NONE:
 		var release_slot := _slot_at(mouse_button.position)
 		if _press_slot >= 0 and release_slot >= 0 and release_slot != _press_slot and _is_occupied(_press_slot) and _unit_drag_enabled:
@@ -199,10 +221,13 @@ func _drag_motion(mouse_motion: InputEventMouseMotion) -> void:
 	_accum += delta
 	if _mode == _MODE_NONE:
 		var travel := mouse_motion.position.distance_to(_press_pos)
-		if _unit_drag_enabled and _press_slot >= 0 and _is_occupied(_press_slot) and travel > 12.0:
+		if _press_relic and travel > 8.0:
+			_mode = _MODE_RELIC
+			relic_drag_started.emit(_press_slot, _press_relic_index)
+		elif _unit_drag_enabled and _press_slot >= 0 and _is_occupied(_press_slot) and travel > 12.0:
 			_mode = _MODE_UNIT
 			unit_drag_started.emit(_press_slot)
-		elif absf(_accum) > 0.28:
+		elif not _press_relic and absf(_accum) > 0.28:
 			_mode = _MODE_ROTATE
 	if _mode == _MODE_ROTATE:
 		_set_visual_angle(_accum)
@@ -212,6 +237,7 @@ func _drag_motion(mouse_motion: InputEventMouseMotion) -> void:
 
 
 func _draw() -> void:
+	_relic_hits.clear()
 	var center := _center()
 	var inner := _inner_radius()
 	var outer := _outer_radius()
@@ -230,6 +256,8 @@ func _draw() -> void:
 		_draw_slot_label(slot_index)
 		_draw_slot_attribute(slot_index)
 	_draw_debuff_bubbles()
+	for slot_index in BoardController.SLOTS_PER_FACE:
+		_draw_relic_badge(slot_index)
 
 
 func _draw_formation_links() -> void:
@@ -378,6 +406,66 @@ func _draw_slot_portrait(slot_index: int) -> void:
 	if poisoned:
 		var wash := 0.42 + 0.16 * sin(_poison_time * 5.0)
 		draw_colored_polygon(points, Color(0.42, 0.86, 0.05, wash))
+
+
+func _draw_relic_badge(slot_index: int) -> void:
+	if slot_index >= _view_slots.size():
+		return
+	var slot: Dictionary = _view_slots[slot_index]
+	var relic_ids: Array = slot.get("relic_ids", [])
+	if relic_ids.is_empty():
+		return
+	var badges := _relic_badges_on_rim(slot_index, relic_ids.size())
+	for index in relic_ids.size():
+		var badge: Rect2 = badges[index]
+		var plate := badge.grow(3.0)
+		var texture := RelicCatalog.get_icon(int(relic_ids[index]))
+		if texture != null:
+			draw_rect(plate, Color(0.96, 0.96, 0.96))
+			draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
+			draw_texture_rect(texture, badge, false)
+		_relic_hits.append({"slot": slot_index, "index": index, "rect": plate})
+
+
+func _relic_badges_on_rim(slot_index: int, count: int) -> Array[Rect2]:
+	var badges: Array[Rect2] = []
+	if count <= 0:
+		return badges
+	var outer := _outer_radius()
+	var inner := _inner_radius()
+	var mid := _slot_center_angle(slot_index)
+	var half := TAU / 12.0
+	var gap := 4.0
+	var plate_pad := 3.0
+	var side := clampf(outer * 0.12, 16.0, 32.0)
+	side = minf(side, maxf(14.0, (outer - inner) * 0.62))
+	var radius := outer - side * 0.22
+	var step := 0.0
+	for _shrink in 8:
+		radius = maxf(inner + side * 0.6, outer - side * 0.22)
+		var corner_radius := maxf(radius - side * 0.5, 1.0)
+		var margin := atan((side * 0.5 + plate_pad) / corner_radius)
+		var span := maxf(0.0, half - margin)
+		var wanted := 0.0 if count <= 1 else (side + gap) / maxf(radius, 1.0)
+		var limit := 0.0 if count <= 1 else (span * 2.0) / float(count - 1)
+		step = 0.0 if count <= 1 else minf(wanted, limit)
+		if count <= 1 or wanted <= limit + 0.0001 or side <= 14.5:
+			break
+		side = maxf(14.0, side * 0.86)
+	var start := mid - step * float(count - 1) * 0.5
+	for index in count:
+		var angle := start + step * float(index)
+		var at := _center() + Vector2(cos(angle), sin(angle)) * radius
+		badges.append(Rect2(at - Vector2(side, side) * 0.5, Vector2(side, side)))
+	return badges
+
+
+func _relic_hit(point: Vector2) -> Vector2i:
+	for hit in _relic_hits:
+		var rect: Rect2 = hit["rect"]
+		if rect.has_point(point):
+			return Vector2i(int(hit["slot"]), int(hit["index"]))
+	return Vector2i(-1, -1)
 
 
 func _has_debuffed_slot() -> bool:

@@ -910,6 +910,8 @@ function syncRelicDraftFromDom() {
   if (!name) return;
   relicDraft.name = name.value;
   relicDraft.category = document.getElementById("r-category").value;
+  const added = document.getElementById("r-added-synergy");
+  relicDraft.addedSynergy = added ? added.value : (relicDraft.addedSynergy || "");
   relicDraft.equipable = document.getElementById("r-equipable").checked;
   relicDraft.combinable = document.getElementById("r-combinable").checked;
   relicDraft.brief = document.getElementById("r-brief").value;
@@ -964,6 +966,7 @@ function renderRelicEditor() {
     <div class="grid">
       <label>名前</label><input id="r-name" value="${escapeHtml(relicDraft.name || "")}">
       <label>分類</label><select id="r-category">${categoryOptions}</select>
+      <label>追加シナジー</label><input id="r-added-synergy" value="${escapeHtml(relicDraft.addedSynergy || "")}" placeholder="空ならなし">
       <label>装備可能</label><label class="check-link"><input id="r-equipable" type="checkbox"${relicDraft.equipable ? " checked" : ""}>はい</label>
       <label>合成可能</label><label class="check-link"><input id="r-combinable" type="checkbox"${relicDraft.combinable ? " checked" : ""}>はい</label>
       <label>簡単な説明</label><textarea id="r-brief">${escapeHtml(relicDraft.brief || "")}</textarea>

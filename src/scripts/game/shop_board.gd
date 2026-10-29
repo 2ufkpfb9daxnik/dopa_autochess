@@ -150,7 +150,7 @@ func _on_badge_gui_input(event: InputEvent) -> void:
 
 
 func _show_odds_table() -> void:
-	ShopOdds.populate_odds_grid(_host.shop_odds_grid, _host.session.get_level())
+	ShopOdds.populate_odds_grid(_host.shop_odds_grid, RelicEconomy.shop_odds_level(_host.session, false))
 	_host.shop_odds_tooltip.visible = true
 	_host.shop_odds_tooltip.move_to_front()
 	call_deferred("_fit_tooltip_size")

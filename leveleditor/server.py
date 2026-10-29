@@ -530,6 +530,7 @@ def parse_relic(path: Path) -> dict:
         "id": relic_id,
         "name": fields.get("名前", title),
         "category": fields.get("分類", ""),
+        "addedSynergy": fields.get("追加シナジー", ""),
         "equipable": _parse_yes_no(fields.get("装備可能", "はい")),
         "combinable": _parse_yes_no(fields.get("合成可能", "はい")),
         "brief": _find_section(sections, "簡単な説明文").strip(),
@@ -546,18 +547,25 @@ def render_relic(data: dict) -> str:
         f"- ID: {str(data['id']).zfill(3)}",
         f"- 名前: {name}",
         f"- 分類: {data.get('category', '')}",
-        f"- 装備可能: {_yes_no(bool(data.get('equipable', True)))}",
-        f"- 合成可能: {_yes_no(bool(data.get('combinable', True)))}",
-        "",
-        "## 簡単な説明文",
-        "",
-        data.get("brief", "").strip(),
-        "",
-        "## 詳細な説明文",
-        "",
-        data.get("detail", "").strip(),
-        *_render_relic_effects(data.get("effects")),
     ]
+    added = (data.get("addedSynergy") or "").strip()
+    if added:
+        lines.append(f"- 追加シナジー: {added}")
+    lines.extend(
+        [
+            f"- 装備可能: {_yes_no(bool(data.get('equipable', True)))}",
+            f"- 合成可能: {_yes_no(bool(data.get('combinable', True)))}",
+            "",
+            "## 簡単な説明文",
+            "",
+            data.get("brief", "").strip(),
+            "",
+            "## 詳細な説明文",
+            "",
+            data.get("detail", "").strip(),
+            *_render_relic_effects(data.get("effects")),
+        ]
+    )
     return "\n".join(lines).rstrip() + "\n"
 
 

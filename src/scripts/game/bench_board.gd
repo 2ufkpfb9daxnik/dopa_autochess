@@ -175,13 +175,17 @@ func _draw_relic_badges(slot_index: int, portrait: Rect2, relic_ids: Array) -> v
 		portrait.position.y + plate_pad + 2.0
 	)
 	for index in count:
+		var relic_id: int = int(relic_ids[index])
+		if relic_id <= 0:
+			continue
 		var badge := Rect2(origin + Vector2((side + gap) * float(index), 0.0), Vector2(side, side))
 		var plate := badge.grow(plate_pad)
-		var texture := RelicCatalog.get_icon(int(relic_ids[index]))
-		if texture != null:
-			draw_rect(plate, Color(0.96, 0.96, 0.96))
-			draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
-			draw_texture_rect(texture, badge, false)
+		var texture := RelicCatalog.get_icon(relic_id)
+		if texture == null:
+			continue
+		draw_rect(plate, Color(0.96, 0.96, 0.96))
+		draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
+		draw_texture_rect(texture, badge, false)
 		_relic_hits.append({"slot": slot_index, "index": index, "rect": plate})
 
 

@@ -35,6 +35,10 @@ var _debug_roster_panel: PanelContainer
 var _debug_roster_grid: GridContainer
 var _debug_round_spin: SpinBox
 var _debug_roster_open := false
+var _debug_show_relics := false
+var _debug_tab_units: Button
+var _debug_tab_relics: Button
+var _debug_relic_hint: Label
 const BATTLE_SPEEDS: Array[int] = [1, 2, 4, 8]
 var _battle_speed_index := 0
 var _battle_speed_button: Button
@@ -453,10 +457,36 @@ func _mount_debug_grants() -> void:
 	jump.text = "移動"
 	jump.pressed.connect(_jump_debug_round)
 	round_row.add_child(jump)
-	var relic_btn := Button.new()
-	relic_btn.text = "レリック3択"
-	relic_btn.pressed.connect(_debug_open_relic_pick)
-	box.add_child(relic_btn)
+	var pick_btn := Button.new()
+	pick_btn.text = "3択"
+	pick_btn.tooltip_text = "本番と同じレリック3択を開く"
+	pick_btn.pressed.connect(_debug_open_relic_pick)
+	round_row.add_child(pick_btn)
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 6)
+	box.add_child(tab_row)
+	var tab_group := ButtonGroup.new()
+	_debug_tab_units = Button.new()
+	_debug_tab_units.text = "キャラ"
+	_debug_tab_units.toggle_mode = true
+	_debug_tab_units.button_group = tab_group
+	_debug_tab_units.button_pressed = true
+	_debug_tab_units.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_debug_tab_units.pressed.connect(_set_debug_catalog.bind(false))
+	tab_row.add_child(_debug_tab_units)
+	_debug_tab_relics = Button.new()
+	_debug_tab_relics.text = "レリック"
+	_debug_tab_relics.toggle_mode = true
+	_debug_tab_relics.button_group = tab_group
+	_debug_tab_relics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_debug_tab_relics.pressed.connect(_set_debug_catalog.bind(true))
+	tab_row.add_child(_debug_tab_relics)
+	_debug_relic_hint = Label.new()
+	_debug_relic_hint.text = "クリックで付与 / 右クリックで詳細"
+	_debug_relic_hint.add_theme_font_size_override("font_size", 12)
+	_debug_relic_hint.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	_debug_relic_hint.visible = false
+	box.add_child(_debug_relic_hint)
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -470,14 +500,7 @@ func _mount_debug_grants() -> void:
 	($CanvasLayer/UI as Control).add_child(panel)
 	_debug_roster_panel = panel
 	_debug_roster_grid = grid
-	for unit in UnitCatalog.UNITS:
-		var unit_id := int(unit["id"])
-		var card := ShopBoard.SLOT_SCENE.instantiate() as ShopSlotPanel
-		if card == null:
-			continue
-		grid.add_child(card)
-		card.set_unit(unit_id)
-		card.pressed.connect(_grant_debug_unit.bind(unit_id))
+	_rebuild_debug_grid()
 
 
 func _toggle_debug_roster() -> void:
@@ -497,6 +520,108 @@ func _set_debug_roster_open(open: bool) -> void:
 		_place_debug_roster()
 
 
+func _set_debug_catalog(show_relics: bool) -> void:
+	if _debug_show_relics == show_relics:
+		return
+	_debug_show_relics = show_relics
+	if _debug_relic_hint != null:
+		_debug_relic_hint.visible = show_relics
+	if _debug_tab_units != null:
+		_debug_tab_units.set_pressed_no_signal(not show_relics)
+	if _debug_tab_relics != null:
+		_debug_tab_relics.set_pressed_no_signal(show_relics)
+	_rebuild_debug_grid()
+	_place_debug_roster()
+
+
+func _rebuild_debug_grid() -> void:
+	if _debug_roster_grid == null:
+		return
+	for child in _debug_roster_grid.get_children():
+		_debug_roster_grid.remove_child(child)
+		child.free()
+	if _debug_show_relics:
+		for relic_id in RelicCatalog.all_ids():
+			_debug_roster_grid.add_child(_make_debug_relic_card(relic_id))
+	else:
+		for unit in UnitCatalog.UNITS:
+			var unit_id := int(unit["id"])
+			var card := ShopBoard.SLOT_SCENE.instantiate() as ShopSlotPanel
+			if card == null:
+				continue
+			_debug_roster_grid.add_child(card)
+			card.set_unit(unit_id)
+			card.pressed.connect(_grant_debug_unit.bind(unit_id))
+
+
+func _make_debug_relic_card(relic_id: int) -> Button:
+	var data := RelicCatalog.get_relic(relic_id)
+	var name_text := str(data.get("name", "？"))
+	var brief := str(data.get("brief", "")).strip_edges()
+	var category := str(data.get("category", "")).strip_edges()
+	var tip := "%03d %s" % [relic_id, name_text]
+	if not category.is_empty():
+		tip += "\n[%s]" % category
+	if not brief.is_empty():
+		tip += "\n%s" % brief
+	var button := Button.new()
+	button.focus_mode = Control.FOCUS_NONE
+	button.tooltip_text = tip
+	button.custom_minimum_size = Vector2(72, 88)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var plate := StyleBoxFlat.new()
+	plate.bg_color = Color(0.12, 0.13, 0.16, 0.92)
+	plate.border_color = Color(0.55, 0.55, 0.5, 0.55)
+	plate.set_border_width_all(1)
+	plate.set_corner_radius_all(4)
+	plate.set_content_margin_all(4)
+	button.add_theme_stylebox_override("normal", plate)
+	var hover := plate.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.2, 0.22, 0.28, 0.96)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	button.add_theme_stylebox_override("disabled", plate)
+	button.add_theme_stylebox_override("focus", plate)
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", 2)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	button.add_child(box)
+	var icon := TextureRect.new()
+	icon.texture = RelicCatalog.get_icon(relic_id)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.custom_minimum_size = Vector2(48, 48)
+	icon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(icon)
+	var id_label := Label.new()
+	id_label.text = "%03d" % relic_id
+	id_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	id_label.add_theme_font_size_override("font_size", 11)
+	id_label.add_theme_color_override("font_color", Color(0.85, 0.85, 0.78))
+	id_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(id_label)
+	var name_label := Label.new()
+	name_label.text = name_text
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.add_theme_font_size_override("font_size", 11)
+	name_label.add_theme_color_override("font_color", Color(0.96, 0.94, 0.88))
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(name_label)
+	button.pressed.connect(_grant_debug_relic.bind(relic_id))
+	button.gui_input.connect(_on_debug_relic_gui_input.bind(relic_id, button))
+	return button
+
+
+func _on_debug_relic_gui_input(event: InputEvent, relic_id: int, source: Control) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+		get_viewport().set_input_as_handled()
+		_on_relic_inspect(relic_id, source.get_global_rect().position)
+
+
 func _place_debug_roster() -> void:
 	if _debug_roster_panel == null or not _debug_roster_open:
 		return
@@ -507,13 +632,21 @@ func _place_debug_roster() -> void:
 	_debug_roster_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_debug_roster_panel.position = panel_pos
 	_debug_roster_panel.size = panel_size
+	var gap := 2.0
+	if _debug_show_relics:
+		var cell := Vector2(72, 88)
+		var inner_w := maxf(cell.x, panel_size.x - 28.0)
+		_debug_roster_grid.columns = maxi(1, int((inner_w + gap) / (cell.x + gap)))
+		for child in _debug_roster_grid.get_children():
+			var relic_btn := child as Button
+			if relic_btn != null:
+				relic_btn.custom_minimum_size = cell
+		return
 	var card := _shop.slot_size
 	if card.x < 8.0 or card.y < 8.0:
 		card = Vector2(ShopBoard.LAYOUT_SLOT_WIDTH, ShopBoard.LAYOUT_SLOT_WIDTH / ShopBoard.FRAME_ASPECT)
-	var gap := 2.0
 	var inner_w := maxf(card.x, panel_size.x - 28.0)
-	var columns := maxi(1, int((inner_w + gap) / (card.x + gap)))
-	_debug_roster_grid.columns = columns
+	_debug_roster_grid.columns = maxi(1, int((inner_w + gap) / (card.x + gap)))
 	for child in _debug_roster_grid.get_children():
 		var slot := child as ShopSlotPanel
 		if slot == null:
@@ -535,6 +668,17 @@ func _debug_open_relic_pick() -> void:
 		return
 	_set_debug_roster_open(false)
 	_open_relic_pick()
+
+
+func _grant_debug_relic(relic_id: int) -> void:
+	if not OS.is_debug_build() or not session.is_prep() or _run_end_active:
+		return
+	var data := RelicCatalog.get_relic(relic_id)
+	if data.is_empty() or int(data.get("id", -1)) <= 0:
+		return
+	session.add_relic(relic_id)
+	GameAudio.play_confirm()
+	_log("デバッグ付与: %03d %s" % [relic_id, str(data.get("name", ""))])
 
 
 func _grant_debug_unit(unit_id: int) -> void:
@@ -862,6 +1006,8 @@ func _start_battle() -> void:
 			bench_count += 1
 	RelicEconomy.on_round_end(session, bench_count, board.bench_units.size())
 	session.finish_battle(battle_won, remaining_enemies)
+	RelicEconomy.note_battle_finished(session, battle_won)
+	session.player_hp = mini(session.player_hp, RelicEconomy.player_max_hp(session))
 	_note_deploy_cap_change(cap_before_battle)
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
@@ -872,6 +1018,7 @@ func _start_battle() -> void:
 	battle_overlay.visible = false
 	board.set_battle_mode(false)
 	_battle.reroll()
+	_update_ui()
 	if _battle_result != null:
 		_battle_result.open(battle_won, _battle_result_body(battle_won, hp_before, level_before), hp_before, session.player_hp)
 	GameAudio.play_result(battle_won)
@@ -914,6 +1061,7 @@ func _start_battle() -> void:
 	coin_row.visible = true
 	if session.phase == GameSession.Phase.PREP:
 		_log("ラウンド %d 開始" % session.round_number)
+		_grant_ono_free_rerolls()
 		if not session.last_income_breakdown.is_empty():
 			_show_income_feedback()
 	input_handler.set_enabled(session.is_prep())
@@ -1021,6 +1169,7 @@ func _on_route_selected(index: int) -> void:
 	if _circle_wheel != null:
 		_circle_wheel.reset_visual_spin()
 	_log("ラウンド %d 開始" % session.round_number)
+	_grant_ono_free_rerolls()
 	_show_income_feedback()
 	_update_ui()
 	if session.should_offer_relic_pick():
@@ -1145,11 +1294,174 @@ func _equip_relic_on(uid: int, unit: GameUnit) -> void:
 		_log("レリックは1人%dつまで装備できます" % GameUnit.RELIC_EQUIP_CAP)
 		_formation.refresh_widgets()
 		return
+	var synergy_name := str(data.get("synergy", "")).strip_edges()
+	if not synergy_name.is_empty() and SynergyTracker.unit_has_synergy(unit, synergy_name, session, uid):
+		var notice := "すでに%sのシナジーです" % synergy_name
+		_show_board_notice(notice)
+		_log(notice)
+		_formation.refresh_widgets()
+		return
 	for owner in board.get_all_units():
 		owner.equipped_relic_uids.erase(uid)
 	unit.equipped_relic_uids.append(uid)
 	_log("%s に %s を装備した" % [unit.get_display_name(), str(data.get("name", ""))])
+	if unit.unit_id == 10:
+		_izumi_on_relic_equipped(unit, uid)
+	elif unit.unit_id == 14:
+		_ibaraki_on_relic_equipped(unit)
+	elif unit.unit_id == 16:
+		_oumi_on_relic_equipped(unit)
+	elif unit.unit_id == 17:
+		_otsu_on_relic_equipped(unit)
+	elif unit.unit_id == 35:
+		_sakai_on_relic_equipped(unit)
 	_formation.refresh_widgets()
+
+
+func _izumi_on_relic_equipped(unit: GameUnit, uid: int) -> void:
+	if unit == null or uid <= 0:
+		return
+	var flags: Dictionary = unit.kit_flags
+	_izumi_try_swing_hp(unit)
+	var copy_left := int(flags.get("copy_left", 1))
+	if copy_left <= 0:
+		return
+	flags["copy_left"] = copy_left - 1
+	unit.kit_flags = flags
+	var relic_id := session.relic_id_of(uid)
+	if relic_id <= 0:
+		return
+	var copied_uid := session.add_relic(relic_id)
+	if copied_uid <= 0:
+		return
+	flags["copied_uid"] = copied_uid
+	unit.kit_flags = flags
+	_log("%s が増えたレリックを得た" % unit.get_display_name())
+	if unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
+		return
+	for owner in board.get_all_units():
+		owner.equipped_relic_uids.erase(copied_uid)
+	unit.equipped_relic_uids.append(copied_uid)
+	_log("%s が増えたレリックを装備した" % unit.get_display_name())
+
+
+func _izumi_try_swing_hp(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 10:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var cap := int(sheet.get("swing_cap", 1))
+	var used := int(unit.kit_flags.get("swing_used", 0))
+	if used >= cap:
+		return
+	var base := int(sheet.get("swing_hp", 15))
+	var bonus := int(round(float(base) * _swing_mult()))
+	if bonus <= 0:
+		return
+	unit.kit_flags["swing_used"] = used + 1
+	unit.kit_flags["swing_hp_bonus"] = int(unit.kit_flags.get("swing_hp_bonus", 0)) + bonus
+	_log("%s の最大体力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+
+
+func _swing_synergy_count() -> int:
+	var units: Array = []
+	for entry in board.get_all_units():
+		var ally: GameUnit = entry as GameUnit
+		if ally == null or ally.is_enemy:
+			continue
+		units.append(ally)
+	var counts := SynergyTracker.count_synergies(units, session)
+	return int(counts.get("スウィング", 0))
+
+
+func _swing_mult() -> float:
+	var count := _swing_synergy_count()
+	if count >= 9:
+		return 1.8
+	if count >= 7:
+		return 1.6
+	if count >= 5:
+		return 1.4
+	if count >= 3:
+		return 1.2
+	return 1.0
+
+
+func _ibaraki_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 14:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var cap := int(sheet.get("swing_cap", 1))
+	var used := int(unit.kit_flags.get("swing_def_used", 0))
+	if used >= cap:
+		return
+	var base := int(sheet.get("swing_defense", 10))
+	var bonus := int(round(float(base) * _swing_mult()))
+	if bonus <= 0:
+		return
+	unit.kit_flags["swing_def_used"] = used + 1
+	unit.kit_flags["swing_defense_bonus"] = int(unit.kit_flags.get("swing_defense_bonus", 0)) + bonus
+	_log("%s の防御力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+
+
+func _oumi_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 16:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var cap := int(sheet.get("swing_cap", 1))
+	var used := int(unit.kit_flags.get("swing_water_used", 0))
+	if used >= cap:
+		return
+	var base := float(sheet.get("swing_water", 0.08))
+	var bonus := base * _swing_mult()
+	if bonus <= 0.0:
+		return
+	unit.kit_flags["swing_water_used"] = used + 1
+	unit.kit_flags["swing_water_bonus"] = float(unit.kit_flags.get("swing_water_bonus", 0.0)) + bonus
+	_log("%s の水与ダメージが上がった（スウィング）" % unit.get_display_name())
+
+
+func _otsu_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 17:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var cap := int(sheet.get("relic_count_cap", 1))
+	var used := int(unit.kit_flags.get("otsu_relic_counted", 0))
+	if used >= cap:
+		return
+	unit.kit_flags["otsu_relic_counted"] = used + 1
+	unit.kit_flags["otsu_pending"] = int(unit.kit_flags.get("otsu_pending", 0)) + 1
+	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
+
+
+func _ono_free_rerolls_on_board() -> int:
+	var total := 0
+	var seen: Dictionary = {}
+	for unit in board.get_circle_units():
+		if unit == null or unit.unit_id != 18 or unit.is_enemy:
+			continue
+		if seen.has(unit.get_instance_id()):
+			continue
+		seen[unit.get_instance_id()] = true
+		var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+		total += int(sheet.get("free_rerolls", 1))
+	return total
+
+
+func _grant_ono_free_rerolls() -> void:
+	var grant := _ono_free_rerolls_on_board()
+	if grant <= 0:
+		return
+	session.free_rerolls += grant
+	_log("オノの無料更新 +%d" % grant)
+
 
 
 func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
@@ -1167,7 +1479,46 @@ func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
 		session.add_coins(synth_gold)
 	var data := RelicCatalog.get_relic(result_id)
 	_log("レリックを合成した: %s" % str(data.get("name", "")))
+	_note_synth_kit_charges()
 	_formation.refresh_widgets()
+
+
+func _note_synth_kit_charges() -> void:
+	for unit in board.get_circle_units():
+		if unit == null or unit.is_enemy:
+			continue
+		if unit.unit_id == 21 or unit.unit_id == 26:
+			var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+			var cap := int(sheet.get("synth_charges", 1))
+			var now := int(unit.kit_flags.get("synth_charges", 0))
+			if now < cap:
+				unit.kit_flags["synth_charges"] = now + 1
+				_log("%s の合成回数が残った" % unit.get_display_name())
+		elif unit.unit_id == 35:
+			var sheet35 := CharacterSheet.make(unit.unit_id, unit.stars)
+			var add := float(sheet35.get("synth_damage", 0.04))
+			var cap35 := float(sheet35.get("synth_cap", 0.12))
+			var now35 := float(unit.kit_flags.get("synth_bonus", 0.0))
+			unit.kit_flags["synth_bonus"] = minf(cap35, now35 + add)
+
+
+func _sakai_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 35:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var cap := int(sheet.get("swing_cap", 1))
+	var used := int(unit.kit_flags.get("swing_speed_used", 0))
+	if used >= cap:
+		return
+	var base := int(sheet.get("swing_speed", 8))
+	var bonus := int(round(float(base) * _swing_mult()))
+	if bonus <= 0:
+		return
+	unit.kit_flags["swing_speed_used"] = used + 1
+	unit.kit_flags["swing_speed_bonus"] = int(unit.kit_flags.get("swing_speed_bonus", 0)) + bonus
+	_log("%s の左右速度が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
 
 
 func _on_relic_chosen(relic_id: int) -> void:
@@ -1342,7 +1693,7 @@ func _setup_synergy_list() -> void:
 func _update_synergy_panel() -> void:
 	if _synergy_list == null:
 		return
-	var entries := SynergyTracker.list_synergies(board.get_circle_units())
+	var entries := SynergyTracker.list_synergies(board.get_circle_units(), session)
 	for child in _synergy_list.get_children():
 		_synergy_list.remove_child(child)
 		child.free()
@@ -1408,7 +1759,7 @@ func _toggle_synergy_detail(synergy_name: String) -> void:
 		_close_synergy_detail()
 		return
 	_synergy_open = synergy_name
-	_fill_synergy_detail(synergy_name, SynergyTracker.list_synergies(board.get_circle_units()))
+	_fill_synergy_detail(synergy_name, SynergyTracker.list_synergies(board.get_circle_units(), session))
 	_synergy_detail.visible = true
 	_place_synergy_detail()
 
@@ -1853,6 +2204,9 @@ func relic_rewrite_bottom_bench(times: int) -> void:
 			created.equipped_relic_uids = relics
 			board.place_on_bench(created, slot_index, false)
 	board.resolve_merges()
+
+
+func _flush_relic_units() -> void:
 	if _flushing_relic_units or session.relic_pending_units.is_empty():
 		return
 	_flushing_relic_units = true
@@ -1939,7 +2293,7 @@ func _update_ui() -> void:
 	shop_lock_button.disabled = not session.is_prep()
 	var round_cap := session.max_round
 	round_label.text = "ラウンド: %d / %d" % [mini(session.round_number, round_cap), round_cap]
-	hp_label.text = "HP: %d" % session.player_hp
+	hp_label.text = "HP: %d / %d" % [session.player_hp, RelicEconomy.player_max_hp(session)]
 	var bench_count := 0
 	for slot in board.bench_units:
 		if slot != null:

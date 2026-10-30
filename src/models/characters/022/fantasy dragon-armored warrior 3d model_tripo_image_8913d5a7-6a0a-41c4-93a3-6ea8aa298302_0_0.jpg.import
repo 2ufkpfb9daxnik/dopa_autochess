@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://ds1h0s8wk7ryv"
+path.s3tc="res://.godot/imported/fantasy dragon-armored warrior 3d model_tripo_image_8913d5a7-6a0a-41c4-93a3-6ea8aa298302_0_0.jpg-f72fca1fbcf1579e2050f2386d8fcf37.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "548d82d59bd8c505c39fad32e0ddd5b7"
+}
+
+[deps]
+
+source_file="res://models/characters/022/fantasy dragon-armored warrior 3d model_tripo_image_8913d5a7-6a0a-41c4-93a3-6ea8aa298302_0_0.jpg"
+dest_files=["res://.godot/imported/fantasy dragon-armored warrior 3d model_tripo_image_8913d5a7-6a0a-41c4-93a3-6ea8aa298302_0_0.jpg-f72fca1fbcf1579e2050f2386d8fcf37.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

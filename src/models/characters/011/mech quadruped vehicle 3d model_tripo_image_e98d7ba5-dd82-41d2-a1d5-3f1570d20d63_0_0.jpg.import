@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://tgw7w4tknr0t"
+path.s3tc="res://.godot/imported/mech quadruped vehicle 3d model_tripo_image_e98d7ba5-dd82-41d2-a1d5-3f1570d20d63_0_0.jpg-54e83e40420fd67bd74237be8d3cc69f.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "1a0fb035642f132b45a7b2985b63d04b"
+}
+
+[deps]
+
+source_file="res://models/characters/011/mech quadruped vehicle 3d model_tripo_image_e98d7ba5-dd82-41d2-a1d5-3f1570d20d63_0_0.jpg"
+dest_files=["res://.godot/imported/mech quadruped vehicle 3d model_tripo_image_e98d7ba5-dd82-41d2-a1d5-3f1570d20d63_0_0.jpg-54e83e40420fd67bd74237be8d3cc69f.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

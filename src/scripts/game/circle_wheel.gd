@@ -417,13 +417,17 @@ func _draw_relic_badge(slot_index: int) -> void:
 		return
 	var badges := _relic_badges_on_rim(slot_index, relic_ids.size())
 	for index in relic_ids.size():
+		var relic_id: int = int(relic_ids[index])
+		if relic_id <= 0:
+			continue
 		var badge: Rect2 = badges[index]
 		var plate := badge.grow(3.0)
-		var texture := RelicCatalog.get_icon(int(relic_ids[index]))
-		if texture != null:
-			draw_rect(plate, Color(0.96, 0.96, 0.96))
-			draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
-			draw_texture_rect(texture, badge, false)
+		var texture := RelicCatalog.get_icon(relic_id)
+		if texture == null:
+			continue
+		draw_rect(plate, Color(0.96, 0.96, 0.96))
+		draw_rect(plate, Color(0.08, 0.08, 0.08), false, 2.0)
+		draw_texture_rect(texture, badge, false)
 		_relic_hits.append({"slot": slot_index, "index": index, "rect": plate})
 
 

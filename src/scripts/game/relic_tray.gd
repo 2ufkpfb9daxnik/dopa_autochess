@@ -35,8 +35,13 @@ func _ready() -> void:
 func set_entries(entries: Array) -> void:
 	_entries.clear()
 	for item in entries:
-		if item is Dictionary:
-			_entries.append(item)
+		if not (item is Dictionary):
+			continue
+		var relic_id: int = int(item.get("id", -1))
+		var uid: int = int(item.get("uid", -1))
+		if relic_id <= 0 or uid < 0:
+			continue
+		_entries.append(item)
 	_rebuild()
 
 
@@ -83,16 +88,23 @@ func _rebuild() -> void:
 		var uid := int(_entries[index].get("uid", -1))
 		var button := Button.new()
 		button.focus_mode = Control.FOCUS_NONE
-		button.icon = RelicCatalog.get_icon(relic_id)
-		button.expand_icon = true
-		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		button.custom_minimum_size = Vector2(ICON, ICON)
-		button.add_theme_constant_override("icon_max_width", int(ICON - 12.0))
 		var plate := _plate_style(Color(0.96, 0.96, 0.96))
 		button.add_theme_stylebox_override("normal", plate)
 		button.add_theme_stylebox_override("hover", _plate_style(Color(0.86, 0.86, 0.86)))
 		button.add_theme_stylebox_override("pressed", _plate_style(Color(0.74, 0.74, 0.74)))
 		button.add_theme_stylebox_override("focus", plate)
+		var icon := TextureRect.new()
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = RelicCatalog.get_icon(relic_id)
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 5.0
+		icon.offset_top = 5.0
+		icon.offset_right = -5.0
+		icon.offset_bottom = -5.0
+		button.add_child(icon)
 		button.pressed.connect(_on_pressed.bind(uid))
 		button.button_down.connect(_on_down.bind(uid))
 		add_child(button)

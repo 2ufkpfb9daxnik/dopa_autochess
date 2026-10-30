@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://dcvh65jnoauss"
+path.s3tc="res://.godot/imported/fantasy creature 3d model_tripo_image_c902d939-6d95-4504-96b6-160ad2e5e35b_0_0.jpg-59eabda313b8e0e181df48efbce04977.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "c7375e425713a0d222a40a2b37c73b53"
+}
+
+[deps]
+
+source_file="res://models/characters/020/fantasy creature 3d model_tripo_image_c902d939-6d95-4504-96b6-160ad2e5e35b_0_0.jpg"
+dest_files=["res://.godot/imported/fantasy creature 3d model_tripo_image_c902d939-6d95-4504-96b6-160ad2e5e35b_0_0.jpg-59eabda313b8e0e181df48efbce04977.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

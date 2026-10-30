@@ -34,6 +34,8 @@ func open_with(ids: Array[int]) -> void:
 	z_as_relative = false
 	z_index = 95
 	move_to_front()
+	_layout()
+	_set_choices(ids)
 	call_deferred("_layout")
 
 
@@ -72,24 +74,21 @@ func _build() -> void:
 func _make_card(index: int) -> Control:
 	var root := Control.new()
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.clip_contents = false
 	var frame := TextureRect.new()
 	frame.name = "Frame"
 	frame.texture = SELECT_TEX
 	frame.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	frame.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.set_anchors_preset(Control.PRESET_FULL_RECT)
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.z_index = 0
 	root.add_child(frame)
-	var hit := Button.new()
-	hit.flat = true
-	hit.focus_mode = Control.FOCUS_NONE
-	hit.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hit.pressed.connect(_on_card_pressed.bind(index))
-	root.add_child(hit)
 	var icon := TextureRect.new()
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.z_index = 2
 	root.add_child(icon)
 	_icons.append(icon)
 	var name_label := Label.new()
@@ -100,6 +99,7 @@ func _make_card(index: int) -> Control:
 	name_label.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.02, 0.95))
 	name_label.add_theme_constant_override("outline_size", 8)
 	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_label.z_index = 3
 	root.add_child(name_label)
 	_names.append(name_label)
 	var brief := Label.new()
@@ -111,8 +111,22 @@ func _make_card(index: int) -> Control:
 	brief.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.02, 0.9))
 	brief.add_theme_constant_override("outline_size", 6)
 	brief.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	brief.z_index = 3
 	root.add_child(brief)
 	_briefs.append(brief)
+	var hit := Button.new()
+	hit.flat = true
+	hit.focus_mode = Control.FOCUS_NONE
+	hit.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hit.z_index = 4
+	var empty := StyleBoxEmpty.new()
+	hit.add_theme_stylebox_override("normal", empty)
+	hit.add_theme_stylebox_override("hover", empty)
+	hit.add_theme_stylebox_override("pressed", empty)
+	hit.add_theme_stylebox_override("focus", empty)
+	hit.add_theme_stylebox_override("disabled", empty)
+	hit.pressed.connect(_on_card_pressed.bind(index))
+	root.add_child(hit)
 	return root
 
 
@@ -168,7 +182,10 @@ func _fill_card(index: int, relic_id: int) -> void:
 	_cards[index].visible = true
 	_reroll_buttons[index].visible = true
 	var data := RelicCatalog.get_relic(relic_id)
-	_icons[index].texture = RelicCatalog.get_icon(relic_id)
+	var icon := _icons[index]
+	icon.visible = true
+	icon.modulate = Color.WHITE
+	icon.texture = RelicCatalog.get_icon(relic_id)
 	_names[index].text = str(data.get("name", ""))
 	_briefs[index].text = str(data.get("brief", ""))
 

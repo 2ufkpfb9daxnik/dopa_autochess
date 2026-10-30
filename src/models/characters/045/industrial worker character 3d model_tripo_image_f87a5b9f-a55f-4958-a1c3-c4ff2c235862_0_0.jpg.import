@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://ccynqj1ecw4ct"
+path.s3tc="res://.godot/imported/industrial worker character 3d model_tripo_image_f87a5b9f-a55f-4958-a1c3-c4ff2c235862_0_0.jpg-fe6c5f816ed84b1340481063f5d4c62a.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "951dd42a7a1cb41f21881db5405aa7e6"
+}
+
+[deps]
+
+source_file="res://models/characters/045/industrial worker character 3d model_tripo_image_f87a5b9f-a55f-4958-a1c3-c4ff2c235862_0_0.jpg"
+dest_files=["res://.godot/imported/industrial worker character 3d model_tripo_image_f87a5b9f-a55f-4958-a1c3-c4ff2c235862_0_0.jpg-fe6c5f816ed84b1340481063f5d4c62a.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

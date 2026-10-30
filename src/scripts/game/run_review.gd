@@ -170,7 +170,7 @@ func stats_text() -> String:
 			unit.get_star_text(),
 			unit.get_cost(),
 		])
-	var synergies := SynergyTracker.list_synergies(_host.board.get_circle_units())
+	var synergies := SynergyTracker.list_synergies(_host.board.get_circle_units(), _host.session)
 	if synergies.is_empty():
 		lines.append("")
 		lines.append("シナジー: なし")

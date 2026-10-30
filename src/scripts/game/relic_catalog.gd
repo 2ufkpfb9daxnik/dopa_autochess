@@ -3,15 +3,13 @@ extends RefCounted
 
 const DIR := "res://data/relics/"
 const IMAGE_DIR := "res://images/relics/"
-## UI確認用: いま抽選に出すレリックは 001-006 のみ。
-const PICK_POOL: Array[int] = [1, 2, 3, 4, 5, 6]
-
 static var _cache: Dictionary = {}
+static var _icon_cache: Dictionary = {}
 static var _all_ids: Array[int] = []
 
 
 static func all_pick_ids() -> Array[int]:
-	return PICK_POOL.duplicate()
+	return all_ids().duplicate()
 
 
 static func all_ids() -> Array[int]:
@@ -61,10 +59,17 @@ static func get_relic(relic_id: int) -> Dictionary:
 
 
 static func get_icon(relic_id: int) -> Texture2D:
+	if relic_id <= 0:
+		return null
+	if _icon_cache.has(relic_id):
+		return _icon_cache[relic_id] as Texture2D
 	var path := IMAGE_DIR + "%03d.png" % relic_id
 	if not ResourceLoader.exists(path):
+		_icon_cache[relic_id] = null
 		return null
-	return load(path) as Texture2D
+	var texture := load(path) as Texture2D
+	_icon_cache[relic_id] = texture
+	return texture
 
 
 static func random_choices(count: int = 3) -> Array[int]:
@@ -119,13 +124,24 @@ static func _parse(text: String, fallback_id: int) -> Dictionary:
 		if value.is_valid_float():
 			effects[key] = float(value)
 	var relic_id := int(str(fields.get("ID", fallback_id)))
+	var brief := str(sections.get("簡単な説明文", "")).strip_edges()
+	var synergy := str(fields.get("追加シナジー", "")).strip_edges()
+	if synergy.is_empty():
+		var matched := RegEx.create_from_string("装備したキャラクターが(.+?)のシナジーに所属する")
+		var found := matched.search(brief)
+		if found == null:
+			matched = RegEx.create_from_string("装備すると、(.+?)に入る")
+			found = matched.search(brief)
+		if found != null:
+			synergy = found.get_string(1).strip_edges()
 	return {
 		"id": relic_id,
 		"name": str(fields.get("名前", "レリック")),
 		"category": str(fields.get("分類", "")),
+		"synergy": synergy,
 		"equippable": str(fields.get("装備可能", "")).strip_edges() == "はい",
 		"synthesis": str(fields.get("合成可能", "")).strip_edges() == "はい",
-		"brief": str(sections.get("簡単な説明文", "")).strip_edges(),
+		"brief": brief,
 		"detail": str(sections.get("詳細な説明文", "")).strip_edges(),
 		"effects": effects,
 	}

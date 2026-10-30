@@ -115,7 +115,7 @@ func set_unit(unit_id: int, price: int = -1) -> void:
 	var shown := int(data["cost"]) if price < 0 else price
 	_content_root.visible = true
 	_empty_label.visible = false
-	_illustration.texture = UnitCatalog.make_portrait(unit_id, _portrait_dest())
+	_illustration.texture = UnitCatalog.get_icon(unit_id)
 	_illustration.modulate = Color.WHITE
 	_shown_unit_id = unit_id
 	_cost_label.text = str(shown)
@@ -239,7 +239,7 @@ func _portrait_dest() -> Vector2:
 func _apply_portrait() -> void:
 	if _shown_unit_id < 1 or _illustration == null:
 		return
-	_illustration.texture = UnitCatalog.make_portrait(_shown_unit_id, _portrait_dest())
+	_illustration.texture = UnitCatalog.get_icon(_shown_unit_id)
 
 
 func _place_cost_mark() -> void:

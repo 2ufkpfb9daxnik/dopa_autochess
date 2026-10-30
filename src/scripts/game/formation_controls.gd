@@ -85,8 +85,16 @@ func _relic_ids_on(unit: GameUnit) -> Array:
 	var ids: Array = []
 	if unit == null:
 		return ids
+	var kept: Array[int] = []
 	for uid in unit.equipped_relic_uids:
-		ids.append(_host.session.relic_id_of(int(uid)))
+		var relic_uid: int = int(uid)
+		var relic_id: int = _host.session.relic_id_of(relic_uid)
+		if relic_id <= 0:
+			continue
+		kept.append(relic_uid)
+		ids.append(relic_id)
+	if kept.size() != unit.equipped_relic_uids.size():
+		unit.equipped_relic_uids = kept
 	return ids
 
 

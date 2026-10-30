@@ -13,6 +13,14 @@ extends RefCounted
 ## 142・144・146・149・160: プレイヤー同士の戦闘が条件なので未適用。
 ## 148 反例: デバフに残り時間が無いので未適用。
 ## 156 ギター: 任意のタイミングで積みを換える操作が無いので未適用。
+## 167・173・177・179・180: 付け替えUI・余剰回復シールド上限・被弾スタック・分類ショップ値引き・手動消費の操作が未確定なので未適用。
+## 181-200: 盤面装置・コピー召喚・卵枠など未実装のため、195の初動弱体以外は未適用。
+## 216: 召喚物与ダメージ。召喚が出ないあいだ未適用。
+## 264: 異種合成ペナルティ。異種合成が無いので未適用。
+## 277・278・284: 時間指定の戦闘効果が未確定なので未適用。
+## 287-295・300: 合成装備級や装置回数など報酬テーブル／進捗定義の設定が残っているので未適用。
+## 303-306・310: レリックを選んで消費／再抽選するUIが無いので未適用。
+## 309・311: 合成時追加と「効果が初めて発動」の判定が未確定なので未適用。
 
 
 static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
@@ -71,6 +79,67 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 			session.take_relic(uid)
 		133:
 			item["left"] = int(_value(133, "回数"))
+		169:
+			if not bool(item.get("rolled", false)):
+				item["rolled"] = true
+				if randi() % 10 < int(_value(169, "当たり")):
+					var bonus_uid := session.add_relic(169)
+					var bonus := _item(session, bonus_uid)
+					if not bonus.is_empty():
+						bonus["rolled"] = true
+		170:
+			if not bool(item.get("from_copy", false)):
+				for _i in int(_value(170, "追加")):
+					var copy_uid := session.add_relic(170)
+					var copy := _item(session, copy_uid)
+					if not copy.is_empty():
+						copy["from_copy"] = true
+		178:
+			if not bool(item.get("seed", false)) and not bool(item.get("from_copy", false)):
+				item["seed"] = true
+				item["left"] = int(_value(178, "回数"))
+			elif bool(item.get("from_copy", false)):
+				item["seed"] = false
+		207:
+			session.add_coins(int(_value(207, "ゴールド")))
+		209:
+			session.gain_experience(int(_value(209, "経験値")))
+		253:
+			pass
+		254:
+			item["hp_exp"] = true
+		255:
+			item["block_interest"] = true
+		258:
+			item["block_paid_reroll"] = true
+		261:
+			session.player_hp = maxi(1, session.player_hp - int(_value(261, "HP")))
+			item["left"] = int(_value(261, "戦闘"))
+		263:
+			item["bank"] = session.coins
+			session.coins = 0
+			item["left"] = int(_value(263, "ラウンド"))
+		285:
+			_queue_random_relic(session)
+			item["left"] = int(_value(285, "ラウンド"))
+		286:
+			item["progress"] = 0
+			item["grants"] = 0
+		296:
+			item["armed"] = true
+		297:
+			item["armed"] = true
+		298:
+			item["armed"] = true
+		299:
+			item["left"] = int(_value(299, "回数"))
+		301:
+			if not bool(item.get("from_copy", false)):
+				_queue_random_relic(session)
+		307:
+			pass
+		310:
+			pass
 
 
 static func prepare_round(session: GameSession) -> void:
@@ -121,19 +190,31 @@ static func interest_extra_preview(session: GameSession) -> int:
 
 
 static func round_start_gold(session: GameSession) -> int:
-	return _count(session, 42) * int(_value(42, "ゴールド"))
+	var gold := _count(session, 42) * int(_value(42, "ゴールド"))
+	gold += _count(session, 255) * int(_value(255, "ゴールド"))
+	gold += _count(session, 302) * int(_value(302, "ゴールド"))
+	gold += _count(session, 313) * int(_value(313, "ゴールド"))
+	gold += _count(session, 308) * int(_value(308, "ゴールド")) * session.relics.size()
+	return gold
 
 
 static func apply_round_open(session: GameSession) -> int:
 	var gold := round_start_gold(session)
 	gold += _spend_timed_gold(session, 66)
 	gold += _refill_to_cap(session)
+	gold += _resolve_timed_bank(session)
 	session.free_rerolls += _count(session, 61) * int(_value(61, "無料更新"))
 	session.free_rerolls += _coyote_rerolls(session)
+	session.free_rerolls += _count(session, 258) * int(_value(258, "無料更新"))
+	session.free_rerolls += _count(session, 312) * int(_value(312, "無料更新"))
+	session.free_rerolls += _count(session, 302) * int(_value(302, "無料更新"))
 	session.gain_experience(round_start_experience(session))
 	note_growth_round(session)
 	gold += round_streak_gold(session)
+	_advance_grant_rounds(session)
+	_check_level_quest(session)
 	_rewrite_bottom_bench(session)
+	_toggle_round_relics(session)
 	return gold
 
 
@@ -202,10 +283,14 @@ static func shop_price(session: GameSession, slot_index: int) -> int:
 	for marked in session.relic_076_slots:
 		if int(marked) == slot_index:
 			price -= int(_value(76, "値引き"))
+	if _count(session, 257) > 0:
+		price = int(floor(float(price) * (1.0 - _value(257, "値引き") / 100.0)))
 	return maxi(0, price)
 
 
 static func paid_reroll_cost(session: GameSession) -> int:
+	if _count(session, 258) > 0:
+		return 999
 	var cost := GameSession.REROLL_COST
 	if not session.relic_paid_free_used and _count(session, 51) > 0:
 		return 0
@@ -239,8 +324,11 @@ static func note_paid_reroll(session: GameSession, paid: int) -> void:
 
 
 static func exp_cost(session: GameSession) -> int:
+	if _count(session, 254) > 0:
+		return 0
 	var cost := GameSession.EXP_COST
 	cost -= _charges(session, 52) * int(_value(52, "値引き"))
+	cost -= _count(session, 314) * int(_value(314, "値引き"))
 	return maxi(0, cost)
 
 
@@ -291,6 +379,12 @@ static func exp_bonus(session: GameSession) -> int:
 
 static func sell_bonus(session: GameSession) -> int:
 	return _count(session, 70) * int(_value(70, "売却"))
+
+
+static func sell_mult(session: GameSession) -> float:
+	if _count(session, 257) > 0:
+		return maxf(0.0, 1.0 - _value(257, "値引き") / 100.0)
+	return 1.0
 
 
 static func synth_gold(session: GameSession) -> int:
@@ -346,18 +440,21 @@ static func note_same_merge(session: GameSession, unit_id: int, new_stars: int, 
 	if new_stars >= int(_value(118, "星")):
 		for _i in _count(session, 118):
 			_queue_unit(session, unit_id, 2)
+	_trigger_merge_copy(session)
+	if new_stars >= 3:
+		_grant_star3_quest(session)
 
 
 static func star_sell_refund(session: GameSession, cost: int, stars: int) -> int:
 	var refund := maxi(cost, 0) + sell_bonus(session)
-	if stars <= 1 or _count(session, 111) <= 0:
-		return refund
-	var assembled := maxi(cost, 0)
-	var bodies := 1
-	for _i in stars - 1:
-		bodies *= 3
-	assembled *= bodies
-	return assembled + _count(session, 111) * int(_value(111, "ゴールド")) + sell_bonus(session)
+	if stars > 1 and _count(session, 111) > 0:
+		var assembled := maxi(cost, 0)
+		var bodies := 1
+		for _i in stars - 1:
+			bodies *= 3
+		assembled *= bodies
+		refund = assembled + _count(session, 111) * int(_value(111, "ゴールド")) + sell_bonus(session)
+	return int(round(float(refund) * sell_mult(session)))
 
 
 static func note_sold_unit(session: GameSession, unit_id: int, cost: int, stars: int, free_slots: int) -> void:
@@ -433,9 +530,11 @@ static func owned_outgoing(session: GameSession) -> float:
 	if session.loss_streak > 0 and _count(session, 126) > 0:
 		var each_loss := minf(float(session.loss_streak) * _value(126, "与ダメージ"), _value(126, "上限")) / 100.0
 		bonus += float(_count(session, 126)) * each_loss
-	var missing := maxi(PlayerHp.INITIAL_HP - session.player_hp, 0)
+	var missing := maxi(player_max_hp(session) - session.player_hp, 0)
 	if missing > 0:
 		bonus += float(_count(session, 130)) * float(missing) * _value(130, "与ダメージ") / 100.0
+	if session.win_streak > 0:
+		bonus += float(_count(session, 259)) * _value(259, "与ダメージ") / 100.0
 	return bonus
 
 
@@ -449,6 +548,7 @@ static func growth_outgoing(session: GameSession, unit: GameUnit) -> float:
 			total += float(session.round_number) * _value(158, "与ダメージ")
 		elif _is_damage_growth(relic_id):
 			total += _growth_of(session, uid)
+	total += relic_279_outgoing(session, unit) * 100.0
 	return total / 100.0
 
 
@@ -613,6 +713,16 @@ static func _equipped_owner(session: GameSession, uid: int) -> GameUnit:
 	return null
 
 
+static func strip_equipped_uid(session: GameSession, uid: int) -> void:
+	if uid < 0:
+		return
+	for unit in _owned_units(session):
+		if unit == null or unit.equipped_relic_uids.is_empty():
+			continue
+		while unit.equipped_relic_uids.has(uid):
+			unit.equipped_relic_uids.erase(uid)
+
+
 static func note_star_ups(session: GameSession, times: int) -> void:
 	if times <= 0:
 		return
@@ -706,17 +816,34 @@ static func _consume_one(session: GameSession, relic_id: int) -> void:
 
 
 static func blocks_interest(session: GameSession) -> bool:
-	return _count(session, 93) > 0
+	return _count(session, 93) > 0 or _count(session, 255) > 0
 
 
 static func deploy_bonus(session: GameSession) -> int:
-	return _count(session, 91) * int(_value(91, "出撃"))
+	return (
+		_count(session, 91) * int(_value(91, "出撃"))
+		+ _count(session, 253) * int(_value(253, "出撃"))
+		+ _count(session, 314) * int(_value(314, "出撃"))
+	)
 
 
 static func hp_exp_cost(session: GameSession) -> int:
+	if _count(session, 254) > 0:
+		return int(_value(254, "HP"))
 	if _count(session, 95) <= 0:
 		return 0
 	return int(_value(95, "HP"))
+
+
+static func player_max_hp(session: GameSession) -> int:
+	var bonus := 0
+	bonus += _count(session, 171) * int(_value(171, "最大HP"))
+	bonus += int(round(float(PlayerHp.INITIAL_HP) * _count(session, 260) * _value(260, "最大HP") / 100.0))
+	return PlayerHp.INITIAL_HP + bonus
+
+
+static func blocks_paid_reroll(session: GameSession) -> bool:
+	return _count(session, 258) > 0
 
 
 static func shop_odds_level(session: GameSession, paid_gold: bool) -> int:
@@ -726,7 +853,9 @@ static func shop_odds_level(session: GameSession, paid_gold: bool) -> int:
 		bonus = 1
 	if paid_gold and _charges(session, 100) > 0:
 		bonus = maxi(bonus, 1)
-	return mini(level + bonus, ShopOdds.TABLE_LEVELS)
+	level += bonus
+	level -= _count(session, 260) * int(_value(260, "レベル低下"))
+	return clampi(level, 1, ShopOdds.TABLE_LEVELS)
 
 
 static func apply_hologram(session: GameSession, before: int) -> void:
@@ -741,6 +870,8 @@ static func apply_hologram(session: GameSession, before: int) -> void:
 static func round_start_experience(session: GameSession) -> int:
 	var xp := _spend_timed_xp(session, 85)
 	xp += _count(session, 93) * int(_value(93, "経験値"))
+	xp += _count(session, 254) * int(_value(254, "毎ラウンド"))
+	xp += _count(session, 302) * int(_value(302, "経験値"))
 	xp += _advance_pilot(session)
 	return xp
 
@@ -891,6 +1022,179 @@ static func _item(session: GameSession, uid: int) -> Dictionary:
 		if int(item.get("uid", -1)) == uid:
 			return item
 	return {}
+
+
+static func note_ally_down(session: GameSession) -> void:
+	for item in session.relics:
+		if int(item.get("id", -1)) != 286:
+			continue
+		if int(item.get("grants", 0)) >= int(_value(286, "上限")):
+			continue
+		item["progress"] = int(item.get("progress", 0)) + 1
+		if int(item.get("progress", 0)) < int(_value(286, "進捗")):
+			continue
+		item["progress"] = 0
+		item["grants"] = int(item.get("grants", 0)) + 1
+		_queue_random_relic(session)
+
+
+static func note_streak_quests(session: GameSession) -> void:
+	if session.win_streak >= int(_value(296, "連勝")):
+		for item in session.relics.duplicate():
+			if int(item.get("id", -1)) != 296 or not bool(item.get("armed", false)):
+				continue
+			session.add_coins(int(_value(296, "ゴールド")))
+			session.free_rerolls += int(_value(296, "無料更新"))
+			session.take_relic(int(item.get("uid", -1)))
+	if session.loss_streak >= int(_value(297, "連敗")):
+		for item in session.relics.duplicate():
+			if int(item.get("id", -1)) != 297 or not bool(item.get("armed", false)):
+				continue
+			session.add_coins(int(_value(297, "ゴールド")))
+			_queue_random_relic(session)
+			session.take_relic(int(item.get("uid", -1)))
+
+
+static func note_duplicate_name(session: GameSession, relic_id: int) -> void:
+	if _count(session, 307) <= 0:
+		return
+	var name := str(RelicCatalog.get_relic(relic_id).get("name", ""))
+	var owned := 0
+	for item in session.relics:
+		if str(RelicCatalog.get_relic(int(item.get("id", -1))).get("name", "")) == name:
+			owned += 1
+	if owned >= 2:
+		session.add_coins(_count(session, 307) * int(_value(307, "ゴールド")))
+
+
+static func _trigger_merge_copy(session: GameSession) -> void:
+	for item in session.relics:
+		if int(item.get("id", -1)) != 178 or not bool(item.get("seed", false)):
+			continue
+		var left := int(item.get("left", 0))
+		if left <= 0:
+			continue
+		item["left"] = left - 1
+		var copy_uid := session.add_relic(178)
+		var copy := _item(session, copy_uid)
+		if not copy.is_empty():
+			copy["from_copy"] = true
+			copy["seed"] = false
+		if left - 1 <= 0:
+			session.take_relic(int(item.get("uid", -1)))
+		return
+
+
+static func _grant_star3_quest(session: GameSession) -> void:
+	for item in session.relics:
+		if int(item.get("id", -1)) != 299:
+			continue
+		var left := int(item.get("left", 0))
+		if left <= 0:
+			continue
+		session.add_coins(int(_value(299, "ゴールド")))
+		item["left"] = left - 1
+		if left - 1 <= 0:
+			session.take_relic(int(item.get("uid", -1)))
+		return
+
+
+static func _check_level_quest(session: GameSession) -> void:
+	if session.get_level() < int(_value(298, "レベル")):
+		return
+	for item in session.relics.duplicate():
+		if int(item.get("id", -1)) != 298 or not bool(item.get("armed", false)):
+			continue
+		_queue_random_relic(session)
+		session.take_relic(int(item.get("uid", -1)))
+
+
+static func _advance_grant_rounds(session: GameSession) -> void:
+	var remove: Array[int] = []
+	for item in session.relics:
+		var relic_id := int(item.get("id", -1))
+		if relic_id == 285:
+			var left := int(item.get("left", 0))
+			if left <= 0:
+				continue
+			_queue_random_relic(session)
+			item["left"] = left - 1
+			if left - 1 <= 0:
+				remove.append(int(item.get("uid", -1)))
+		elif relic_id == 261:
+			var fights := int(item.get("left", 0))
+			if fights <= 0:
+				continue
+			# counted down on battle end instead
+			pass
+	for uid in remove:
+		session.take_relic(uid)
+
+
+static func note_battle_finished(session: GameSession, won: bool) -> void:
+	var remove: Array[int] = []
+	for item in session.relics:
+		if int(item.get("id", -1)) != 261:
+			continue
+		var left := int(item.get("left", 0)) - 1
+		item["left"] = left
+		if left > 0:
+			continue
+		session.add_coins(int(_value(261, "ゴールド")))
+		remove.append(int(item.get("uid", -1)))
+	for uid in remove:
+		session.take_relic(uid)
+	if not won and _count(session, 172) > 0:
+		var missing := maxi(player_max_hp(session) - session.player_hp, 0)
+		var heal := int(round(float(missing) * float(_count(session, 172)) * _value(172, "回復") / 100.0))
+		session.player_hp = mini(player_max_hp(session), session.player_hp + heal)
+	if not won and _count(session, 259) > 0:
+		_consume_all(session, 259)
+	note_streak_quests(session)
+
+
+static func _resolve_timed_bank(session: GameSession) -> int:
+	var gold := 0
+	var remove: Array[int] = []
+	for item in session.relics:
+		if int(item.get("id", -1)) != 263:
+			continue
+		var left := int(item.get("left", 0)) - 1
+		item["left"] = left
+		if left > 0:
+			continue
+		gold += int(item.get("bank", 0)) + int(_value(263, "追加"))
+		remove.append(int(item.get("uid", -1)))
+	for uid in remove:
+		session.take_relic(uid)
+	return gold
+
+
+static func _toggle_round_relics(session: GameSession) -> void:
+	for item in session.relics:
+		if int(item.get("id", -1)) != 279:
+			continue
+		item["mode"] = 1 - int(item.get("mode", 0))
+
+
+static func relic_279_outgoing(session: GameSession, unit: GameUnit) -> float:
+	if unit == null:
+		return 0.0
+	var total := 0.0
+	for uid in unit.equipped_relic_uids:
+		if session.relic_id_of(uid) != 279:
+			continue
+		var item := _item(session, uid)
+		if int(item.get("mode", 0)) == 0:
+			total += _value(279, "与ダメージ")
+	return total / 100.0
+
+
+static func _queue_random_relic(session: GameSession) -> void:
+	var pool: Array[int] = RelicCatalog.all_pick_ids()
+	if pool.is_empty():
+		return
+	session.add_relic(pool[randi() % pool.size()])
 
 
 static func _value(relic_id: int, key: String) -> float:

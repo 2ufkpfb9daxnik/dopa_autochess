@@ -55,6 +55,8 @@ var debuffed := false
 var debuff_home_face := -1
 var debuff_home_slot := -1
 var equipped_relic_uids: Array[int] = []
+## イズミなど、戦闘をまたぐキャラ固有の残数。
+var kit_flags: Dictionary = {}
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D

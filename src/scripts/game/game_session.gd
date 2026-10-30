@@ -69,6 +69,7 @@ func add_relic(relic_id: int) -> int:
 	var item := {"uid": uid, "id": relic_id}
 	relics.append(item)
 	RelicEconomy.on_gained(self, uid, relic_id)
+	RelicEconomy.note_duplicate_name(self, relic_id)
 	state_changed.emit()
 	return uid
 
@@ -86,6 +87,7 @@ func take_relic(uid: int) -> int:
 			continue
 		var relic_id := int(relics[index].get("id", -1))
 		relics.remove_at(index)
+		RelicEconomy.strip_equipped_uid(self, uid)
 		state_changed.emit()
 		return relic_id
 	return -1

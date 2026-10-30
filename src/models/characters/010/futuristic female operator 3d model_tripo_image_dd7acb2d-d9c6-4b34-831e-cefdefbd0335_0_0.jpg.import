@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://chv8pwicqnrmp"
+path.s3tc="res://.godot/imported/futuristic female operator 3d model_tripo_image_dd7acb2d-d9c6-4b34-831e-cefdefbd0335_0_0.jpg-5da6012a73f2573139231813456120da.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "e59b9acea7a140853d65e1732fc553e3"
+}
+
+[deps]
+
+source_file="res://models/characters/010/futuristic female operator 3d model_tripo_image_dd7acb2d-d9c6-4b34-831e-cefdefbd0335_0_0.jpg"
+dest_files=["res://.godot/imported/futuristic female operator 3d model_tripo_image_dd7acb2d-d9c6-4b34-831e-cefdefbd0335_0_0.jpg-5da6012a73f2573139231813456120da.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

@@ -14,7 +14,43 @@ static func names_of(unit_id: int) -> PackedStringArray:
 	return lines.split("\n")
 
 
-static func count_synergies(units: Array) -> Dictionary:
+static func names_for_unit(unit: GameUnit, host_session: GameSession = null) -> PackedStringArray:
+	if unit == null:
+		return PackedStringArray()
+	var names := names_of(unit.unit_id)
+	if host_session == null or unit.equipped_relic_uids.is_empty():
+		return names
+	var seen := {}
+	for synergy_name in names:
+		seen[synergy_name] = true
+	for uid in unit.equipped_relic_uids:
+		var data := RelicCatalog.get_relic(host_session.relic_id_of(int(uid)))
+		var synergy_name := str(data.get("synergy", "")).strip_edges()
+		if synergy_name.is_empty() or seen.has(synergy_name):
+			continue
+		seen[synergy_name] = true
+		names.append(synergy_name)
+	return names
+
+
+static func unit_has_synergy(unit: GameUnit, synergy_name: String, host_session: GameSession = null, exclude_uid: int = -1) -> bool:
+	if unit == null or synergy_name.is_empty():
+		return false
+	for owned in names_of(unit.unit_id):
+		if str(owned) == synergy_name:
+			return true
+	if host_session == null:
+		return false
+	for uid in unit.equipped_relic_uids:
+		if int(uid) == exclude_uid:
+			continue
+		var data := RelicCatalog.get_relic(host_session.relic_id_of(int(uid)))
+		if str(data.get("synergy", "")).strip_edges() == synergy_name:
+			return true
+	return false
+
+
+static func count_synergies(units: Array, host_session: GameSession = null) -> Dictionary:
 	var counts: Dictionary = {}
 	var counted_unit_ids: Dictionary = {}
 	for unit in units:
@@ -26,14 +62,14 @@ static func count_synergies(units: Array) -> Dictionary:
 		if counted_unit_ids.has(typed.unit_id):
 			continue
 		counted_unit_ids[typed.unit_id] = true
-		for synergy_name in names_of(typed.unit_id):
+		for synergy_name in names_for_unit(typed, host_session):
 			counts[synergy_name] = int(counts.get(synergy_name, 0)) + 1
 	return counts
 
 
-static func list_synergies(units: Array) -> Array[Dictionary]:
+static func list_synergies(units: Array, host_session: GameSession = null) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	var counts := count_synergies(units)
+	var counts := count_synergies(units, host_session)
 	for synergy_name in counts.keys():
 		var count: int = int(counts[synergy_name])
 		var data := SynergyCatalog.get_by_name(str(synergy_name))
@@ -61,15 +97,15 @@ static func list_synergies(units: Array) -> Array[Dictionary]:
 	return result
 
 
-static func get_active_synergies(units: Array) -> Array[Dictionary]:
+static func get_active_synergies(units: Array, host_session: GameSession = null) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	for entry in list_synergies(units):
+	for entry in list_synergies(units, host_session):
 		if bool(entry["active"]):
 			result.append(entry)
 	return result
 
 
-static func bonuses_for(unit: GameUnit, circle_units: Array) -> Dictionary:
+static func bonuses_for(unit: GameUnit, circle_units: Array, host_session: GameSession = null) -> Dictionary:
 	var totals := {
 		"hp": 0.0,
 		"attack": 0.0,
@@ -84,7 +120,7 @@ static func bonuses_for(unit: GameUnit, circle_units: Array) -> Dictionary:
 	}
 	if unit == null:
 		return totals
-	var counts := count_synergies(circle_units)
+	var counts := count_synergies(circle_units, host_session)
 	if unit.is_enemy:
 		for synergy_name in counts.keys():
 			var effect := SynergyCatalog.active_effect(str(synergy_name), int(counts[synergy_name]))
@@ -92,7 +128,7 @@ static func bonuses_for(unit: GameUnit, circle_units: Array) -> Dictionary:
 			totals["attribute_resist"] = float(totals["attribute_resist"]) + float(bonus["enemy_resist"])
 			totals["damage_taken"] = float(totals["damage_taken"]) + float(bonus["enemy_taken"])
 		return totals
-	for synergy_name in names_of(unit.unit_id):
+	for synergy_name in names_for_unit(unit, host_session):
 		var effect := SynergyCatalog.active_effect(synergy_name, int(counts.get(synergy_name, 0)))
 		var bonus := SynergyCatalog.stat_bonus(effect)
 		for key in ["hp", "attack", "defense", "speed", "crit_damage", "penetration", "bonus_damage", "gauge_rate"]:

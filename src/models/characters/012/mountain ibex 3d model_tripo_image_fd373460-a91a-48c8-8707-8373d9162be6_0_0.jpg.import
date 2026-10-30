@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://dbu6dyvt6iuh"
+path.s3tc="res://.godot/imported/mountain ibex 3d model_tripo_image_fd373460-a91a-48c8-8707-8373d9162be6_0_0.jpg-d8c2f22f3feb574914b5bfcbccf9a5ff.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "d60ccd3f680b22b9bae3bf7186ce19ee"
+}
+
+[deps]
+
+source_file="res://models/characters/012/mountain ibex 3d model_tripo_image_fd373460-a91a-48c8-8707-8373d9162be6_0_0.jpg"
+dest_files=["res://.godot/imported/mountain ibex 3d model_tripo_image_fd373460-a91a-48c8-8707-8373d9162be6_0_0.jpg-d8c2f22f3feb574914b5bfcbccf9a5ff.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

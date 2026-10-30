@@ -348,6 +348,38 @@ func front_units(enemies: bool) -> Array:
 	return found
 
 
+func back_units(enemies: bool) -> Array:
+	var found: Array = []
+	if enemies:
+		for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
+			var unit: GameUnit = _enemy_slots[slot_index]
+			if unit != null and is_instance_valid(unit):
+				found.append(unit)
+		return found
+	var seen := {}
+	for slot_index in range(FRONT_COUNT, SLOTS_PER_FACE):
+		var unit := get_resolved_unit(active_face, slot_index)
+		if unit == null or seen.has(unit):
+			continue
+		seen[unit] = true
+		found.append(unit)
+	return found
+
+
+func slot_of_unit(unit: GameUnit) -> int:
+	if unit == null:
+		return -1
+	if unit.is_enemy:
+		for slot_index in SLOTS_PER_FACE:
+			if _enemy_slots[slot_index] == unit:
+				return slot_index
+		return -1
+	for slot_index in SLOTS_PER_FACE:
+		if get_resolved_unit(active_face, slot_index) == unit:
+			return slot_index
+	return -1
+
+
 func front_slot_of(unit: GameUnit) -> int:
 	if unit == null:
 		return -1

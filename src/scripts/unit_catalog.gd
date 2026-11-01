@@ -2,7 +2,8 @@ class_name UnitCatalog
 extends RefCounted
 
 const PLACEHOLDER_ICON := preload("res://images/placeholder.png")
-const PORTRAIT_TOP_SHIFT := 1.0 / 8.0
+## 切り抜きは画像の一番上から取る。
+const PORTRAIT_TOP_SHIFT := 0.0
 static var _icons: Dictionary = {}
 static var _models: Dictionary = {}
 

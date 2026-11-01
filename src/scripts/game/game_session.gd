@@ -52,8 +52,35 @@ var relic_buy_counts: Dictionary = {}
 var relic_cost_rewarded: Dictionary = {}
 var relic_076_slots: Array[int] = []
 var relic_pending_units: Array[Dictionary] = []
+## パラ(310)など、入手時にレリック3択を出す回数。
+var relic_pending_picks: int = 0
 var shop_odds_level: int = 1
 var relic_end_xp: int = 0
+
+## ラン終了画面用の累計。
+var tally_battles_won := 0
+var tally_battles_lost := 0
+var tally_damage_taken := 0
+var tally_gold_gained := 0
+var tally_gold_spent := 0
+var tally_income_gold := 0
+var tally_cleanse_gold := 0
+var tally_max_win_streak := 0
+var tally_max_loss_streak := 0
+var tally_rerolls_paid := 0
+var tally_rerolls_free := 0
+var tally_exp_buys := 0
+var tally_hp_exp_buys := 0
+var tally_hp_spent_on_exp := 0
+var tally_units_bought := 0
+var tally_units_sold := 0
+var tally_merges := 0
+var tally_relics_gained := 0
+var tally_peak_coins := INITIAL_COINS
+var tally_peak_level := 1
+var tally_peak_board := 0
+var tally_shop_locks := 0
+var tally_routes_picked := 0
 
 
 func should_offer_relic_pick() -> bool:
@@ -61,15 +88,20 @@ func should_offer_relic_pick() -> bool:
 	return round_number > 1 and is_prep() and not is_run_over()
 
 
-func add_relic(relic_id: int) -> int:
+func add_relic(relic_id: int, seed: Dictionary = {}) -> int:
 	if relic_id <= 0:
 		return -1
 	var uid := _relic_seq
 	_relic_seq += 1
 	var item := {"uid": uid, "id": relic_id}
+	for key in seed.keys():
+		item[key] = seed[key]
 	relics.append(item)
+	tally_relics_gained += 1
 	RelicEconomy.on_gained(self, uid, relic_id)
 	RelicEconomy.note_duplicate_name(self, relic_id)
+	if not bool(seed.get("from_shinan", false)):
+		RelicEconomy.trigger_shinan(self)
 	state_changed.emit()
 	return uid
 
@@ -155,6 +187,7 @@ func toggle_shop_lock() -> void:
 	if not is_prep():
 		return
 	shop_locked = not shop_locked
+	tally_shop_locks += 1
 	state_changed.emit()
 
 
@@ -167,10 +200,12 @@ func try_buy_shop_slot(slot_index: int, bench_full: bool) -> int:
 	var cost := RelicEconomy.shop_price(self, slot_index)
 	if coins < cost or bench_full:
 		return -1
-	coins -= cost
+	if not spend_coins(cost):
+		return -1
 	RelicEconomy.note_gold_spent(self, cost)
 	shop_unit_ids[slot_index] = -1
 	RelicEconomy.note_unit_bought(self, int(UnitCatalog.get_unit(unit_id)["cost"]), 1)
+	tally_units_bought += 1
 	state_changed.emit()
 	return unit_id
 
@@ -180,16 +215,18 @@ func try_reroll() -> bool:
 		return false
 	if free_rerolls > 0:
 		free_rerolls -= 1
+		tally_rerolls_free += 1
 		refresh_shop(false)
 		return true
 	var reroll_cost := RelicEconomy.paid_reroll_cost(self)
 	if coins < reroll_cost:
 		return false
-	coins -= reroll_cost
+	if not spend_coins(reroll_cost):
+		return false
 	RelicEconomy.note_gold_spent(self, reroll_cost)
 	refresh_shop(reroll_cost > 0)
 	RelicEconomy.note_paid_reroll(self, reroll_cost)
-	GameAudio.play_money_gain()
+	tally_rerolls_paid += 1
 	return true
 
 
@@ -197,12 +234,13 @@ func try_buy_exp() -> bool:
 	var exp_cost := RelicEconomy.exp_cost(self)
 	if not _economy_open() or coins < exp_cost:
 		return false
-	coins -= exp_cost
+	if not spend_coins(exp_cost):
+		return false
 	RelicEconomy.note_gold_spent(self, exp_cost)
 	gain_experience(EXP_GAIN + RelicEconomy.exp_bonus(self))
 	RelicEconomy.note_exp_bought(self)
+	tally_exp_buys += 1
 	state_changed.emit()
-	GameAudio.play_money_gain()
 	return true
 
 
@@ -211,6 +249,9 @@ func try_buy_exp_with_hp() -> bool:
 	if hp_cost <= 0 or not _economy_open() or player_hp < hp_cost:
 		return false
 	player_hp -= hp_cost
+	tally_hp_exp_buys += 1
+	tally_hp_spent_on_exp += hp_cost
+	tally_damage_taken += hp_cost
 	gain_experience(EXP_GAIN)
 	if player_hp <= 0:
 		finish_run(RunEndReason.DEFEAT)
@@ -221,22 +262,36 @@ func try_buy_exp_with_hp() -> bool:
 
 func add_sell_income(amount: int) -> void:
 	add_coins(amount)
-	state_changed.emit()
 	if amount > 0:
-		GameAudio.play_money_gain()
+		tally_units_sold += 1
+	state_changed.emit()
+
+
+## ゴールドを使う。成功時は money 音を鳴らす。
+func spend_coins(amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if coins < amount:
+		return false
+	coins -= amount
+	tally_gold_spent += amount
+	GameAudio.play_money_gain()
+	return true
 
 
 func add_coins(amount: int) -> void:
 	if amount == 0:
 		return
 	if amount < 0:
-		coins += amount
+		spend_coins(-amount)
 		return
 	var bonus_per := RelicEconomy.crossing_bonus(self)
 	var adding := amount
+	var gained := 0
 	while adding > 0:
 		var before := coins
 		coins += adding
+		gained += adding
 		adding = 0
 		if bonus_per <= 0:
 			break
@@ -244,6 +299,9 @@ func add_coins(amount: int) -> void:
 		if crossed <= 0:
 			break
 		adding = crossed * bonus_per
+	tally_gold_gained += gained
+	tally_peak_coins = maxi(tally_peak_coins, coins)
+	GameAudio.play_money_gain()
 
 
 func gain_experience(amount: int) -> void:
@@ -253,6 +311,7 @@ func gain_experience(amount: int) -> void:
 	experience += amount
 	RelicEconomy.apply_hologram(self, before)
 	var after := get_level()
+	tally_peak_level = maxi(tally_peak_level, after)
 	if after > before:
 		RelicEconomy.note_level_up(self, before, after)
 	state_changed.emit()
@@ -279,9 +338,9 @@ func start_battle() -> void:
 func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 	last_cleanse_income = cleanse_income
 	if cleanse_income > 0:
+		tally_cleanse_gold += cleanse_income
 		add_coins(cleanse_income)
 		cleanse_income = 0
-		GameAudio.play_money_gain()
 	coins_at_last_round_end = coins
 	gain_experience(ROUND_END_FREE_XP + relic_end_xp)
 	relic_end_xp = 0
@@ -291,6 +350,8 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 			RelicEconomy.note_streak_broken(self)
 		win_streak += 1
 		loss_streak = 0
+		tally_battles_won += 1
+		tally_max_win_streak = maxi(tally_max_win_streak, win_streak)
 	else:
 		if win_streak > 0:
 			RelicEconomy.note_streak_broken(self)
@@ -298,6 +359,9 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 		win_streak = 0
 		var damage := PlayerHp.calc_loss_damage(round_number, remaining_enemy_units)
 		player_hp = maxi(0, player_hp - damage)
+		tally_battles_lost += 1
+		tally_damage_taken += damage
+		tally_max_loss_streak = maxi(tally_max_loss_streak, loss_streak)
 
 	round_number += 1
 
@@ -324,13 +388,11 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 func select_route(index: int) -> Dictionary:
 	if not is_route_choice() or index < 0 or index >= route_options.size():
 		return {}
-	var coins_before := coins
 	selected_route = route_options[index]
+	tally_routes_picked += 1
 	_apply_route_reward(selected_route)
 	RelicEconomy.prepare_round(self)
 	_apply_round_start_income()
-	if coins > coins_before:
-		GameAudio.play_money_gain()
 	phase = Phase.PREP
 	apply_round_start_shop()
 	state_changed.emit()
@@ -381,7 +443,9 @@ func _apply_round_start_income() -> void:
 		last_income_breakdown["holding"] = int(last_income_breakdown["holding"]) + RelicEconomy.interest_extra(self) + RelicEconomy.interest_flat(self)
 	last_income_breakdown["streak"] = int(last_income_breakdown["streak"]) + RelicEconomy.streak_extra(self)
 	last_income_breakdown["total"] = int(last_income_breakdown["base"]) + int(last_income_breakdown["holding"]) + int(last_income_breakdown["streak"]) + int(last_income_breakdown["round"]) + RelicEconomy.apply_round_open(self)
-	add_coins(int(last_income_breakdown["total"]))
+	var income_total := int(last_income_breakdown["total"])
+	tally_income_gold += income_total
+	add_coins(income_total)
 	state_changed.emit()
 
 

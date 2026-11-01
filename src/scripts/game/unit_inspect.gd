@@ -18,10 +18,16 @@ var _tip_owner: Control
 var _anchor := Vector2.ZERO
 var _detailed := false
 var _summary_height := 0.0
+var _hover_mode := false
+var _hover_key := ""
+var _pointer_over_panel := false
+var _hover_close_left := -1.0
+const HOVER_CLOSE_GRACE := 0.2
 
 
 func _ready() -> void:
 	visible = false
+	set_process(false)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_panel = PanelContainer.new()
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -90,52 +96,120 @@ func _ready() -> void:
 	add_child(_tip)
 
 
-func open_unit(unit_id: int, stars: int, anchor: Vector2, equipped_relic_ids: Array = []) -> void:
+func open_unit(unit_id: int, stars: int, anchor: Vector2, equipped_relic_ids: Array = [], hover: bool = false) -> void:
+	var key := "u:%d:%d:%s" % [unit_id, stars, str(equipped_relic_ids)]
 	_anchor = anchor
-	_detailed = false
+	if visible and _hover_mode and _hover_key == key:
+		call_deferred("_place_panel")
+		return
+	_hover_mode = hover
+	_hover_key = key
 	_rebuild_summary(unit_id, stars, equipped_relic_ids)
 	_rebuild_detail(unit_id)
-	_detail_scroll.visible = false
-	_detail_button.text = "詳細"
-	_detail_button.visible = _detail_box.get_child_count() > 0
-	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	top_level = true
-	z_as_relative = false
-	z_index = 90
-	set_anchors_preset(Control.PRESET_TOP_LEFT)
-	position = Vector2.ZERO
-	size = get_viewport().get_visible_rect().size
-	move_to_front()
-	call_deferred("_place_panel")
-
-
-func open_relic(relic_id: int, anchor: Vector2) -> void:
-	_anchor = anchor
+	## ホバーでは簡単な説明（サマリー）のみ。詳細文は詳細ボタン。
 	_detailed = false
-	_rebuild_relic(relic_id)
 	_detail_scroll.visible = false
 	_detail_button.text = "詳細"
 	_detail_button.visible = _detail_box.get_child_count() > 0
-	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
-	top_level = true
-	z_as_relative = false
-	z_index = 90
-	set_anchors_preset(Control.PRESET_TOP_LEFT)
-	position = Vector2.ZERO
-	size = get_viewport().get_visible_rect().size
-	move_to_front()
-	call_deferred("_place_panel")
+	_show_card(hover)
+
+
+func open_relic(relic_id: int, anchor: Vector2, hover: bool = false) -> void:
+	var key := "r:%d" % relic_id
+	_anchor = anchor
+	if visible and _hover_mode and _hover_key == key:
+		call_deferred("_place_panel")
+		return
+	_hover_mode = hover
+	_hover_key = key
+	_rebuild_relic(relic_id)
+	## ホバーでは簡単な説明のみ。詳細文は詳細ボタン。
+	_detailed = false
+	_detail_scroll.visible = false
+	_detail_button.text = "詳細"
+	_detail_button.visible = _detail_box.get_child_count() > 0
+	_show_card(hover)
 
 
 func close_card() -> void:
 	_hide_tip()
 	visible = false
+	_hover_mode = false
+	_hover_key = ""
+	_pointer_over_panel = false
+	_hover_close_left = -1.0
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
+func is_pointer_over_panel() -> bool:
+	if not visible or _panel == null:
+		return false
+	if _pointer_over_panel:
+		return true
+	return _panel.get_global_rect().grow(12.0).has_point(get_viewport().get_mouse_position())
+
+
+func request_hover_close() -> void:
+	## ソース→パネル移動のすき間で即閉じない。
+	if not visible or not _hover_mode:
+		return
+	if is_pointer_over_panel():
+		return
+	_hover_close_left = HOVER_CLOSE_GRACE
+	set_process(true)
+
+
+func _process(delta: float) -> void:
+	if _hover_close_left < 0.0:
+		set_process(false)
+		return
+	if is_pointer_over_panel():
+		_hover_close_left = -1.0
+		set_process(false)
+		return
+	_hover_close_left -= delta
+	if _hover_close_left > 0.0:
+		return
+	_hover_close_left = -1.0
+	set_process(false)
+	if _hover_mode and not is_pointer_over_panel():
+		close_card()
+
+
+func _show_card(hover: bool) -> void:
+	visible = true
+	_hover_close_left = -1.0
+	## ルートは下の操作を通す。パネルは詳細ボタンを押せるように受ける。
+	mouse_filter = Control.MOUSE_FILTER_IGNORE if hover else Control.MOUSE_FILTER_STOP
+	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not _panel.mouse_entered.is_connected(_on_panel_mouse_entered):
+		_panel.mouse_entered.connect(_on_panel_mouse_entered)
+	if not _panel.mouse_exited.is_connected(_on_panel_mouse_exited):
+		_panel.mouse_exited.connect(_on_panel_mouse_exited)
+	top_level = true
+	z_as_relative = false
+	z_index = 90
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = get_viewport().get_visible_rect().size
+	move_to_front()
+	call_deferred("_place_panel")
+
+
+func _on_panel_mouse_entered() -> void:
+	_pointer_over_panel = true
+	_hover_close_left = -1.0
+
+
+func _on_panel_mouse_exited() -> void:
+	_pointer_over_panel = false
+	if _hover_mode:
+		request_hover_close()
+
+
 func _gui_input(event: InputEvent) -> void:
+	if _hover_mode:
+		return
 	if not (event is InputEventMouseButton) or not (event as InputEventMouseButton).pressed:
 		return
 	if _panel.get_global_rect().has_point((event as InputEventMouseButton).global_position):
@@ -148,6 +222,10 @@ func _toggle_detail() -> void:
 	_detailed = not _detailed
 	_detail_scroll.visible = _detailed
 	_detail_button.text = "戻る" if _detailed else "詳細"
+	## 詳細を開いたらホバー解除扱いにして、外側クリックまで残す。
+	if _detailed and _hover_mode:
+		_hover_mode = false
+		mouse_filter = Control.MOUSE_FILTER_STOP
 	call_deferred("_place_panel")
 
 
@@ -193,10 +271,8 @@ func _rebuild_relic(relic_id: int) -> void:
 	_summary_height = height
 	var detail := str(data.get("detail", "")).strip_edges()
 	if not detail.is_empty():
-		var body := _make_label(DETAIL_FONT)
-		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size = Vector2(width, 0)
-		body.text = detail
+		var body := _make_rich(DETAIL_FONT, width)
+		body.text = CharacterText.with_attribute_icons(detail, CharacterText.icon_px(DETAIL_FONT))
 		_detail_box.add_child(body)
 
 

@@ -2,6 +2,8 @@ class_name RelicTray
 extends Control
 
 signal clicked(uid: int)
+signal hovered(uid: int)
+signal hover_cleared
 signal drag_finished(uid: int, global_position: Vector2)
 
 const ICON := 54.0
@@ -14,6 +16,7 @@ var _limit := Vector2.ZERO
 var _obstacle := Rect2()
 var _drag_uid := -1
 var _pending_uid := -1
+var _hover_uid := -1
 var _press_pos := Vector2.ZERO
 var _drag_moved := false
 var _ghost: TextureRect
@@ -46,6 +49,8 @@ func set_entries(entries: Array) -> void:
 
 
 func set_layout(origin: Vector2, limit: Vector2, obstacle: Rect2) -> void:
+	## origin = 右端列の先頭（アクション列のすぐ左）。
+	## limit.x = 左端の下限、limit.y = 下端。縦に並べ、はみ出したら左の列へ。
 	_origin = origin
 	_limit = limit
 	_obstacle = obstacle
@@ -107,6 +112,8 @@ func _rebuild() -> void:
 		button.add_child(icon)
 		button.pressed.connect(_on_pressed.bind(uid))
 		button.button_down.connect(_on_down.bind(uid))
+		button.mouse_entered.connect(_on_button_hovered.bind(uid))
+		button.mouse_exited.connect(_on_button_unhovered.bind(uid))
 		add_child(button)
 		_buttons.append(button)
 	_place()
@@ -122,17 +129,22 @@ func _place() -> void:
 		button.size = rect.size
 		cursor = Vector2(rect.position.x, rect.end.y + GAP)
 		if cursor.y + ICON > _limit.y:
-			cursor = Vector2(rect.end.x + GAP, _origin.y)
+			cursor = Vector2(rect.position.x - ICON - GAP, _origin.y)
 
 
 func _next_rect(cursor: Vector2) -> Rect2:
 	var point := cursor
-	for _step in 48:
+	for _step in 64:
 		if point.y + ICON > _limit.y:
-			point = Vector2(point.x + ICON + GAP, _origin.y)
+			point = Vector2(point.x - ICON - GAP, _origin.y)
+		if point.x < _limit.x:
+			point.x = _limit.x
 		var rect := Rect2(point, Vector2(ICON, ICON))
 		if _obstacle.size.x > 1.0 and _obstacle.grow(6.0).intersects(rect):
-			point = Vector2(_obstacle.end.x + GAP, _origin.y)
+			## サークルに当たったらその左へ。
+			point = Vector2(_obstacle.position.x - ICON - GAP, point.y)
+			if point.x < _limit.x:
+				point = Vector2(_limit.x, point.y + ICON + GAP)
 			continue
 		return rect
 	return Rect2(point, Vector2(ICON, ICON))
@@ -149,6 +161,36 @@ func _on_down(uid: int) -> void:
 	_pending_uid = uid
 	_press_pos = get_viewport().get_mouse_position()
 	_drag_moved = false
+	_clear_hover()
+
+
+func _on_button_hovered(uid: int) -> void:
+	if _drag_uid >= 0 or _pending_uid >= 0:
+		return
+	_hover_uid = uid
+	hovered.emit(uid)
+
+
+func _on_button_unhovered(uid: int) -> void:
+	if _hover_uid != uid:
+		return
+	call_deferred("_finish_button_unhover", uid)
+
+
+func _finish_button_unhover(uid: int) -> void:
+	if _hover_uid != uid:
+		return
+	var mouse := get_viewport().get_mouse_position()
+	if uid_at(mouse) >= 0:
+		return
+	_clear_hover()
+
+
+func _clear_hover() -> void:
+	if _hover_uid < 0:
+		return
+	_hover_uid = -1
+	hover_cleared.emit()
 
 
 func _id_of(uid: int) -> int:

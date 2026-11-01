@@ -11,6 +11,7 @@ const ACTION_VALUE_NUMERATOR := 10000
 const HP_BAR_WIDTH := 0.46
 const HP_BAR_HEIGHT := 0.05
 const GAUGE_BAR_GAP := 0.02
+const BREAK_BAR_GAP := 0.02
 const HP_LAG_SECONDS := 0.45
 const CATALOG_CLIPS := {
 	1: {
@@ -76,6 +77,9 @@ var _hp_lag_mesh: MeshInstance3D
 var _hp_fill_mesh: MeshInstance3D
 var _gauge_track: MeshInstance3D
 var _gauge_fill: MeshInstance3D
+var _break_track: MeshInstance3D
+var _break_fill: MeshInstance3D
+var _break_hide_token := 0
 var _hp_current := 0
 var _hp_max := 1
 var _hp_lag := -1.0
@@ -409,6 +413,31 @@ func set_battle_gauge(current: int, maximum: int) -> void:
 	_place_hp_fill(_gauge_fill, ratio)
 
 
+func set_battle_break(current: int, maximum: int, show: bool, hide_after: float = 0.0) -> void:
+	## HPバーの上。撃破進行中だけ出す。
+	_ensure_hp_bar()
+	_break_hide_token += 1
+	var token := _break_hide_token
+	if _break_track != null:
+		_break_track.visible = show
+	if _break_fill == null:
+		return
+	_break_fill.visible = show
+	if not show:
+		return
+	var ratio := clampf(float(current) / float(maxi(maximum, 1)), 0.0, 1.0)
+	var y := HP_BAR_HEIGHT + BREAK_BAR_GAP
+	_break_track.position.y = y
+	_break_fill.position.y = y
+	_place_hp_fill(_break_fill, ratio)
+	if hide_after > 0.0:
+		get_tree().create_timer(hide_after).timeout.connect(func() -> void:
+			if token != _break_hide_token:
+				return
+			set_battle_break(maximum, maximum, false)
+		)
+
+
 func popup_battle_text(text: String, color: Color) -> void:
 	var popup := Label3D.new()
 	popup.text = text
@@ -557,6 +586,14 @@ func _ensure_hp_bar() -> void:
 	_gauge_fill.visible = false
 	_hp_root.add_child(_gauge_track)
 	_hp_root.add_child(_gauge_fill)
+	_break_track = _make_hp_quad(Color(0.22, 0.36, 0.48), 3)
+	_break_fill = _make_hp_quad(Color(0.55, 0.88, 1.0), 6)
+	_break_track.position.y = HP_BAR_HEIGHT + BREAK_BAR_GAP
+	_break_fill.position.y = _break_track.position.y
+	_break_track.visible = false
+	_break_fill.visible = false
+	_hp_root.add_child(_break_track)
+	_hp_root.add_child(_break_fill)
 
 
 func _make_hp_quad(color: Color, priority: int) -> MeshInstance3D:
@@ -578,6 +615,10 @@ func _make_hp_quad(color: Color, priority: int) -> MeshInstance3D:
 
 func _hide_hp_bar() -> void:
 	_hp_lag = -1.0
+	if _break_track != null:
+		_break_track.visible = false
+	if _break_fill != null:
+		_break_fill.visible = false
 	if _hp_root != null:
 		_hp_root.visible = false
 
@@ -638,21 +679,15 @@ func _apply_model_star_scale() -> void:
 
 
 func _apply_enemy_model_tint() -> void:
-	_set_mesh_overlay(model_root, is_enemy)
+	## 敵メッシュの赤オーバーレイは使わない。既存分も外す。
+	_clear_mesh_overlay(model_root)
 
 
-func _set_mesh_overlay(node: Node, enemy: bool) -> void:
+func _clear_mesh_overlay(node: Node) -> void:
 	if node is GeometryInstance3D:
-		var instance := node as GeometryInstance3D
-		if enemy:
-			var overlay := StandardMaterial3D.new()
-			overlay.albedo_color = Color(0.88, 0.22, 0.24, 0.42)
-			overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			instance.material_overlay = overlay
-		else:
-			instance.material_overlay = null
+		(node as GeometryInstance3D).material_overlay = null
 	for child in node.get_children():
-		_set_mesh_overlay(child, enemy)
+		_clear_mesh_overlay(child)
 
 
 func _compute_visual_aabb(root: Node3D) -> AABB:

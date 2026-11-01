@@ -1,6 +1,8 @@
 class_name SynergyTracker
 extends RefCounted
 
+static var _units_by_synergy: Dictionary = {}
+
 
 static func names_of(unit_id: int) -> PackedStringArray:
 	var profile := CharacterText.load_profile(unit_id)
@@ -48,6 +50,35 @@ static func unit_has_synergy(unit: GameUnit, synergy_name: String, host_session:
 		if str(data.get("synergy", "")).strip_edges() == synergy_name:
 			return true
 	return false
+
+
+static func unit_ids_for(synergy_name: String) -> Array[int]:
+	_ensure_unit_index()
+	var out: Array[int] = []
+	var raw: Variant = _units_by_synergy.get(synergy_name, [])
+	if raw is Array:
+		for unit_id in raw:
+			out.append(int(unit_id))
+	return out
+
+
+static func _ensure_unit_index() -> void:
+	if not _units_by_synergy.is_empty():
+		return
+	var dir := DirAccess.open("res://data/characters/")
+	if dir == null:
+		return
+	for file_name in dir.get_files():
+		if file_name.get_extension().to_lower() != "md":
+			continue
+		var unit_id := int(file_name.get_basename())
+		if unit_id <= 0:
+			continue
+		for synergy_name in names_of(unit_id):
+			var key := str(synergy_name)
+			if not _units_by_synergy.has(key):
+				_units_by_synergy[key] = []
+			(_units_by_synergy[key] as Array).append(unit_id)
 
 
 static func count_synergies(units: Array, host_session: GameSession = null) -> Dictionary:

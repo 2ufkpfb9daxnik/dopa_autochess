@@ -18,9 +18,11 @@ func refresh_widgets() -> void:
 		return
 	_host.board.board_unit_limit = _host.session.get_board_unit_cap()
 	_host.board.set_unlocked_face_count(BoardController.unlocked_face_count_for_level(_host.session.get_level()))
+	var board_count: int = int(_host.board.get_board_unit_count())
+	_host.session.tally_peak_board = maxi(_host.session.tally_peak_board, board_count)
 	var center_text := "%d面\n%d/%d" % [
 		_host.board.active_face + 1,
-		_host.board.get_board_unit_count(),
+		board_count,
 		_host.session.get_board_unit_cap(),
 	]
 	if _host.session.get_level() >= 7:
@@ -130,13 +132,25 @@ func on_bench_drag_finished(_slot_index: int, global_position: Vector2) -> void:
 	finish_drag(global_position)
 
 
-func on_circle_unit_clicked(slot_index: int) -> void:
+func on_circle_unit_hovered(slot_index: int) -> void:
 	var unit: GameUnit = _host.board.get_placed_unit(_host.board.active_face, slot_index)
 	if unit == null:
 		unit = _host.board.get_resolved_unit(_host.board.active_face, slot_index)
 	if unit == null or _host._unit_inspect == null:
 		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
+	_host._unit_inspect.open_unit(
+		unit.unit_id,
+		unit.stars,
+		_host.get_viewport().get_mouse_position(),
+		_relic_ids_on(unit),
+		true
+	)
+
+
+func on_inspect_hover_cleared() -> void:
+	if _host._unit_inspect == null:
+		return
+	_host._unit_inspect.request_hover_close()
 
 
 func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
@@ -154,11 +168,17 @@ func on_circle_slot_move(from_slot: int, to_slot: int) -> void:
 			_host._log("そこには配置できません")
 
 
-func on_bench_slot_clicked(slot_index: int) -> void:
+func on_bench_unit_hovered(slot_index: int) -> void:
 	var unit: GameUnit = _host.board.bench_units[slot_index]
 	if unit == null or _host._unit_inspect == null:
 		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
+	_host._unit_inspect.open_unit(
+		unit.unit_id,
+		unit.stars,
+		_host.get_viewport().get_mouse_position(),
+		_relic_ids_on(unit),
+		true
+	)
 
 
 func on_overflow_drag_started(index: int) -> void:
@@ -172,14 +192,9 @@ func on_overflow_drag_finished(_index: int, global_position: Vector2) -> void:
 	finish_drag(global_position)
 
 
-func on_overflow_clicked(index: int) -> void:
-	var unit: GameUnit = _host._overflow_pile.unit_at(index)
-	if unit == null or _host._unit_inspect == null:
-		return
-	_host._unit_inspect.open_unit(unit.unit_id, unit.stars, _host.get_viewport().get_mouse_position(), _relic_ids_on(unit))
-
-
 func begin_drag(unit: GameUnit) -> void:
+	if _host._unit_inspect != null:
+		_host._unit_inspect.close_card()
 	_dragging_unit = unit
 	GameAudio.play_select_character()
 	var cost := unit.get_cost()

@@ -11,10 +11,17 @@ var _choices: Array[int] = []
 var _cards: Array[Control] = []
 var _icons: Array[TextureRect] = []
 var _names: Array[Label] = []
-var _briefs: Array[Label] = []
+var _briefs: Array[RichTextLabel] = []
+var _detail_buttons: Array[Button] = []
+var _brief_texts: Array[String] = []
+var _detail_texts: Array[String] = []
+var _card_detailed: Array[bool] = []
 var _reroll_buttons: Array[Button] = []
 var _reroll_used: Array[bool] = []
 var _title: Label
+var _tip: PanelContainer
+var _tip_label: Label
+var _tip_owner: Control
 
 
 func _ready() -> void:
@@ -40,6 +47,7 @@ func open_with(ids: Array[int]) -> void:
 
 
 func close_pick() -> void:
+	_hide_tip()
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -50,6 +58,26 @@ func _build() -> void:
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(dim)
+	_tip = PanelContainer.new()
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip.visible = false
+	_tip.z_index = 50
+	var tip_style := StyleBoxFlat.new()
+	tip_style.bg_color = Color(0.98, 0.96, 0.88, 0.98)
+	tip_style.border_color = Color(0.35, 0.28, 0.12, 0.95)
+	tip_style.set_border_width_all(2)
+	tip_style.set_corner_radius_all(10)
+	tip_style.content_margin_left = 12
+	tip_style.content_margin_right = 12
+	tip_style.content_margin_top = 8
+	tip_style.content_margin_bottom = 8
+	_tip.add_theme_stylebox_override("panel", tip_style)
+	_tip_label = Label.new()
+	_tip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip_label.add_theme_font_size_override("font_size", 16)
+	_tip_label.add_theme_color_override("font_color", Color(0.12, 0.1, 0.06))
+	_tip.add_child(_tip_label)
+	add_child(_tip)
 	_title = Label.new()
 	_title.text = "レリックを 1 つ選ぶ"
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -102,18 +130,28 @@ func _make_card(index: int) -> Control:
 	name_label.z_index = 3
 	root.add_child(name_label)
 	_names.append(name_label)
-	var brief := Label.new()
-	brief.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	brief.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	var brief := RichTextLabel.new()
+	brief.bbcode_enabled = true
+	brief.fit_content = true
+	brief.scroll_active = false
 	brief.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	brief.add_theme_font_size_override("font_size", 20)
-	brief.add_theme_color_override("font_color", Color(0.9, 0.9, 0.84))
+	brief.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	brief.add_theme_font_size_override("normal_font_size", 20)
+	brief.add_theme_color_override("default_color", Color(0.9, 0.9, 0.84))
 	brief.add_theme_color_override("font_outline_color", Color(0.04, 0.03, 0.02, 0.9))
 	brief.add_theme_constant_override("outline_size", 6)
-	brief.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	brief.z_index = 3
+	brief.hint_underlined = false
+	brief.meta_underlined = false
+	brief.mouse_filter = Control.MOUSE_FILTER_STOP
+	brief.z_index = 5
+	brief.meta_hover_started.connect(_on_brief_meta_hover.bind(brief))
+	brief.meta_hover_ended.connect(_on_brief_meta_unhover.bind(brief))
+	brief.mouse_exited.connect(_on_brief_mouse_exited.bind(brief))
 	root.add_child(brief)
 	_briefs.append(brief)
+	_brief_texts.append("")
+	_detail_texts.append("")
+	_card_detailed.append(false)
 	var hit := Button.new()
 	hit.flat = true
 	hit.focus_mode = Control.FOCUS_NONE
@@ -127,6 +165,14 @@ func _make_card(index: int) -> Control:
 	hit.add_theme_stylebox_override("disabled", empty)
 	hit.pressed.connect(_on_card_pressed.bind(index))
 	root.add_child(hit)
+	var detail := Button.new()
+	detail.text = "詳細"
+	detail.focus_mode = Control.FOCUS_NONE
+	detail.z_index = 5
+	detail.mouse_filter = Control.MOUSE_FILTER_STOP
+	detail.pressed.connect(_on_detail_pressed.bind(index))
+	root.add_child(detail)
+	_detail_buttons.append(detail)
 	return root
 
 
@@ -176,6 +222,11 @@ func _fill_card(index: int, relic_id: int) -> void:
 		_icons[index].texture = null
 		_names[index].text = ""
 		_briefs[index].text = ""
+		_brief_texts[index] = ""
+		_detail_texts[index] = ""
+		_card_detailed[index] = false
+		_detail_buttons[index].text = "詳細"
+		_detail_buttons[index].visible = false
 		_cards[index].visible = false
 		_reroll_buttons[index].visible = false
 		return
@@ -187,7 +238,14 @@ func _fill_card(index: int, relic_id: int) -> void:
 	icon.modulate = Color.WHITE
 	icon.texture = RelicCatalog.get_icon(relic_id)
 	_names[index].text = str(data.get("name", ""))
-	_briefs[index].text = str(data.get("brief", ""))
+	var brief := str(data.get("brief", ""))
+	var detail := str(data.get("detail", "")).strip_edges()
+	_brief_texts[index] = brief
+	_detail_texts[index] = detail
+	_card_detailed[index] = false
+	_set_brief_text(index, brief)
+	_detail_buttons[index].text = "詳細"
+	_detail_buttons[index].visible = not detail.is_empty()
 
 
 func _layout() -> void:
@@ -224,10 +282,20 @@ func _layout() -> void:
 		_names[index].add_theme_font_size_override("font_size", name_font)
 		_names[index].position = Vector2(card_w * 0.07, text_top)
 		_names[index].size = Vector2(card_w * 0.86, name_font * 1.6)
+		var detail_h := 40.0
+		var detail_pad := card_h * 0.04
 		var brief_top := text_top + name_font * 1.7
-		_briefs[index].add_theme_font_size_override("font_size", brief_font)
-		_briefs[index].position = Vector2(card_w * 0.07, brief_top)
-		_briefs[index].size = Vector2(card_w * 0.86, maxf(48.0, card_h - brief_top - card_h * 0.06))
+		var brief_bottom := card_h - detail_h - detail_pad * 2.0
+		_briefs[index].add_theme_font_size_override("normal_font_size", brief_font)
+		_briefs[index].position = Vector2(card_w * 0.12, brief_top)
+		_briefs[index].size = Vector2(card_w * 0.76, maxf(48.0, brief_bottom - brief_top))
+		var shown := _detail_texts[index] if bool(_card_detailed[index]) else _brief_texts[index]
+		if not shown.is_empty():
+			_briefs[index].text = CharacterText.with_attribute_icons(shown, CharacterText.icon_px(brief_font))
+		var detail_btn := _detail_buttons[index]
+		var detail_w := minf(120.0, card_w * 0.42)
+		detail_btn.position = Vector2((card_w - detail_w) * 0.5, card_h - detail_h - detail_pad)
+		detail_btn.size = Vector2(detail_w, detail_h)
 		var reroll := _reroll_buttons[index]
 		reroll.add_theme_constant_override("icon_max_width", int(reroll_size * 0.78))
 		reroll.position = Vector2(x + (card_w - reroll_size) * 0.5, card_y + card_h + 10.0)
@@ -243,6 +311,65 @@ func _on_card_pressed(index: int) -> void:
 	GameAudio.play_confirm_strong()
 	chosen.emit(relic_id)
 	close_pick()
+
+
+func _on_detail_pressed(index: int) -> void:
+	if index < 0 or index >= CARD_COUNT:
+		return
+	if _detail_texts[index].is_empty():
+		return
+	_card_detailed[index] = not _card_detailed[index]
+	var detailed := bool(_card_detailed[index])
+	_set_brief_text(index, _detail_texts[index] if detailed else _brief_texts[index])
+	_detail_buttons[index].text = "戻る" if detailed else "詳細"
+	GameAudio.play_confirm()
+
+
+func _set_brief_text(index: int, plain: String) -> void:
+	if index < 0 or index >= _briefs.size():
+		return
+	var font_size := int(_briefs[index].get_theme_font_size("normal_font_size"))
+	if font_size <= 0:
+		font_size = 20
+	_briefs[index].text = CharacterText.with_attribute_icons(plain, CharacterText.icon_px(font_size))
+
+
+func _on_brief_meta_hover(meta: Variant, label: RichTextLabel) -> void:
+	_show_tip(str(meta), label)
+
+
+func _on_brief_meta_unhover(_meta: Variant, label: RichTextLabel) -> void:
+	if _tip_owner == label:
+		_hide_tip()
+
+
+func _on_brief_mouse_exited(label: RichTextLabel) -> void:
+	if _tip_owner == label:
+		_hide_tip()
+
+
+func _show_tip(text: String, owner: Control) -> void:
+	if text.is_empty() or _tip == null or _tip_label == null:
+		return
+	_tip_owner = owner
+	_tip_label.text = text
+	_tip.visible = true
+	_tip.reset_size()
+	var tip_size := _tip.get_combined_minimum_size()
+	_tip.size = tip_size
+	var mouse := get_viewport().get_mouse_position()
+	var pos := mouse + Vector2(12.0, -30.0)
+	var view := get_viewport().get_visible_rect().size
+	pos.x = clampf(pos.x, 8.0, maxf(8.0, view.x - tip_size.x - 8.0))
+	pos.y = clampf(pos.y, 8.0, maxf(8.0, view.y - tip_size.y - 8.0))
+	_tip.global_position = pos
+	_tip.move_to_front()
+
+
+func _hide_tip() -> void:
+	_tip_owner = null
+	if _tip != null:
+		_tip.visible = false
 
 
 func _on_slot_reroll_pressed(index: int) -> void:

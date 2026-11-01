@@ -8,6 +8,7 @@ const LAYOUT_SLOT_WIDTH := 112.0
 const FRAME_ASPECT := 1024.0 / 1536.0
 const HOVER_SCALE := 2.1
 const SELL_ZONE_WIDTH := 72.0
+const SELL_ZONE_HEIGHT := 40.0
 const SLOT_SCENE := preload("res://scenes/shop_slot.tscn")
 
 var slot_size := Vector2(SLOT_WIDTH, SLOT_HEIGHT)

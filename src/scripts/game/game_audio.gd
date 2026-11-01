@@ -142,6 +142,14 @@ static func play_battle_attack() -> void:
 	_node._play_random_effect(BATTLE + folder)
 
 
+static func play_battle_miss() -> void:
+	## 専用missフォルダは無いので、打撃／斬撃を小さめに鳴らして空振りにする。
+	if _node == null:
+		return
+	var folder := "blow" if randi() % 2 == 0 else "sword"
+	_node._play_random_effect(BATTLE + folder, -7.0)
+
+
 static func play_battle_attribute(element: String) -> void:
 	if _node == null:
 		return
@@ -167,6 +175,19 @@ static func play_battle_gauge() -> void:
 	if _node == null:
 		return
 	_node._play_random_effect(BATTLE + "gauge")
+
+
+static func play_battle_support() -> void:
+	## バフ／デバフ行動。soft SE は battle/guard に置いてある。
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "guard")
+
+
+static func play_battle_guard() -> void:
+	if _node == null:
+		return
+	_node._play_random_effect(BATTLE + "guard")
 
 
 static func play_battle_fall() -> void:
@@ -261,30 +282,30 @@ func _random_track(prefix: String) -> String:
 	return paths[randi() % paths.size()]
 
 
-func _play_random_effect(folder: String) -> void:
-	_play_now(_random_effect(folder))
+func _play_random_effect(folder: String, volume_db: float = 0.0) -> void:
+	_play_now(_random_effect(folder), volume_db)
 
 
 func _random_effect(folder: String) -> String:
-	var dir := folder
-	if not dir.ends_with("/"):
-		dir += "/"
+	var dir := folder.rstrip("/")
 	var cached: Variant = _effect_lists.get(dir, null)
 	var paths := PackedStringArray()
-	if cached is PackedStringArray:
+	if cached is PackedStringArray and not (cached as PackedStringArray).is_empty():
 		paths = cached
 	else:
 		for file_name in DirAccess.get_files_at(dir):
 			if file_name.get_extension().to_lower() != "mp3":
 				continue
 			paths.append(dir.path_join(file_name))
-		_effect_lists[dir] = paths
+		## 空はキャッシュしない（初回失敗で永久に無音になるのを防ぐ）。
+		if not paths.is_empty():
+			_effect_lists[dir] = paths
 	if paths.is_empty():
 		return ""
 	return paths[randi() % paths.size()]
 
 
-func _play_now(path: String) -> void:
+func _play_now(path: String, volume_db: float = 0.0) -> void:
 	if path.is_empty() or not _se_enabled:
 		return
 	var loaded := load(path) as AudioStream
@@ -295,6 +316,7 @@ func _play_now(path: String) -> void:
 		stream = loaded
 	var player := AudioStreamPlayer.new()
 	player.stream = stream
+	player.volume_db = volume_db
 	player.finished.connect(player.queue_free)
 	add_child(player)
 	player.play()

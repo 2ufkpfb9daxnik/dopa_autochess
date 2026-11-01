@@ -7,7 +7,7 @@ extends RefCounted
 ## 090 パレード: レベル21までの必要経験値が書かれていないので未適用。
 ## 091 パラダイス！のプレイヤーダメージ: プレイヤー同士の敗北が無いので、出撃上限だけ適用する。
 ## 101・105・107・110・113・115・116・119: 異種合成がまだ無いので未適用。
-## 103・104・108: キャラクターを選んで使う操作がまだ無いので未適用。
+## 103・104: キャラクターを選んで使う操作がまだ無いので未適用。
 ## 109 歴史資料: キャラクターを分解する操作がまだ無いので未適用。
 ## 121・122・123・128・129・131・132・134・135・136・137・138・139: プレイヤー同士の戦闘が無いので未適用。
 ## 142・144・146・149・160: プレイヤー同士の戦闘が条件なので未適用。
@@ -19,7 +19,7 @@ extends RefCounted
 ## 264: 異種合成ペナルティ。異種合成が無いので未適用。
 ## 277・278・284: 時間指定の戦闘効果が未確定なので未適用。
 ## 287-295・300: 合成装備級や装置回数など報酬テーブル／進捗定義の設定が残っているので未適用。
-## 303-306・310: レリックを選んで消費／再抽選するUIが無いので未適用。
+## 303-306: レリックを選んで消費するUIが無いので未適用。
 ## 309・311: 合成時追加と「効果が初めて発動」の判定が未確定なので未適用。
 
 
@@ -70,6 +70,11 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 			item["age"] = 1
 		100:
 			item["left"] = int(_value(100, "回数"))
+		108:
+			var host_108 := session.get_parent()
+			if host_108 != null and host_108.has_method("relic_upgrade_board_costs"):
+				host_108.relic_upgrade_board_costs(int(_value(108, "コスト上昇")))
+			session.take_relic(uid)
 		117:
 			item["left"] = int(_value(117, "回数"))
 		124:
@@ -83,17 +88,11 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 			if not bool(item.get("rolled", false)):
 				item["rolled"] = true
 				if randi() % 10 < int(_value(169, "当たり")):
-					var bonus_uid := session.add_relic(169)
-					var bonus := _item(session, bonus_uid)
-					if not bonus.is_empty():
-						bonus["rolled"] = true
+					session.add_relic(169, {"rolled": true})
 		170:
 			if not bool(item.get("from_copy", false)):
 				for _i in int(_value(170, "追加")):
-					var copy_uid := session.add_relic(170)
-					var copy := _item(session, copy_uid)
-					if not copy.is_empty():
-						copy["from_copy"] = true
+					session.add_relic(170, {"from_copy": true})
 		178:
 			if not bool(item.get("seed", false)) and not bool(item.get("from_copy", false)):
 				item["seed"] = true
@@ -117,7 +116,8 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 			item["left"] = int(_value(261, "戦闘"))
 		263:
 			item["bank"] = session.coins
-			session.coins = 0
+			if session.coins > 0:
+				session.spend_coins(session.coins)
 			item["left"] = int(_value(263, "ラウンド"))
 		285:
 			_queue_random_relic(session)
@@ -134,12 +134,11 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 		299:
 			item["left"] = int(_value(299, "回数"))
 		301:
-			if not bool(item.get("from_copy", false)):
-				_queue_random_relic(session)
+			pass
 		307:
 			pass
 		310:
-			pass
+			session.relic_pending_picks += 1
 
 
 static func prepare_round(session: GameSession) -> void:
@@ -815,6 +814,15 @@ static func _consume_one(session: GameSession, relic_id: int) -> void:
 		return
 
 
+## 異種合成と同じ合成上限。基本はレベル-3。自動起動・雨粒・特質の加算を含む。
+static func synth_cost_cap(session: GameSession) -> int:
+	var cap := session.get_level() - 3
+	cap += _count(session, 101) * int(_value(101, "上限"))
+	cap += _count(session, 116) * int(_value(116, "上限"))
+	cap += _count(session, 264) * int(_value(264, "上限"))
+	return clampi(cap, 1, ShopOdds.MAX_COST)
+
+
 static func blocks_interest(session: GameSession) -> bool:
 	return _count(session, 93) > 0 or _count(session, 255) > 0
 
@@ -1075,11 +1083,7 @@ static func _trigger_merge_copy(session: GameSession) -> void:
 		if left <= 0:
 			continue
 		item["left"] = left - 1
-		var copy_uid := session.add_relic(178)
-		var copy := _item(session, copy_uid)
-		if not copy.is_empty():
-			copy["from_copy"] = true
-			copy["seed"] = false
+		session.add_relic(178, {"from_copy": true, "seed": false})
 		if left - 1 <= 0:
 			session.take_relic(int(item.get("uid", -1)))
 		return
@@ -1190,11 +1194,17 @@ static func relic_279_outgoing(session: GameSession, unit: GameUnit) -> float:
 	return total / 100.0
 
 
+static func trigger_shinan(session: GameSession) -> void:
+	if _count(session, 301) <= 0:
+		return
+	_queue_random_relic(session)
+
+
 static func _queue_random_relic(session: GameSession) -> void:
 	var pool: Array[int] = RelicCatalog.all_pick_ids()
 	if pool.is_empty():
 		return
-	session.add_relic(pool[randi() % pool.size()])
+	session.add_relic(pool[randi() % pool.size()], {"from_shinan": true})
 
 
 static func _value(relic_id: int, key: String) -> float:

@@ -10,11 +10,16 @@ signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_move_requested(from_slot: int, to_slot: int)
 signal unit_clicked(slot_index: int)
 signal relic_clicked(slot_index: int, relic_index: int)
+signal unit_hovered(slot_index: int)
+signal relic_hovered(slot_index: int, relic_index: int)
+signal hover_cleared
 signal relic_drag_started(slot_index: int, relic_index: int)
 signal relic_drag_finished(slot_index: int, global_position: Vector2)
 signal debuff_cleanse_requested(slot_index: int)
 
-const RIM_GRAB := 40.0
+## 円の外側に広がる回転ドラッグ可能帯の幅。
+const RIM_GRAB := 58.0
+const RIM_HINT_COLOR := Color(0.42, 0.72, 0.95, 0.28)
 const FORMATION_COLORS := {
 	"炎": Color(0.93, 0.18, 0.12, 0.92),
 	"水": Color(0.16, 0.4, 0.96, 0.92),
@@ -33,6 +38,8 @@ var _view_slots: Array = []
 var _relic_hits: Array = []
 var _press_relic := false
 var _press_relic_index := -1
+var _hover_slot := -1
+var _hover_relic := -1
 var _occupied: Array[bool] = []
 var _center_label: RichTextLabel
 var _ccw_button: Button
@@ -50,6 +57,7 @@ var _bubble_rects: Array[Rect2] = []
 var _bubble_slots: Array[int] = []
 var _poison_time := 0.0
 var _cleanse_enabled := false
+var _interaction_enabled := true
 var _attribute_textures: Dictionary = {}
 
 
@@ -91,6 +99,7 @@ func set_unit_drag_enabled(enabled: bool) -> void:
 
 
 func set_interaction_enabled(enabled: bool) -> void:
+	_interaction_enabled = enabled
 	mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
 	if _ccw_button == null:
 		return
@@ -98,6 +107,7 @@ func set_interaction_enabled(enabled: bool) -> void:
 	_cw_button.disabled = not enabled
 	_ccw_button.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
 	_cw_button.mouse_filter = Control.MOUSE_FILTER_STOP if enabled else Control.MOUSE_FILTER_IGNORE
+	queue_redraw()
 
 
 func reset_visual_spin() -> void:
@@ -155,11 +165,15 @@ func _gui_input(event: InputEvent) -> void:
 		if mouse_button.button_index != MOUSE_BUTTON_LEFT:
 			return
 		if mouse_button.pressed:
+			_clear_hover()
 			_begin_press(mouse_button)
 		else:
 			_end_press(mouse_button)
-	elif event is InputEventMouseMotion and _pressing:
-		_drag_motion(event as InputEventMouseMotion)
+	elif event is InputEventMouseMotion:
+		if _pressing:
+			_drag_motion(event as InputEventMouseMotion)
+		else:
+			_update_hover((event as InputEventMouseMotion).position)
 
 
 func _begin_press(mouse_button: InputEventMouseButton) -> void:
@@ -258,6 +272,7 @@ func _draw() -> void:
 	_draw_debuff_bubbles()
 	for slot_index in BoardController.SLOTS_PER_FACE:
 		_draw_relic_badge(slot_index)
+	_draw_rim_grab_zone()
 
 
 func _draw_formation_links() -> void:
@@ -285,6 +300,46 @@ func _draw_soft_fan(center_angle: float, color: Color) -> void:
 	var arc := Color(1, 1, 1, 0.7 * color.a)
 	_draw_fading_arc(center_angle, half, radii.y, arc)
 	_draw_fading_arc(center_angle, half, radii.x, arc)
+
+
+func _draw_rim_grab_zone() -> void:
+	## 円の外側の回転可能帯を、境界をぼかした半透明リングで明示する。
+	var center := _center()
+	var rim_inner := _outer_radius()
+	var rim_outer := rim_inner + RIM_GRAB
+	var base := RIM_HINT_COLOR
+	if not _interaction_enabled:
+		base.a *= 0.35
+	var rings := 18
+	for index in rings:
+		var t0 := float(index) / float(rings)
+		var t1 := float(index + 1) / float(rings)
+		var r0 := lerpf(rim_inner, rim_outer, t0)
+		var r1 := lerpf(rim_inner, rim_outer, t1)
+		var mid := (t0 + t1) * 0.5
+		## 内側・外側とも滑らかにフェード。中央付近をやや濃く。
+		var edge := absf(mid * 2.0 - 1.0)
+		var keep := 1.0 - edge
+		keep = keep * keep * (3.0 - 2.0 * keep)
+		## 円本体との境は特に柔らかく、外側端はより薄く伸ばす。
+		var soft := lerpf(0.55, 1.0, sin(mid * PI))
+		var color := base
+		color.a *= keep * soft
+		if color.a <= 0.004:
+			continue
+		_draw_ring_band(center, r0, r1, color)
+
+
+func _draw_ring_band(center: Vector2, inner_radius: float, outer_radius: float, color: Color) -> void:
+	var segments := 72
+	var points := PackedVector2Array()
+	for step in segments + 1:
+		var angle := TAU * float(step) / float(segments)
+		points.append(center + Vector2(cos(angle), sin(angle)) * outer_radius)
+	for step in segments + 1:
+		var angle := TAU * float(segments - step) / float(segments)
+		points.append(center + Vector2(cos(angle), sin(angle)) * inner_radius)
+	draw_colored_polygon(points, color)
 
 
 func _draw_fading_fan(center_angle: float, half: float, inner_radius: float, outer_radius: float, color: Color) -> void:
@@ -547,7 +602,6 @@ func _draw_slot_label(slot_index: int) -> void:
 	_draw_outlined_string(font, layout["name_pos"], str(layout["name"]), HORIZONTAL_ALIGNMENT_LEFT, float(layout["name_width"]), 13, ink)
 	if not str(layout["stars"]).is_empty():
 		_draw_outlined_string(font, layout["star_pos"], str(layout["stars"]), HORIZONTAL_ALIGNMENT_LEFT, float(layout["star_width"]), 15, Color(1, 0.92, 0.45, ink.a))
-	_draw_outlined_string(font, layout["number_pos"], str(layout["number"]), HORIZONTAL_ALIGNMENT_LEFT, 24.0, 14, Color(0.97, 0.98, 1.0, ink.a))
 
 
 func _slot_label_layout(slot_index: int) -> Dictionary:
@@ -563,8 +617,6 @@ func _slot_label_layout(slot_index: int) -> Dictionary:
 	var stars := str(slot.get("stars", ""))
 	var star_width := band * 0.4
 	var star_pos := _clamp_to_wedge(pos + Vector2(band * 0.16, -4.0), slot_index)
-	var number := str(int(slot.get("number", slot_index + 1)))
-	var number_pos := _clamp_to_wedge(_center() + Vector2(cos(angle), sin(angle)) * (_inner_radius() + 18.0) + Vector2(-10.0, 0.0), slot_index)
 	return {
 		"name": name,
 		"name_pos": name_pos,
@@ -572,18 +624,15 @@ func _slot_label_layout(slot_index: int) -> Dictionary:
 		"stars": stars,
 		"star_pos": star_pos,
 		"star_width": star_width,
-		"number": number,
-		"number_pos": number_pos,
-		"blocked": _slot_text_blocked_rects(name_pos, name_width, stars, star_pos, star_width, number_pos),
+		"blocked": _slot_text_blocked_rects(name_pos, name_width, stars, star_pos, star_width),
 	}
 
 
-func _slot_text_blocked_rects(name_pos: Vector2, name_width: float, stars: String, star_pos: Vector2, star_width: float, number_pos: Vector2) -> Array[Rect2]:
+func _slot_text_blocked_rects(name_pos: Vector2, name_width: float, stars: String, star_pos: Vector2, star_width: float) -> Array[Rect2]:
 	var blocked: Array[Rect2] = []
 	blocked.append(Rect2(name_pos + Vector2(-2.0, -14.0), Vector2(name_width + 4.0, 18.0)))
 	if not stars.is_empty():
 		blocked.append(Rect2(star_pos + Vector2(-2.0, -16.0), Vector2(star_width + 4.0, 20.0)))
-	blocked.append(Rect2(number_pos + Vector2(-2.0, -14.0), Vector2(28.0, 18.0)))
 	return blocked
 
 
@@ -834,6 +883,39 @@ func _shows_unit(slot_index: int) -> bool:
 		return false
 	var slot: Dictionary = _view_slots[slot_index]
 	return bool(slot.get("occupied", false)) or bool(slot.get("fallback", false))
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_MOUSE_EXIT:
+		_clear_hover()
+
+
+func _update_hover(point: Vector2) -> void:
+	var hit := _relic_hit(point)
+	if hit.x >= 0:
+		if _hover_slot == hit.x and _hover_relic == hit.y:
+			return
+		_hover_slot = hit.x
+		_hover_relic = hit.y
+		relic_hovered.emit(hit.x, hit.y)
+		return
+	var slot := _slot_at(point)
+	if slot >= 0 and _shows_unit(slot):
+		if _hover_slot == slot and _hover_relic < 0:
+			return
+		_hover_slot = slot
+		_hover_relic = -1
+		unit_hovered.emit(slot)
+		return
+	_clear_hover()
+
+
+func _clear_hover() -> void:
+	if _hover_slot < 0 and _hover_relic < 0:
+		return
+	_hover_slot = -1
+	_hover_relic = -1
+	hover_cleared.emit()
 
 
 func _wedge_polygon(center_angle: float) -> PackedVector2Array:

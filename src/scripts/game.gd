@@ -66,7 +66,15 @@ const NOTICE_OVERFLOW := "キャラクターが溢れています！戦闘を開
 var _synergy_list: VBoxContainer
 var _synergy_detail: PanelContainer
 var _synergy_detail_body: RichTextLabel
+var _synergy_members_flow: HFlowContainer
+var _synergy_watch_check: CheckBox
 var _synergy_open := ""
+var _synergy_pointer_over_detail := false
+var _synergy_close_left := -1.0
+const SYNERGY_CLOSE_GRACE := 0.2
+const SYNERGY_MEMBER_ICON := 40.0
+## チェックしたシナジー名。ショップ該当枠の強調に使う。
+var _watched_synergies: Dictionary = {}
 var _log_column_rect := Rect2()
 var _log_body_rect := Rect2()
 var _drag_preview: Control
@@ -121,8 +129,10 @@ var _hover_tip_label: Label
 @onready var extension_overlay: PanelContainer = $CanvasLayer/UI/ExtensionOverlay
 @onready var route_overlay: PanelContainer = $CanvasLayer/UI/RouteOverlay
 @onready var run_end_overlay: PanelContainer = $CanvasLayer/UI/RunEndOverlay
+@onready var run_end_vbox: VBoxContainer = $CanvasLayer/UI/RunEndOverlay/RunEndVBox
 @onready var run_end_title: Label = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/RunEndTitle
 @onready var run_end_summary: Label = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/RunEndSummary
+@onready var run_end_review_buttons: GridContainer = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons
 @onready var run_end_review_bar: PanelContainer = $CanvasLayer/UI/RunEndReviewBar
 @onready var review_bar_label: Label = $CanvasLayer/UI/RunEndReviewBar/RunEndReviewHBox/ReviewBarLabel
 @onready var run_stats_panel: PanelContainer = $CanvasLayer/UI/RunStatsPanel
@@ -133,6 +143,22 @@ var _hover_tip_label: Label
 @onready var review_stats_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/ReviewButtons/ReviewStatsButton
 @onready var title_return_button: Button = $CanvasLayer/UI/RunEndOverlay/RunEndVBox/TitleReturnButton
 @onready var back_to_run_end_button: Button = $CanvasLayer/UI/RunEndReviewBar/RunEndReviewHBox/BackToRunEndButton
+var _run_end_free_root: Control
+var _run_end_diagonal := false
+var _run_end_marquee_rows: Array[Label] = []
+var _run_end_marquee_centers: Array[Vector2] = []
+var _run_end_marquee_offset := 0.0
+var _run_end_marquee_cycle := 1.0
+var _run_end_marquee_angle := 0.0
+var _run_end_marquee_dir := Vector2.RIGHT
+var _run_end_marquee_box := Vector2.ZERO
+var _run_end_title_phrase := ""
+var _run_end_stats_scroll: ScrollContainer
+var _run_end_stats_body: Label
+const RUN_END_MARQUEE_SPEED := 180.0
+const RUN_END_MARQUEE_ROWS := 5
+const RUN_END_FRONT_Z := 80
+const RUN_END_MARQUEE_Z := 5
 @onready var synergy_panel: PanelContainer = $CanvasLayer/UI/SynergyPanel
 @onready var prep_blocker: Control = $CanvasLayer/UI/PrepBlocker
 @onready var event_log_panel: PanelContainer = $CanvasLayer/UI/EventLogPanel
@@ -1188,27 +1214,42 @@ func _open_relic_pick() -> void:
 	_relic_pick.open_with(RelicCatalog.random_choices(3))
 
 
-func _on_relic_tray_clicked(uid: int) -> void:
+func _flush_relic_picks() -> void:
+	if _relic_pick_active or _run_end_active:
+		return
+	if session == null or session.relic_pending_picks <= 0:
+		return
+	session.relic_pending_picks -= 1
+	_open_relic_pick()
+
+
+func _on_relic_tray_hovered(uid: int) -> void:
 	var relic_id := session.relic_id_of(uid)
 	if relic_id <= 0 or _unit_inspect == null:
 		return
-	_unit_inspect.open_relic(relic_id, get_viewport().get_mouse_position())
+	_unit_inspect.open_relic(relic_id, get_viewport().get_mouse_position(), true)
+
+
+func _on_relic_tray_hover_cleared() -> void:
+	if _unit_inspect == null:
+		return
+	_unit_inspect.request_hover_close()
 
 
 func _on_relic_inspect(relic_id: int, anchor: Vector2) -> void:
 	if _unit_inspect == null:
 		return
-	_unit_inspect.open_relic(relic_id, anchor)
+	_unit_inspect.open_relic(relic_id, anchor, true)
 
 
-func _on_circle_relic_clicked(slot_index: int, relic_index: int) -> void:
+func _on_circle_relic_hovered(slot_index: int, relic_index: int) -> void:
 	var unit := board.get_placed_unit(board.active_face, slot_index)
 	if unit == null:
 		unit = board.get_resolved_unit(board.active_face, slot_index)
 	_open_unit_relic(unit, relic_index)
 
 
-func _on_bench_relic_clicked(slot_index: int, relic_index: int) -> void:
+func _on_bench_relic_hovered(slot_index: int, relic_index: int) -> void:
 	if slot_index < 0 or slot_index >= board.bench_units.size():
 		return
 	_open_unit_relic(board.bench_units[slot_index], relic_index)
@@ -1222,7 +1263,7 @@ func _open_unit_relic(unit: GameUnit, relic_index: int) -> void:
 	var relic_id := session.relic_id_of(unit.equipped_relic_uids[relic_index])
 	if relic_id <= 0:
 		return
-	_unit_inspect.open_relic(relic_id, get_viewport().get_mouse_position())
+	_unit_inspect.open_relic(relic_id, get_viewport().get_mouse_position(), true)
 
 
 func _on_circle_relic_drag_started(slot_index: int, relic_index: int) -> void:
@@ -1583,6 +1624,7 @@ func _on_sell_requested(unit: GameUnit) -> void:
 
 func _on_merges_applied(messages: Array[String]) -> void:
 	RelicEconomy.note_star_ups(session, messages.size())
+	session.tally_merges += messages.size()
 	for message in messages:
 		_log("合成: %s" % message)
 		GameAudio.play_fusion()
@@ -1641,6 +1683,11 @@ func _get_sell_zone_side(screen_pos: Vector2) -> int:
 		return -1
 	if sell_drag_hint_right.get_global_rect().has_point(screen_pos):
 		return 1
+	## ショップ上に持っていっても売却できる。
+	if bottom_ui.visible and bottom_ui.get_global_rect().has_point(screen_pos):
+		return 1
+	if shop_panel.visible and shop_panel.get_global_rect().has_point(screen_pos):
+		return 1
 	return -1
 
 
@@ -1650,7 +1697,7 @@ func _shop_ui_blocks_drop(screen_pos: Vector2) -> bool:
 	var action_rect := action_column.get_global_rect()
 	if action_rect.has_point(screen_pos):
 		return true
-	return shop_panel.get_global_rect().has_point(screen_pos)
+	return false
 
 
 func _setup_synergy_list() -> void:
@@ -1666,17 +1713,40 @@ func _setup_synergy_list() -> void:
 	_synergy_detail = PanelContainer.new()
 	_synergy_detail.name = "SynergyDetail"
 	_synergy_detail.visible = false
-	_synergy_detail.z_index = 30
+	_synergy_detail.z_index = 40
 	_synergy_detail.mouse_filter = Control.MOUSE_FILTER_STOP
+	_synergy_detail.mouse_entered.connect(_on_synergy_detail_mouse_entered)
+	_synergy_detail.mouse_exited.connect(_on_synergy_detail_mouse_exited)
 	var margin := MarginContainer.new()
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
 		margin.add_theme_constant_override(side, 10)
 	_synergy_detail.add_child(margin)
+	var column := VBoxContainer.new()
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	column.add_theme_constant_override("separation", 8)
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	margin.add_child(column)
+	var watch_row := HBoxContainer.new()
+	watch_row.add_theme_constant_override("separation", 4)
+	_synergy_watch_check = CheckBox.new()
+	_synergy_watch_check.focus_mode = Control.FOCUS_NONE
+	_synergy_watch_check.text = "ショップで強調"
+	_synergy_watch_check.tooltip_text = "チェックすると、ショップでこのシナジーのキャラクターを強調します"
+	_synergy_watch_check.toggled.connect(_on_synergy_detail_watch_toggled)
+	watch_row.add_child(_synergy_watch_check)
+	column.add_child(watch_row)
 	var detail_scroll := ScrollContainer.new()
 	detail_scroll.custom_minimum_size = Vector2(280, 0)
 	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	margin.add_child(detail_scroll)
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(detail_scroll)
+	var detail_inner := VBoxContainer.new()
+	detail_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	detail_inner.add_theme_constant_override("separation", 10)
+	detail_scroll.add_child(detail_inner)
 	_synergy_detail_body = RichTextLabel.new()
 	_synergy_detail_body.bbcode_enabled = true
 	_synergy_detail_body.fit_content = true
@@ -1686,7 +1756,19 @@ func _setup_synergy_list() -> void:
 	_synergy_detail_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_synergy_detail_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_synergy_detail_body.add_theme_font_size_override("normal_font_size", 15)
-	detail_scroll.add_child(_synergy_detail_body)
+	detail_inner.add_child(_synergy_detail_body)
+	var members_title := Label.new()
+	members_title.text = "所属キャラクター"
+	members_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	members_title.add_theme_font_size_override("font_size", 14)
+	members_title.add_theme_color_override("font_color", Color(0.92, 0.9, 0.84))
+	detail_inner.add_child(members_title)
+	_synergy_members_flow = HFlowContainer.new()
+	_synergy_members_flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_synergy_members_flow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_synergy_members_flow.add_theme_constant_override("h_separation", 8)
+	_synergy_members_flow.add_theme_constant_override("v_separation", 8)
+	detail_inner.add_child(_synergy_members_flow)
 	ui.add_child(_synergy_detail)
 
 
@@ -1719,11 +1801,13 @@ func _update_synergy_panel() -> void:
 	_place_synergy_detail()
 
 
-func _make_synergy_row(entry: Dictionary) -> Button:
+func _make_synergy_row(entry: Dictionary) -> Control:
 	var synergy_name := str(entry["name"])
 	var active := bool(entry["active"])
 	var color: Color = entry["color"]
+	var watched := bool(_watched_synergies.get(synergy_name, false))
 	var button := Button.new()
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	button.clip_text = false
@@ -1739,6 +1823,11 @@ func _make_synergy_row(entry: Dictionary) -> Button:
 	style.bg_color = Color(color.r, color.g, color.b, 0.34 if active else 0.12)
 	style.border_color = Color(color.r, color.g, color.b, 1.0 if active else 0.4)
 	style.border_width_left = 5
+	if watched:
+		style.border_width_top = 2
+		style.border_width_right = 2
+		style.border_width_bottom = 2
+		style.border_color = Color(1.0, 0.92, 0.45, 0.95)
 	style.content_margin_left = 8
 	style.content_margin_right = 6
 	style.content_margin_top = 3
@@ -1750,22 +1839,94 @@ func _make_synergy_row(entry: Dictionary) -> Button:
 	hover.bg_color.a = minf(1.0, style.bg_color.a + 0.12)
 	button.add_theme_stylebox_override("hover", hover)
 	button.add_theme_stylebox_override("pressed", hover)
-	button.pressed.connect(_toggle_synergy_detail.bind(synergy_name))
+	button.mouse_entered.connect(_open_synergy_hover.bind(synergy_name))
+	button.mouse_exited.connect(_on_synergy_row_mouse_exited)
 	return button
 
 
-func _toggle_synergy_detail(synergy_name: String) -> void:
-	if _synergy_detail.visible and _synergy_open == synergy_name:
-		_close_synergy_detail()
+func _on_synergy_detail_watch_toggled(pressed: bool) -> void:
+	if _synergy_open.is_empty():
 		return
+	_on_synergy_watch_toggled(pressed, _synergy_open)
+	_update_synergy_panel()
+
+
+func _on_synergy_watch_toggled(pressed: bool, synergy_name: String) -> void:
+	if pressed:
+		_watched_synergies[synergy_name] = true
+	else:
+		_watched_synergies.erase(synergy_name)
+	_refresh_shop_synergy_watch()
+
+
+func _shop_watch_color_for_unit(unit_id: int) -> Color:
+	if _watched_synergies.is_empty() or unit_id <= 0:
+		return Color(0, 0, 0, 0)
+	var data := UnitCatalog.get_unit(unit_id)
+	for synergy_name in data.get("synergy_names", []):
+		if bool(_watched_synergies.get(str(synergy_name), false)):
+			return SynergyCatalog.color_of(str(synergy_name))
+	return Color(0, 0, 0, 0)
+
+
+func _refresh_shop_synergy_watch() -> void:
+	if shop_slots == null:
+		return
+	for index in shop_slots.get_child_count():
+		var slot := shop_slots.get_child(index) as ShopSlotPanel
+		if slot == null:
+			continue
+		if index >= session.shop_unit_ids.size() or session.shop_unit_ids[index] < 0:
+			slot.set_synergy_watch(false)
+			continue
+		var color := _shop_watch_color_for_unit(session.shop_unit_ids[index])
+		slot.set_synergy_watch(color.a > 0.0, color)
+
+
+func _open_synergy_hover(synergy_name: String) -> void:
+	_synergy_close_left = -1.0
 	_synergy_open = synergy_name
 	_fill_synergy_detail(synergy_name, SynergyTracker.list_synergies(board.get_circle_units(), session))
+	if _synergy_open.is_empty():
+		return
 	_synergy_detail.visible = true
 	_place_synergy_detail()
 
 
+func _on_synergy_row_mouse_exited() -> void:
+	_request_synergy_hover_close()
+
+
+func _on_synergy_detail_mouse_entered() -> void:
+	_synergy_pointer_over_detail = true
+	_synergy_close_left = -1.0
+
+
+func _on_synergy_detail_mouse_exited() -> void:
+	_synergy_pointer_over_detail = false
+	_request_synergy_hover_close()
+
+
+func _request_synergy_hover_close() -> void:
+	if _synergy_detail == null or not _synergy_detail.visible:
+		return
+	if _is_pointer_over_synergy_detail():
+		return
+	_synergy_close_left = SYNERGY_CLOSE_GRACE
+
+
+func _is_pointer_over_synergy_detail() -> bool:
+	if _synergy_detail == null or not _synergy_detail.visible:
+		return false
+	if _synergy_pointer_over_detail:
+		return true
+	return _synergy_detail.get_global_rect().grow(16.0).has_point(get_viewport().get_mouse_position())
+
+
 func _close_synergy_detail() -> void:
 	_synergy_open = ""
+	_synergy_pointer_over_detail = false
+	_synergy_close_left = -1.0
 	if _synergy_detail != null:
 		_synergy_detail.visible = false
 
@@ -1779,6 +1940,10 @@ func _fill_synergy_detail(synergy_name: String, entries: Array[Dictionary]) -> v
 	if entry.is_empty():
 		_close_synergy_detail()
 		return
+	if _synergy_watch_check != null:
+		_synergy_watch_check.set_block_signals(true)
+		_synergy_watch_check.button_pressed = bool(_watched_synergies.get(synergy_name, false))
+		_synergy_watch_check.set_block_signals(false)
 	var color: Color = entry["color"]
 	var lines: PackedStringArray = []
 	lines.append("[color=#%s][b]%s[/b][/color]" % [color.to_html(false), synergy_name])
@@ -1804,13 +1969,104 @@ func _fill_synergy_detail(synergy_name: String, entries: Array[Dictionary]) -> v
 			else:
 				lines.append("[color=#ffffff77]%s[/color]" % row)
 	_synergy_detail_body.text = "\n".join(lines)
+	_fill_synergy_members(synergy_name)
+
+
+func _owned_synergy_unit_ids() -> Dictionary:
+	var owned: Dictionary = {}
+	if board == null:
+		return owned
+	for unit in board.get_circle_units():
+		if unit == null or not (unit is GameUnit) or unit.is_enemy:
+			continue
+		owned[unit.unit_id] = true
+	for slot in board.bench_units:
+		if slot == null or not (slot is GameUnit) or slot.is_enemy:
+			continue
+		owned[slot.unit_id] = true
+	return owned
+
+
+func _fill_synergy_members(synergy_name: String) -> void:
+	if _synergy_members_flow == null:
+		return
+	for child in _synergy_members_flow.get_children():
+		_synergy_members_flow.remove_child(child)
+		child.free()
+	var owned := _owned_synergy_unit_ids()
+	var present: Array[int] = []
+	var missing: Array[int] = []
+	for unit_id in SynergyTracker.unit_ids_for(synergy_name):
+		if owned.has(unit_id):
+			present.append(unit_id)
+		else:
+			missing.append(unit_id)
+	present.sort_custom(_sort_synergy_member_ids)
+	missing.sort_custom(_sort_synergy_member_ids)
+	for unit_id in present:
+		_synergy_members_flow.add_child(_make_synergy_member_chip(unit_id, true))
+	for unit_id in missing:
+		_synergy_members_flow.add_child(_make_synergy_member_chip(unit_id, false))
+
+
+func _synergy_member_meta(unit_id: int) -> Dictionary:
+	var data := UnitCatalog.get_unit(unit_id)
+	var display_name := str(data.get("name", ""))
+	var cost := int(data.get("cost", 99))
+	if display_name.is_empty() or cost >= 99:
+		var fields: Dictionary = CharacterText.load_profile(unit_id).get("fields", {})
+		if display_name.is_empty():
+			display_name = str(fields.get("名前", "#%d" % unit_id))
+		if cost >= 99:
+			cost = int(str(fields.get("コスト", "99")).get_slice(" ", 0))
+	return {"name": display_name, "cost": cost}
+
+
+func _sort_synergy_member_ids(a: int, b: int) -> bool:
+	var cost_a := int(_synergy_member_meta(a)["cost"])
+	var cost_b := int(_synergy_member_meta(b)["cost"])
+	if cost_a != cost_b:
+		return cost_a < cost_b
+	return a < b
+
+
+func _make_synergy_member_chip(unit_id: int, present: bool) -> Control:
+	var meta := _synergy_member_meta(unit_id)
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size = Vector2(118, SYNERGY_MEMBER_ICON)
+	var icon := TextureRect.new()
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.custom_minimum_size = Vector2(SYNERGY_MEMBER_ICON, SYNERGY_MEMBER_ICON)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	icon.texture = UnitCatalog.make_portrait(unit_id, Vector2(SYNERGY_MEMBER_ICON, SYNERGY_MEMBER_ICON))
+	row.add_child(icon)
+	var name_label := Label.new()
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_label.text = str(meta["name"])
+	name_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	name_label.clip_text = true
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_label.add_theme_font_size_override("font_size", 12)
+	name_label.add_theme_color_override("font_color", Color(0.95, 0.94, 0.9) if present else Color(0.62, 0.62, 0.64))
+	row.add_child(name_label)
+	## ベンチ／サークルにいない所属キャラは灰色フィルター。
+	row.modulate = Color.WHITE if present else Color(0.48, 0.48, 0.5, 0.82)
+	return row
 
 
 func _place_synergy_detail() -> void:
 	if _synergy_detail == null or not _synergy_detail.visible or synergy_panel == null:
 		return
 	var height := minf(460.0, maxf(160.0, synergy_panel.size.y))
-	_synergy_detail.position = synergy_panel.position + Vector2(synergy_panel.size.x + 8.0, 0.0)
+	_synergy_detail.z_index = 40
+	if _synergy_detail.get_parent() != null:
+		_synergy_detail.get_parent().move_child(_synergy_detail, -1)
+	## すき間なしで右隣に置き、カーソル移動で閉じにくくする。
+	_synergy_detail.position = synergy_panel.position + Vector2(synergy_panel.size.x - 2.0, 0.0)
 	_synergy_detail.size = Vector2(320.0, height)
 
 
@@ -1899,7 +2155,8 @@ func _setup_formation_ui() -> void:
 	_circle_wheel.unit_drag_started.connect(_formation.on_circle_drag_started)
 	_circle_wheel.unit_drag_finished.connect(_formation.on_circle_drag_finished)
 	_circle_wheel.slot_move_requested.connect(_formation.on_circle_slot_move)
-	_circle_wheel.unit_clicked.connect(_formation.on_circle_unit_clicked)
+	_circle_wheel.unit_hovered.connect(_formation.on_circle_unit_hovered)
+	_circle_wheel.hover_cleared.connect(_formation.on_inspect_hover_cleared)
 	_circle_wheel.debuff_cleanse_requested.connect(_open_debuff_ritual)
 	_debuff_ritual = DebuffRitual.new()
 	_debuff_ritual.name = "DebuffRitual"
@@ -1911,23 +2168,24 @@ func _setup_formation_ui() -> void:
 	ui.add_child(_relic_pick)
 	_relic_tray = RelicTray.new()
 	_relic_tray.name = "RelicTray"
-	_relic_tray.clicked.connect(_on_relic_tray_clicked)
+	_relic_tray.hovered.connect(_on_relic_tray_hovered)
+	_relic_tray.hover_cleared.connect(_on_relic_tray_hover_cleared)
 	_relic_tray.drag_finished.connect(_on_relic_drag_finished)
 	ui.add_child(_relic_tray)
 	_relic_synth = RelicSynth.new()
 	_relic_synth.name = "RelicSynth"
 	_relic_synth.confirmed.connect(_on_relic_synth_confirmed)
 	ui.add_child(_relic_synth)
-	_circle_wheel.relic_clicked.connect(_on_circle_relic_clicked)
+	_circle_wheel.relic_hovered.connect(_on_circle_relic_hovered)
 	_circle_wheel.relic_drag_started.connect(_on_circle_relic_drag_started)
-	_bench_board.relic_clicked.connect(_on_bench_relic_clicked)
+	_bench_board.relic_hovered.connect(_on_bench_relic_hovered)
+	_bench_board.hover_cleared.connect(_formation.on_inspect_hover_cleared)
+	_bench_board.unit_hovered.connect(_formation.on_bench_unit_hovered)
 	_bench_board.relic_drag_started.connect(_on_bench_relic_drag_started)
 	_bench_board.unit_drag_started.connect(_formation.on_bench_drag_started)
 	_bench_board.unit_drag_finished.connect(_formation.on_bench_drag_finished)
-	_bench_board.slot_clicked.connect(_formation.on_bench_slot_clicked)
 	_overflow_pile.unit_drag_started.connect(_formation.on_overflow_drag_started)
 	_overflow_pile.unit_drag_finished.connect(_formation.on_overflow_drag_finished)
-	_overflow_pile.unit_clicked.connect(_formation.on_overflow_clicked)
 	if not get_viewport().size_changed.is_connected(_layout_formation_ui):
 		get_viewport().size_changed.connect(_layout_formation_ui)
 
@@ -1981,6 +2239,295 @@ func _on_debuff_cleared(unit: GameUnit) -> void:
 	_formation.refresh_widgets()
 
 
+func _ensure_run_end_free_root() -> void:
+	if _run_end_free_root != null:
+		return
+	_run_end_free_root = Control.new()
+	_run_end_free_root.name = "RunEndFreeRoot"
+	_run_end_free_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_run_end_free_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	run_end_overlay.add_child(_run_end_free_root)
+	for node in [
+		run_end_title,
+		run_end_summary,
+		review_board_button,
+		review_synergy_button,
+		review_log_button,
+		review_stats_button,
+		title_return_button,
+	]:
+		if node.get_parent() != null:
+			node.reparent(_run_end_free_root)
+	if run_end_vbox != null:
+		run_end_vbox.visible = false
+	if run_end_review_buttons != null:
+		run_end_review_buttons.visible = false
+
+
+func layout_run_end_overlay() -> void:
+	if not _run_end_active or run_end_overlay == null or not run_end_overlay.visible:
+		return
+	_ensure_run_end_free_root()
+	var view := get_viewport().get_visible_rect().size
+	if view.x < 8.0 or view.y < 8.0:
+		return
+	run_end_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	run_end_overlay.offset_left = 0.0
+	run_end_overlay.offset_top = 0.0
+	run_end_overlay.offset_right = 0.0
+	run_end_overlay.offset_bottom = 0.0
+	_run_end_free_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_run_end_free_root.offset_left = 0.0
+	_run_end_free_root.offset_top = 0.0
+	_run_end_free_root.offset_right = 0.0
+	_run_end_free_root.offset_bottom = 0.0
+	_run_end_diagonal = (
+		session.run_end_reason == GameSession.RunEndReason.CLEAR
+		or session.run_end_reason == GameSession.RunEndReason.VOLUNTARY_END
+	)
+	if _run_end_diagonal:
+		run_end_overlay.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		_layout_run_end_diagonal(view)
+	else:
+		var panel := StyleBoxFlat.new()
+		panel.bg_color = Color(0.06, 0.08, 0.14, 0.94)
+		panel.set_corner_radius_all(16)
+		panel.set_content_margin_all(18)
+		run_end_overlay.add_theme_stylebox_override("panel", panel)
+		_layout_run_end_defeat(view)
+
+
+func _place_run_end_rotated(control: Control, center: Vector2, angle: float, box: Vector2) -> void:
+	control.reset_size()
+	control.custom_minimum_size = box
+	control.size = box
+	control.pivot_offset = box * 0.5
+	control.rotation = angle
+	control.position = center - box * 0.5
+
+
+func _ensure_run_end_marquee_rows(count: int) -> void:
+	_ensure_run_end_free_root()
+	while _run_end_marquee_rows.size() < count:
+		var label := Label.new()
+		label.name = "RunEndMarquee%d" % _run_end_marquee_rows.size()
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		label.clip_text = false
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.z_index = RUN_END_MARQUEE_Z
+		_run_end_free_root.add_child(label)
+		_run_end_marquee_rows.append(label)
+	for index in _run_end_marquee_rows.size():
+		_run_end_marquee_rows[index].visible = index < count
+		_run_end_marquee_rows[index].z_index = RUN_END_MARQUEE_Z
+
+
+func _hide_run_end_marquee_rows() -> void:
+	for label in _run_end_marquee_rows:
+		label.visible = false
+	if _run_end_stats_scroll != null:
+		_run_end_stats_scroll.visible = false
+
+
+func _ensure_run_end_stats_scroll() -> void:
+	_ensure_run_end_free_root()
+	if _run_end_stats_scroll != null:
+		return
+	_run_end_stats_scroll = ScrollContainer.new()
+	_run_end_stats_scroll.name = "RunEndStatsScroll"
+	_run_end_stats_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_run_end_stats_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	_run_end_stats_scroll.z_index = RUN_END_FRONT_Z
+	_run_end_free_root.add_child(_run_end_stats_scroll)
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.04, 0.04, 0.82)
+	style.border_color = Color(1.0, 0.92, 0.86, 0.55)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 12
+	style.content_margin_bottom = 12
+	panel.add_theme_stylebox_override("panel", style)
+	_run_end_stats_scroll.add_child(panel)
+	_run_end_stats_body = Label.new()
+	_run_end_stats_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_run_end_stats_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_run_end_stats_body.add_theme_font_size_override("font_size", 16)
+	_run_end_stats_body.add_theme_color_override("font_color", Color(1.0, 0.96, 0.9))
+	_run_end_stats_body.add_theme_color_override("font_outline_color", Color(0.08, 0.02, 0.03, 0.9))
+	_run_end_stats_body.add_theme_constant_override("outline_size", 4)
+	panel.add_child(_run_end_stats_body)
+
+
+func _place_run_end_marquee() -> void:
+	if _run_end_marquee_cycle <= 0.0 or _run_end_marquee_box == Vector2.ZERO:
+		return
+	var wrapped := fposmod(_run_end_marquee_offset, _run_end_marquee_cycle)
+	for index in _run_end_marquee_rows.size():
+		var label := _run_end_marquee_rows[index]
+		if not label.visible or index >= _run_end_marquee_centers.size():
+			continue
+		## 隣り合う行は逆方向。
+		var shift := wrapped if (index % 2) == 0 else -wrapped
+		var center := _run_end_marquee_centers[index] + _run_end_marquee_dir * shift
+		label.size = _run_end_marquee_box
+		label.pivot_offset = _run_end_marquee_box * 0.5
+		label.rotation = _run_end_marquee_angle
+		label.position = center - _run_end_marquee_box * 0.5
+
+
+func _style_run_end_clear_button(button: Button, font_size: int) -> void:
+	button.focus_mode = Control.FOCUS_NONE
+	button.add_theme_font_size_override("font_size", font_size)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.08, 0.06, 0.05, 0.72)
+	normal.border_color = Color(1.0, 0.92, 0.86, 0.88)
+	normal.set_border_width_all(2)
+	normal.set_corner_radius_all(4)
+	normal.content_margin_left = 18
+	normal.content_margin_right = 18
+	normal.content_margin_top = 10
+	normal.content_margin_bottom = 10
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(0.82, 0.12, 0.16, 0.88)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.55, 0.08, 0.1, 0.92)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_color_override("font_color", Color(1.0, 0.97, 0.92))
+	button.add_theme_color_override("font_hover_color", Color(1.0, 0.98, 0.95))
+	button.add_theme_color_override("font_pressed_color", Color(1.0, 0.94, 0.9))
+
+
+func _layout_run_end_diagonal(view: Vector2) -> void:
+	## 文字向きは水平のまま、左上→右下の斜めに多行で流す。隣行は逆流。空白なし。
+	if _run_end_title_phrase.is_empty():
+		_run_end_title_phrase = run_end_title.text.strip_edges()
+		if _run_end_title_phrase.is_empty():
+			_run_end_title_phrase = "完全クリア"
+	run_end_title.visible = false
+	_ensure_run_end_marquee_rows(RUN_END_MARQUEE_ROWS)
+	var title_font := int(clampf(minf(view.x, view.y) * 0.42, 160.0, 420.0))
+	var probe := _run_end_marquee_rows[0]
+	probe.add_theme_font_size_override("font_size", title_font)
+	var font := probe.get_theme_font("font")
+	var phrase_w := 0.0
+	if font != null:
+		phrase_w = font.get_string_size(_run_end_title_phrase, HORIZONTAL_ALIGNMENT_LEFT, -1, title_font).x
+	if phrase_w < 8.0:
+		phrase_w = float(title_font) * float(_run_end_title_phrase.length()) * 0.95
+	_run_end_marquee_cycle = maxf(phrase_w, 1.0)
+	var copies := maxi(8, int(ceili(view.length() * 2.5 / _run_end_marquee_cycle)) + 2)
+	var continuous := _run_end_title_phrase.repeat(copies)
+	var title_h := float(title_font) * 1.05
+	_run_end_marquee_box = Vector2(_run_end_marquee_cycle * float(copies), title_h)
+	_run_end_marquee_angle = atan2(view.y, view.x)
+	_run_end_marquee_dir = Vector2(view.x, view.y).normalized()
+	var perp := Vector2(-_run_end_marquee_dir.y, _run_end_marquee_dir.x)
+	var row_gap := title_h * 0.92
+	var stack_mid := view * 0.5 + perp * (-minf(view.x, view.y) * 0.02)
+	_run_end_marquee_centers.clear()
+	for index in RUN_END_MARQUEE_ROWS:
+		var label := _run_end_marquee_rows[index]
+		var row_t := float(index) - float(RUN_END_MARQUEE_ROWS - 1) * 0.5
+		_run_end_marquee_centers.append(stack_mid + perp * (row_t * row_gap))
+		label.text = continuous
+		label.add_theme_font_size_override("font_size", title_font)
+		label.add_theme_color_override("font_color", Color(1.0, 0.97, 0.9))
+		label.add_theme_color_override("font_outline_color", Color(0.35, 0.04, 0.06, 0.92))
+		label.add_theme_constant_override("outline_size", maxi(18, title_font / 10))
+		label.visible = true
+	_place_run_end_marquee()
+	## 統計とボタンは帯・テロップより前面へ。
+	run_end_summary.visible = false
+	_ensure_run_end_stats_scroll()
+	_run_end_stats_body.text = _review.stats_text()
+	_run_end_stats_body.add_theme_font_size_override("font_size", int(clampf(minf(view.x, view.y) * 0.018, 14.0, 18.0)))
+	var stats_w := clampf(view.x * 0.42, 360.0, 560.0)
+	var stats_h := clampf(view.y * 0.72, 360.0, view.y - 48.0)
+	_run_end_stats_scroll.visible = true
+	_run_end_stats_scroll.z_index = RUN_END_FRONT_Z
+	_run_end_stats_scroll.rotation = 0.0
+	_run_end_stats_scroll.position = Vector2(24.0, (view.y - stats_h) * 0.5)
+	_run_end_stats_scroll.size = Vector2(stats_w, stats_h)
+	_run_end_stats_body.custom_minimum_size = Vector2(stats_w - 36.0, 0.0)
+	var buttons: Array[Button] = [
+		review_board_button,
+		review_synergy_button,
+		review_stats_button,
+		title_return_button,
+	]
+	if review_log_button.visible:
+		buttons.insert(2, review_log_button)
+	var btn_font := int(clampf(minf(view.x, view.y) * 0.032, 22.0, 40.0))
+	var btn_box := Vector2(clampf(view.x * 0.34, 280.0, 460.0), clampf(view.y * 0.07, 56.0, 84.0))
+	var btn_gap := btn_box.y + 16.0
+	## 斜め並びだと押しにくいので、回転なしで画面縦に積む。
+	var stack_h := btn_gap * float(buttons.size()) - 16.0
+	var stack_x := clampf(view.x * 0.78, btn_box.x * 0.5 + 24.0, view.x - btn_box.x * 0.5 - 24.0)
+	var stack_y := clampf(view.y * 0.42, 120.0, view.y - stack_h - 32.0)
+	for index in buttons.size():
+		var button := buttons[index]
+		button.z_index = RUN_END_FRONT_Z + 1
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		_style_run_end_clear_button(button, btn_font)
+		var center := Vector2(stack_x, stack_y + btn_gap * float(index) + btn_box.y * 0.5)
+		_place_run_end_rotated(button, center, 0.0, btn_box)
+
+
+func _layout_run_end_defeat(view: Vector2) -> void:
+	var panel_w := clampf(view.x * 0.46, 460.0, 640.0)
+	var panel_h := clampf(view.y * 0.82, 520.0, view.y - 40.0)
+	var origin := (view - Vector2(panel_w, panel_h)) * 0.5
+	_hide_run_end_marquee_rows()
+	if not _run_end_title_phrase.is_empty():
+		run_end_title.text = _run_end_title_phrase
+	run_end_title.visible = true
+	run_end_title.z_index = RUN_END_FRONT_Z
+	run_end_title.rotation = 0.0
+	run_end_title.pivot_offset = Vector2.ZERO
+	run_end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	run_end_title.add_theme_font_size_override("font_size", 42)
+	run_end_title.add_theme_color_override("font_color", Color(0.92, 0.94, 1.0))
+	run_end_title.add_theme_constant_override("outline_size", 10)
+	run_end_title.position = origin + Vector2(24.0, 18.0)
+	run_end_title.size = Vector2(panel_w - 48.0, 64.0)
+	run_end_summary.visible = false
+	_ensure_run_end_stats_scroll()
+	_run_end_stats_body.text = _review.stats_text()
+	_run_end_stats_scroll.visible = true
+	_run_end_stats_scroll.z_index = RUN_END_FRONT_Z
+	_run_end_stats_scroll.position = origin + Vector2(24.0, 90.0)
+	_run_end_stats_scroll.size = Vector2(panel_w - 48.0, panel_h - 280.0)
+	_run_end_stats_body.custom_minimum_size = Vector2(panel_w - 84.0, 0.0)
+	var buttons: Array[Button] = [
+		review_board_button,
+		review_synergy_button,
+		review_stats_button,
+		title_return_button,
+	]
+	if review_log_button.visible:
+		buttons.insert(2, review_log_button)
+	var y := origin.y + panel_h - 48.0 * float(buttons.size()) - 16.0
+	for button in buttons:
+		button.z_index = RUN_END_FRONT_Z + 1
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		button.rotation = 0.0
+		button.pivot_offset = Vector2.ZERO
+		button.add_theme_font_size_override("font_size", 18)
+		button.position = Vector2(origin.x + (panel_w - 240.0) * 0.5, y)
+		button.size = Vector2(240.0, 40.0)
+		y += 48.0
+
+
 func _layout_formation_ui() -> void:
 	if _circle_wheel == null or _battle.viewport_container == null:
 		return
@@ -2013,11 +2560,19 @@ func _layout_formation_ui() -> void:
 	if _relic_tray != null:
 		_relic_tray.position = Vector2.ZERO
 		_relic_tray.size = viewport_size
+		## 戦闘開始などのアクション列のすぐ左、サークル右端から縦→左へ。
+		var tray_gap := 8.0
+		var origin_x := shop_x - tray_gap - RelicTray.ICON
 		_relic_tray.set_layout(
-			Vector2(battle_x, _battle.battle_rect.end.y + 8.0),
-			Vector2(viewport_size.x - 8.0, viewport_size.y - 8.0),
+			Vector2(origin_x, circle_top + tray_gap),
+			Vector2(battle_x, viewport_size.y - tray_gap),
 			Rect2(_circle_wheel.position, _circle_wheel.size)
 		)
+		_relic_tray.z_index = 12
+		## シナジー詳細より奥に固定（チェックをクリックできるように）。
+		if _synergy_detail != null and _synergy_detail.get_parent() != null:
+			_synergy_detail.z_index = 40
+			_synergy_detail.get_parent().move_child(_synergy_detail, -1)
 	if _board_notice != null:
 		var notice_top := _battle.battle_rect.end.y
 		var notice_bottom := _circle_wheel.position.y + wheel_size * 0.18
@@ -2030,19 +2585,26 @@ func _layout_formation_ui() -> void:
 	var right_x := shop_x
 	var right_bottom := bottom
 	var right_h := right_bottom - top
-	var shop_area_h := right_h * 0.4
-	var bench_top := top + shop_area_h + 6.0
-	var bench_h := right_bottom - bench_top
+	var mid_gap := 6.0
+	var sell_h := ShopBoard.SELL_ZONE_HEIGHT
+	var usable_h := maxf(160.0, right_h - sell_h - mid_gap * 2.0)
+	var shop_area_h := usable_h * 0.4
+	var bench_h := usable_h - shop_area_h
 	var cards_x := right_x + _action_column_width + 8.0
 	_shop.place(Rect2(cards_x, top, cards_w, shop_area_h))
+	var sell_top := top + shop_area_h + mid_gap
+	var bench_top := sell_top + sell_h + mid_gap
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
 	_place_overflow_pile(right_x, cards_x, bench_top, bench_h)
-	_place_sell_zone(Rect2(_bench_board.position, _bench_board.size))
+	## 売却帯はベンチのすぐ上（ショップとのあいだ）。
+	_place_sell_zone(Rect2(cards_x - 6.0, sell_top, _shop.panel_width() + 12.0, sell_h))
 	_place_side_column(right_x)
 	_place_debug_roster()
 	_layout_log_column()
 	_layout_comment_flow()
+	if _run_end_active:
+		layout_run_end_overlay()
 	battle_overlay.anchor_left = 0.0
 	battle_overlay.anchor_right = 0.0
 	battle_overlay.anchor_top = 0.0
@@ -2147,14 +2709,14 @@ func _fit_action_column_width() -> void:
 	_action_column_width = maxf(36.0, ceil(width))
 
 
-func _place_sell_zone(bench_rect: Rect2) -> void:
+func _place_sell_zone(rect: Rect2) -> void:
 	var zone := sell_drag_hint_right
 	zone.z_index = 30
 	zone.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	zone.offset_left = bench_rect.position.x - ShopBoard.SELL_ZONE_WIDTH
-	zone.offset_right = bench_rect.position.x
-	zone.offset_top = bench_rect.position.y
-	zone.offset_bottom = bench_rect.end.y
+	zone.offset_left = rect.position.x
+	zone.offset_top = rect.position.y
+	zone.offset_right = rect.end.x
+	zone.offset_bottom = rect.end.y
 	var sell_label := zone.get_node_or_null("SellDragLabelRight") as Label
 	if sell_label != null:
 		sell_label.text = "売却"
@@ -2168,8 +2730,22 @@ func _place_side_column(column_x: float) -> void:
 	action_column.size = Vector2(_action_column_width, maxf(column_h, 1.0))
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if _run_end_active and _run_end_diagonal and not _run_end_marquee_rows.is_empty():
+		_run_end_marquee_offset += RUN_END_MARQUEE_SPEED * delta
+		_place_run_end_marquee()
 	_shop.update_hover()
+	if _synergy_close_left < 0.0:
+		return
+	if _is_pointer_over_synergy_detail():
+		_synergy_close_left = -1.0
+		return
+	_synergy_close_left -= delta
+	if _synergy_close_left > 0.0:
+		return
+	_synergy_close_left = -1.0
+	if not _is_pointer_over_synergy_detail():
+		_close_synergy_detail()
 
 
 func _input(event: InputEvent) -> void:
@@ -2206,6 +2782,44 @@ func relic_rewrite_bottom_bench(times: int) -> void:
 	board.resolve_merges()
 
 
+## 西通り(108): サークルの味方をコスト+上昇のランダムキャラに変換。コスト7は不変。合成上限で頭打ち。
+func relic_upgrade_board_costs(bump: int = 1) -> void:
+	var cap := RelicEconomy.synth_cost_cap(session)
+	var targets: Array[GameUnit] = []
+	for unit in board.get_circle_units():
+		if unit != null and is_instance_valid(unit) and not unit.is_enemy:
+			targets.append(unit)
+	for unit in targets:
+		var cost := unit.get_cost()
+		## コスト7は変わらない。
+		if cost >= ShopOdds.MAX_COST:
+			continue
+		var target_cost := clampi(mini(cost + maxi(bump, 0), cap), 1, ShopOdds.MAX_COST)
+		var choices: Array[int] = []
+		for candidate in UnitCatalog.get_unit_ids_by_cost(target_cost):
+			if candidate != unit.unit_id:
+				choices.append(candidate)
+		if choices.is_empty():
+			choices = UnitCatalog.get_unit_ids_by_cost(target_cost)
+		if choices.is_empty():
+			continue
+		var stars := unit.stars
+		var relics: Array[int] = []
+		for uid in unit.equipped_relic_uids:
+			relics.append(uid)
+		var face := unit.circle_face
+		var slot := unit.circle_slot
+		board.remove_unit(unit)
+		unit.queue_free()
+		var created := GameUnit.create(choices[randi() % choices.size()], stars)
+		units_root.add_child(created)
+		created.equipped_relic_uids = relics
+		board.place_on_circle(created, face, slot, false)
+	board.resolve_merges()
+	_formation.refresh_widgets()
+	_log("西通りでサークルのキャラクターが入れ替わった")
+
+
 func _flush_relic_units() -> void:
 	if _flushing_relic_units or session.relic_pending_units.is_empty():
 		return
@@ -2235,10 +2849,12 @@ func _flush_relic_units() -> void:
 
 func _update_ui() -> void:
 	_flush_relic_units()
+	_flush_relic_picks()
 	board.board_unit_limit = session.get_board_unit_cap()
 	_formation.refresh_widgets()
 	call_deferred("_layout_formation_ui")
 	if _run_end_active:
+		call_deferred("layout_run_end_overlay")
 		_set_debug_roster_open(false)
 		battle_button.disabled = true
 		back_button.disabled = true
@@ -2365,6 +2981,7 @@ func _update_ui() -> void:
 		var cost := RelicEconomy.shop_price(session, index)
 		slot.set_unit(unit_id, cost)
 		slot.disabled = not economy_open or session.coins < cost
+	_refresh_shop_synergy_watch()
 	_refresh_overflow_notice()
 	_update_synergy_panel()
 	if economy_open and not _run_end_active:

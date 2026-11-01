@@ -20,10 +20,13 @@ var _footer: VBoxContainer
 var _synergy_box: VBoxContainer
 var _name_line: FitLine
 var _cost_mark: CostCorner
+var _watch_rim: Panel
 var _text_scale := 1.0
 var _synergy_lines: PackedStringArray = []
 var _name_text := ""
 var _shown_unit_id := -1
+var _watch_color := Color(0, 0, 0, 0)
+var _watch_pulse := 0.0
 
 
 class FitLine:
@@ -89,10 +92,18 @@ func _ready() -> void:
 	flat = true
 	clip_contents = false
 	_build_footer()
+	_build_watch_rim()
 	resized.connect(_fit_frame)
 	_illustration.texture = PLACEHOLDER_TEXTURE
 	set_sold_out()
 	_fit_frame()
+
+
+func _process(delta: float) -> void:
+	if _watch_rim == null or not _watch_rim.visible:
+		return
+	_watch_pulse = fmod(_watch_pulse + delta * 2.4, TAU)
+	_apply_watch_rim_style()
 
 
 func set_sold_out() -> void:
@@ -106,6 +117,7 @@ func set_sold_out() -> void:
 	_stars_label.text = ""
 	_cost_label.text = ""
 	apply_cost_style(0)
+	set_synergy_watch(false)
 	_rebuild_lines()
 	_refresh_text_layout()
 
@@ -133,12 +145,63 @@ func set_card_size(card_size: Vector2) -> void:
 	_fit_frame()
 
 
+## チェックしたシナジーに属するとき、枠を強調する。
+func set_synergy_watch(enabled: bool, color: Color = Color(1.0, 0.92, 0.45)) -> void:
+	if _watch_rim == null:
+		_build_watch_rim()
+	_watch_color = color if enabled else Color(0, 0, 0, 0)
+	_watch_rim.visible = enabled
+	set_process(enabled)
+	if _frame != null:
+		_frame.modulate = Color(1.15, 1.12, 0.95) if enabled else Color.WHITE
+	_apply_watch_rim_style()
+	_fit_watch_rim()
+
+
 func set_text_scale(amount: float) -> void:
 	_text_scale = amount
 	_apply_font(_stars_label, 16, amount)
 	_apply_font(_cost_label, 20, amount)
 	_rebuild_lines()
 	_refresh_text_layout()
+
+
+func _build_watch_rim() -> void:
+	if _watch_rim != null:
+		return
+	_watch_rim = Panel.new()
+	_watch_rim.name = "SynergyWatchRim"
+	_watch_rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_watch_rim.visible = false
+	_watch_rim.z_index = 8
+	add_child(_watch_rim)
+	_apply_watch_rim_style()
+
+
+func _apply_watch_rim_style() -> void:
+	if _watch_rim == null:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(_watch_color.r, _watch_color.g, _watch_color.b, 0.10 + 0.06 * sin(_watch_pulse))
+	style.border_color = Color(
+		_watch_color.r,
+		_watch_color.g,
+		_watch_color.b,
+		0.72 + 0.28 * (0.5 + 0.5 * sin(_watch_pulse))
+	)
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(10)
+	style.shadow_color = Color(_watch_color.r, _watch_color.g, _watch_color.b, 0.55)
+	style.shadow_size = 10
+	_watch_rim.add_theme_stylebox_override("panel", style)
+
+
+func _fit_watch_rim() -> void:
+	if _watch_rim == null or size.x < 2.0 or size.y < 2.0:
+		return
+	var pad := 5.0
+	_watch_rim.position = Vector2(-pad, -pad)
+	_watch_rim.size = size + Vector2(pad * 2.0, pad * 2.0)
 
 
 func _build_footer() -> void:
@@ -228,6 +291,7 @@ func _fit_frame() -> void:
 	_frame.size = drawn
 	_refresh_text_layout()
 	_apply_portrait()
+	_fit_watch_rim()
 
 
 func _portrait_dest() -> Vector2:

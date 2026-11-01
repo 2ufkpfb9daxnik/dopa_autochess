@@ -6,6 +6,9 @@ signal unit_drag_moved(global_position: Vector2)
 signal unit_drag_finished(slot_index: int, global_position: Vector2)
 signal slot_clicked(slot_index: int)
 signal relic_clicked(slot_index: int, relic_index: int)
+signal unit_hovered(slot_index: int)
+signal relic_hovered(slot_index: int, relic_index: int)
+signal hover_cleared
 signal relic_drag_started(slot_index: int, relic_index: int)
 signal relic_drag_finished(slot_index: int, global_position: Vector2)
 
@@ -24,6 +27,8 @@ var _press_pos := Vector2.ZERO
 var _dragging := false
 var _press_relic := false
 var _press_relic_index := -1
+var _hover_slot := -1
+var _hover_relic := -1
 var _relic_hits: Array = []
 
 
@@ -93,6 +98,7 @@ func _gui_input(event: InputEvent) -> void:
 			var slot := _slot_at(mouse_button.position)
 			if slot < 0 or not _is_occupied(slot):
 				return
+			_clear_hover()
 			_pressing = true
 			_dragging = false
 			var hit := _relic_hit(mouse_button.position)
@@ -113,17 +119,20 @@ func _gui_input(event: InputEvent) -> void:
 			_pressing = false
 			_dragging = false
 			accept_event()
-	elif event is InputEventMouseMotion and _pressing:
+	elif event is InputEventMouseMotion:
 		var mouse_motion := event as InputEventMouseMotion
-		if not _dragging and mouse_motion.position.distance_to(_press_pos) > 8.0:
-			_dragging = true
-			if _press_relic:
-				relic_drag_started.emit(_press_slot, _press_relic_index)
-			else:
-				unit_drag_started.emit(_press_slot)
-		if _dragging and not _press_relic:
-			unit_drag_moved.emit(mouse_motion.global_position)
-		accept_event()
+		if _pressing:
+			if not _dragging and mouse_motion.position.distance_to(_press_pos) > 8.0:
+				_dragging = true
+				if _press_relic:
+					relic_drag_started.emit(_press_slot, _press_relic_index)
+				else:
+					unit_drag_started.emit(_press_slot)
+			if _dragging and not _press_relic:
+				unit_drag_moved.emit(mouse_motion.global_position)
+			accept_event()
+		else:
+			_update_hover(mouse_motion.position)
 
 
 func _layout_title_tab() -> void:
@@ -267,3 +276,36 @@ func _is_occupied(slot_index: int) -> bool:
 
 func _to_local(global_position: Vector2) -> Vector2:
 	return get_global_transform_with_canvas().affine_inverse() * global_position
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_MOUSE_EXIT:
+		_clear_hover()
+
+
+func _update_hover(point: Vector2) -> void:
+	var hit := _relic_hit(point)
+	if hit.x >= 0 and _is_occupied(hit.x):
+		if _hover_slot == hit.x and _hover_relic == hit.y:
+			return
+		_hover_slot = hit.x
+		_hover_relic = hit.y
+		relic_hovered.emit(hit.x, hit.y)
+		return
+	var slot := _slot_at(point)
+	if slot >= 0 and _is_occupied(slot):
+		if _hover_slot == slot and _hover_relic < 0:
+			return
+		_hover_slot = slot
+		_hover_relic = -1
+		unit_hovered.emit(slot)
+		return
+	_clear_hover()
+
+
+func _clear_hover() -> void:
+	if _hover_slot < 0 and _hover_relic < 0:
+		return
+	_hover_slot = -1
+	_hover_relic = -1
+	hover_cleared.emit()

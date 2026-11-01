@@ -21,15 +21,15 @@ var _paths: PackedStringArray = []
 var _time := 0.0
 
 
-static func play(parent: Node, element: String, world_pos: Vector3) -> void:
+static func play(parent: Node, element: String, world_pos: Vector3, draw_in_front: bool = false) -> void:
 	if parent == null:
 		return
 	var fx := AttributeHitFx.new()
 	parent.add_child(fx)
-	fx._begin(element, world_pos)
+	fx._begin(element, world_pos, draw_in_front)
 
 
-func _begin(element: String, world_pos: Vector3) -> void:
+func _begin(element: String, world_pos: Vector3, draw_in_front: bool = false) -> void:
 	_paths = _paths_for(element)
 	if _paths.is_empty():
 		queue_free()
@@ -40,11 +40,16 @@ func _begin(element: String, world_pos: Vector3) -> void:
 	_sprite.centered = true
 	_sprite.pixel_size = PIXEL_SIZE
 	_sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
-	_sprite.render_priority = 2
+	## 味方側はユニット優先度(2)より手前。敵側は従来どおり味方と敵のあいだ。
+	_sprite.render_priority = 6 if draw_in_front else 2
 	add_child(_sprite)
 	var pos := world_pos
 	pos.y += 0.55
-	pos.z = lerpf(pos.z, 0.0, 0.4)
+	if draw_in_front:
+		## カメラは +Z 側。対象より手前へ出す。
+		pos.z += 0.45
+	else:
+		pos.z = lerpf(pos.z, 0.0, 0.4)
 	global_position = pos
 	_show_frame(0)
 

@@ -164,13 +164,14 @@ func set_clear_art(active: bool) -> void:
 func set_clear_stripes(active: bool) -> void:
 	if clear_stripes == null:
 		return
-	clear_stripes.visible = active
 	if active:
 		var screen := _viewport_size
 		if screen == Vector2.ZERO and _host != null:
 			screen = _host.get_viewport().get_visible_rect().size
 		_place_control(clear_stripes, Rect2(Vector2.ZERO, screen))
-		clear_stripes.queue_redraw()
+	clear_stripes.visible = active
+	if active and clear_stripes.has_method("restart_flow"):
+		clear_stripes.restart_flow()
 
 
 func _stack_stage(layer: CanvasLayer, backdrop: ColorRect) -> void:

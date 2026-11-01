@@ -6,6 +6,7 @@ const LOSE_DIR := "res://images/frames/lose"
 const FRAME_FPS := 24.0
 const FRAME_ASPECT := 1344.0 / 768.0
 const DANCE_COUNT := 5
+const ClearStripesScript := preload("res://scripts/game/clear_stripes.gd")
 
 var _dances: Array[TextureRect] = []
 var _dance_places: Array[Dictionary] = []
@@ -23,6 +24,16 @@ var _frame_index := 0
 var _frame_time := 0.0
 var _playing := false
 var _striped := false
+var _flow_bands: Array[float] = []
+var _clear_marquee_rows: Array[Label] = []
+var _clear_marquee_centers: Array[Vector2] = []
+var _clear_marquee_offset := 0.0
+var _clear_marquee_cycle := 1.0
+var _clear_marquee_angle := 0.0
+var _clear_marquee_dir := Vector2.RIGHT
+var _clear_marquee_box := Vector2.ZERO
+const CLEAR_MARQUEE_SPEED := 180.0
+const CLEAR_MARQUEE_ROWS := 5
 var _path_cache: Dictionary = {}
 var modal_changed: Callable = Callable()
 
@@ -61,15 +72,16 @@ func _ready() -> void:
 	_title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_title.add_theme_constant_override("outline_size", 14)
 	_clear_mark = _make_label(480, HORIZONTAL_ALIGNMENT_CENTER)
-	_clear_mark.text = "クリア！"
+	_clear_mark.text = "クリア"
 	_clear_mark.visible = false
 	_clear_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_clear_mark.autowrap_mode = TextServer.AUTOWRAP_OFF
-	_clear_mark.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_clear_mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_clear_mark.clip_text = false
 	_clear_mark.z_index = 2
 	_clear_mark.add_theme_constant_override("outline_size", 36)
 	_clear_mark.add_theme_color_override("font_color", Color(1.0, 0.96, 0.82))
+	_clear_mark.add_theme_color_override("font_outline_color", Color(0.35, 0.04, 0.06, 0.92))
 	_body = _make_label(20, HORIZONTAL_ALIGNMENT_RIGHT)
 	_title.z_index = 2
 	_body.z_index = 2
@@ -102,6 +114,8 @@ func open(won: bool, body: String, hp_before: int = -1, hp_after: int = -1) -> v
 	_fill = Color(0.82, 0.1, 0.14, 1.0) if won else Color(0.12, 0.28, 0.78, 1.0)
 	_title.text = "勝利！" if won else "敗北"
 	_striped = false
+	_flow_bands.clear()
+	_hide_clear_marquee_rows()
 	_clear_mark.visible = false
 	_body.text = body
 	var show_hp := not won and hp_before >= 0 and hp_after != hp_before
@@ -142,14 +156,57 @@ func open(won: bool, body: String, hp_before: int = -1, hp_after: int = -1) -> v
 func show_clear_banner() -> void:
 	if _clear_mark == null:
 		return
-	_clear_mark.visible = true
+	_clear_mark.visible = false
 	_striped = true
+	_clear_marquee_offset = 0.0
+	_flow_bands.clear()
+	ClearStripesScript.seed_bands(_flow_bands, size)
 	_layout_content()
 	queue_redraw()
 
 
+func _ensure_clear_marquee_rows(count: int) -> void:
+	while _clear_marquee_rows.size() < count:
+		var label := Label.new()
+		label.name = "ClearMarquee%d" % _clear_marquee_rows.size()
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.autowrap_mode = TextServer.AUTOWRAP_OFF
+		label.clip_text = false
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.z_index = 2
+		add_child(label)
+		_clear_marquee_rows.append(label)
+	for index in _clear_marquee_rows.size():
+		_clear_marquee_rows[index].visible = index < count
+
+
+func _hide_clear_marquee_rows() -> void:
+	for label in _clear_marquee_rows:
+		label.visible = false
+
+
+func _place_clear_marquee() -> void:
+	if _clear_marquee_cycle <= 0.0 or _clear_marquee_box == Vector2.ZERO:
+		return
+	var wrapped := fposmod(_clear_marquee_offset, _clear_marquee_cycle)
+	for index in _clear_marquee_rows.size():
+		var label := _clear_marquee_rows[index]
+		if not label.visible or index >= _clear_marquee_centers.size():
+			continue
+		var shift := wrapped if (index % 2) == 0 else -wrapped
+		var center := _clear_marquee_centers[index] + _clear_marquee_dir * shift
+		label.size = _clear_marquee_box
+		label.pivot_offset = _clear_marquee_box * 0.5
+		label.rotation = _clear_marquee_angle
+		label.position = center - _clear_marquee_box * 0.5
+
+
 func close() -> void:
 	_playing = false
+	_striped = false
+	_flow_bands.clear()
+	_hide_clear_marquee_rows()
 	_clear_routes()
 	_defeat_view.visible = false
 	_defeat_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
@@ -181,6 +238,14 @@ func show_routes(lines: PackedStringArray, pick: Callable) -> void:
 
 
 func _process(delta: float) -> void:
+	if _striped and visible:
+		if _flow_bands.is_empty():
+			ClearStripesScript.seed_bands(_flow_bands, size)
+		ClearStripesScript.advance_bands(_flow_bands, size, delta)
+		if not _clear_marquee_rows.is_empty() and _clear_marquee_rows[0].visible:
+			_clear_marquee_offset += CLEAR_MARQUEE_SPEED * delta
+			_place_clear_marquee()
+		queue_redraw()
 	if not _playing or _frame_paths.is_empty():
 		return
 	_frame_time += delta
@@ -201,25 +266,15 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if size.x < 2.0 or size.y < 2.0:
 		return
+	if _striped:
+		ClearStripesScript.draw_flowing_bands(self, size, _fill, _flow_bands)
+		return
 	var triangle := PackedVector2Array([
 		Vector2.ZERO,
 		Vector2(size.x, 0.0),
 		Vector2(size.x, size.y),
 	])
-	if not _striped:
-		draw_colored_polygon(triangle, _fill)
-		return
-	var normal := Vector2(-size.y, size.x).normalized()
-	var span := -Vector2(size.x, 0.0).dot(normal)
-	var thickness := 22.0
-	var period := 36.0
-	var offset := -span
-	while offset < -0.5:
-		var near := minf(offset + thickness, 0.0)
-		var poly := _clip_strip(triangle, normal, offset, near)
-		if poly.size() >= 3:
-			draw_colored_polygon(poly, _fill)
-		offset += period
+	draw_colored_polygon(triangle, _fill)
 
 
 func _on_resized() -> void:
@@ -251,13 +306,59 @@ func _layout_content() -> void:
 		return
 	var text_w := clampf(size.x * 0.46, 420.0, 860.0)
 	var column_x := size.x - text_w - 28.0
-	_title.position = Vector2(column_x, 4.0)
-	_title.size = Vector2(text_w, 168.0)
-	_body.position = Vector2(column_x, 176.0)
-	_body.size = Vector2(text_w, 150.0)
-	if _routes != null:
-		_routes.position = Vector2(column_x, 332.0)
-		_routes.size = Vector2(text_w, 280.0)
+	if _striped:
+		var angle := atan2(size.y, size.x)
+		var dir := Vector2(size.x, size.y).normalized()
+		var perp := Vector2(-dir.y, dir.x)
+		var title_font := int(clampf(minf(size.x, size.y) * 0.14, 72.0, 160.0))
+		_title.add_theme_font_size_override("font_size", title_font)
+		_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var title_box := Vector2(minf(size.x * 0.9, size.length() * 0.7), float(title_font) * 1.4)
+		var title_center := size * 0.5 + perp * (-minf(size.x, size.y) * 0.18) + dir * (-minf(size.x, size.y) * 0.12)
+		_title.size = title_box
+		_title.pivot_offset = title_box * 0.5
+		_title.rotation = angle
+		_title.position = title_center - title_box * 0.5
+		_body.add_theme_font_size_override("font_size", 22)
+		_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var body_box := Vector2(clampf(size.x * 0.4, 320.0, 520.0), 120.0)
+		var body_center := title_center + perp * (minf(size.x, size.y) * 0.1)
+		_body.size = body_box
+		_body.pivot_offset = body_box * 0.5
+		_body.rotation = angle
+		_body.position = body_center - body_box * 0.5
+		if _routes != null:
+			## クリア時はルート選択も斜線に沿わせる。
+			var route_center := size * 0.5 + perp * (minf(size.x, size.y) * 0.16) + dir * (minf(size.x, size.y) * 0.08)
+			var route_box := Vector2(clampf(size.x * 0.42, 360.0, 560.0), 280.0)
+			_routes.size = route_box
+			_routes.pivot_offset = route_box * 0.5
+			_routes.rotation = angle
+			_routes.position = route_center - route_box * 0.5
+			for child in _routes.get_children():
+				var button := child as Button
+				if button == null:
+					continue
+				button.add_theme_font_size_override("font_size", 34)
+				button.custom_minimum_size = Vector2(route_box.x - 24.0, 72.0)
+	else:
+		_title.rotation = 0.0
+		_title.pivot_offset = Vector2.ZERO
+		_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_title.add_theme_font_size_override("font_size", 144)
+		_title.position = Vector2(column_x, 4.0)
+		_title.size = Vector2(text_w, 168.0)
+		_body.rotation = 0.0
+		_body.pivot_offset = Vector2.ZERO
+		_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		_body.position = Vector2(column_x, 176.0)
+		_body.size = Vector2(text_w, 150.0)
+		if _routes != null:
+			_routes.rotation = 0.0
+			_routes.pivot_offset = Vector2.ZERO
+			_routes.position = Vector2(column_x, 332.0)
+			_routes.size = Vector2(text_w, 280.0)
 	if _hp_value != null and _hp_value.visible:
 		## 右カラムの経験値と被らないよう、画面左端へ置く。
 		var left_pad := 28.0
@@ -269,11 +370,47 @@ func _layout_content() -> void:
 		_hp_value.position = Vector2(left_pad, _hp_caption.position.y + _hp_caption.size.y + 6.0)
 		_hp_value.size = Vector2(hp_w, 220.0)
 		_fit_label_font(_hp_value, 200, 64)
-	if _clear_mark != null:
-		var mark_size := int(maxf(220.0, size.y * 0.52))
-		_clear_mark.add_theme_font_size_override("font_size", mark_size)
-		_clear_mark.position = Vector2(size.x * 0.02, size.y * 0.34)
-		_clear_mark.size = Vector2(size.x * 0.96, size.y * 0.64)
+	if _striped:
+		## 文字向きはそのまま、左上→右下へ多行で流す。隣行は逆流。空白なし。
+		_ensure_clear_marquee_rows(CLEAR_MARQUEE_ROWS)
+		if _clear_mark != null:
+			_clear_mark.visible = false
+		var mark_size := int(clampf(minf(size.x, size.y) * 0.42, 160.0, 420.0))
+		var phrase := "クリア"
+		var probe := _clear_marquee_rows[0]
+		probe.add_theme_font_size_override("font_size", mark_size)
+		var font := probe.get_theme_font("font")
+		var phrase_w := float(mark_size) * 3.0
+		if font != null:
+			phrase_w = font.get_string_size(phrase, HORIZONTAL_ALIGNMENT_LEFT, -1, mark_size).x
+		phrase_w = maxf(phrase_w, 1.0)
+		_clear_marquee_cycle = phrase_w
+		var copies := maxi(8, int(ceili(size.length() * 2.5 / phrase_w)) + 2)
+		var continuous := phrase.repeat(copies)
+		var title_h := float(mark_size) * 1.05
+		_clear_marquee_box = Vector2(phrase_w * float(copies), title_h)
+		_clear_marquee_angle = atan2(size.y, size.x)
+		_clear_marquee_dir = Vector2(size.x, size.y).normalized()
+		var perp := Vector2(-_clear_marquee_dir.y, _clear_marquee_dir.x)
+		var row_gap := title_h * 0.92
+		var stack_mid := size * 0.5 + perp * (-minf(size.x, size.y) * 0.02)
+		_clear_marquee_centers.clear()
+		for index in CLEAR_MARQUEE_ROWS:
+			var label := _clear_marquee_rows[index]
+			var row_t := float(index) - float(CLEAR_MARQUEE_ROWS - 1) * 0.5
+			_clear_marquee_centers.append(stack_mid + perp * (row_t * row_gap))
+			label.text = continuous
+			label.add_theme_font_size_override("font_size", mark_size)
+			label.add_theme_color_override("font_color", Color(1.0, 0.96, 0.82))
+			label.add_theme_color_override("font_outline_color", Color(0.35, 0.04, 0.06, 0.92))
+			label.add_theme_constant_override("outline_size", maxi(18, mark_size / 10))
+			label.visible = true
+		_place_clear_marquee()
+	else:
+		_hide_clear_marquee_rows()
+		if _clear_mark != null:
+			_clear_mark.rotation = 0.0
+			_clear_mark.pivot_offset = Vector2.ZERO
 	var base := _base_dance_size()
 	_defeat_view.size = base
 	_defeat_view.position = Vector2(size.x - base.x - 4.0, size.y * 0.16)
@@ -281,46 +418,6 @@ func _layout_content() -> void:
 		_scatter_dances(base)
 	else:
 		_apply_dance_places(base)
-
-
-func _clip_strip(subject: PackedVector2Array, normal: Vector2, far_limit: float, near_limit: float) -> PackedVector2Array:
-	var above := _clip_halfplane(subject, normal, far_limit, false)
-	return _clip_halfplane(above, normal, near_limit, true)
-
-
-func _clip_halfplane(subject: PackedVector2Array, normal: Vector2, limit: float, keep_below: bool) -> PackedVector2Array:
-	var output := PackedVector2Array()
-	if subject.size() < 3:
-		return output
-	var previous: Vector2 = subject[subject.size() - 1]
-	var previous_inside := _inside_halfplane(previous, normal, limit, keep_below)
-	for current in subject:
-		var current_inside := _inside_halfplane(current, normal, limit, keep_below)
-		if current_inside:
-			if not previous_inside:
-				output.append(_cross_halfplane(previous, current, normal, limit))
-			output.append(current)
-		elif previous_inside:
-			output.append(_cross_halfplane(previous, current, normal, limit))
-		previous = current
-		previous_inside = current_inside
-	return output
-
-
-func _inside_halfplane(point: Vector2, normal: Vector2, limit: float, keep_below: bool) -> bool:
-	var signed := point.dot(normal)
-	if keep_below:
-		return signed <= limit + 0.5
-	return signed >= limit - 0.5
-
-
-func _cross_halfplane(start: Vector2, finish: Vector2, normal: Vector2, limit: float) -> Vector2:
-	var start_signed := start.dot(normal) - limit
-	var finish_signed := finish.dot(normal) - limit
-	var span := start_signed - finish_signed
-	if absf(span) < 0.0001:
-		return finish
-	return start.lerp(finish, start_signed / span)
 
 
 func _base_dance_size() -> Vector2:

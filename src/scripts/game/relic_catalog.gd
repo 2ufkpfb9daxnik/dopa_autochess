@@ -4,12 +4,22 @@ extends RefCounted
 const DIR := "res://data/relics/"
 const IMAGE_DIR := "res://images/relics/"
 static var _cache: Dictionary = {}
+static var _cache_mtime: Dictionary = {}
 static var _icon_cache: Dictionary = {}
 static var _all_ids: Array[int] = []
 
 
+## クロージャ(302)はランダム提示・抽選に出さない。
+const CLOSURE_ID := 302
+
+
 static func all_pick_ids() -> Array[int]:
-	return all_ids().duplicate()
+	var out: Array[int] = []
+	for relic_id in all_ids():
+		if relic_id == CLOSURE_ID:
+			continue
+		out.append(relic_id)
+	return out
 
 
 static func all_ids() -> Array[int]:
@@ -46,15 +56,17 @@ static func synthesize_id(left_id: int, right_id: int) -> int:
 
 
 static func get_relic(relic_id: int) -> Dictionary:
-	if _cache.has(relic_id):
-		return _cache[relic_id]
 	var path := DIR + "%03d.md" % relic_id
 	if not FileAccess.file_exists(path):
 		var empty := {"id": relic_id, "name": "？", "brief": "", "category": "", "equippable": false, "synthesis": false, "effects": {}}
 		_cache[relic_id] = empty
 		return empty
+	var mtime := FileAccess.get_modified_time(path)
+	if _cache.has(relic_id) and int(_cache_mtime.get(relic_id, -1)) == mtime:
+		return _cache[relic_id]
 	var parsed := _parse(FileAccess.get_file_as_string(path), relic_id)
 	_cache[relic_id] = parsed
+	_cache_mtime[relic_id] = mtime
 	return parsed
 
 

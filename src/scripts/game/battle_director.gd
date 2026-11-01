@@ -322,6 +322,7 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	var opening := RelicCombat.begin_attack(actor)
 	var speed_before := actor.relic_speed_stack
 	var packets := _attack_packets(actor, primary)
+	actor.kit["continuity_done"] = false
 	actor.unit.popup_battle_text("攻撃", Color(1.0, 0.95, 0.82))
 	var board: BoardController = _host.board
 	var home := board.stand_position_for(actor.unit)
@@ -378,8 +379,11 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		broke = _reduce_break_gauge(actor, target)
 	if not connected:
 		if direct:
+			GameAudio.play_battle_miss()
 			target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
 			_host._log("%s の攻撃は %s に外れた" % [attacker_name, target_name])
+			## 命中しなくても層と継続は、攻撃ヒットと同じタイミングで出す。
+			await _continuity_with_attack(actor, target)
 			await _on_attack_contact(actor, target, false, 0, false)
 		if direct and actor.sheet_id == 4:
 			await _absorb_followup(actor, target)
@@ -417,6 +421,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		target.unit.popup_battle_text("-%d" % dealt, color)
 	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded, "ダメージ", cap_before))
 	_on_damage_dealt(actor, target, dealt, absorbed)
+	## 継続ダメージは行動のあとではなく、攻撃と同時に出す。
+	if direct:
+		await _continuity_with_attack(actor, target)
 	await _on_attack_contact(actor, target, true, dealt, direct)
 	if dealt > 0:
 		await _note_hit_received(actor, target, false)
@@ -473,6 +480,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 
 func _support(actor: Fighter) -> void:
 	var kind := str(actor.kit.get("buff_kind", "highest_speed_bonus"))
+	GameAudio.play_battle_support()
 	if actor.uses_buff:
 		var ally := _buff_target(actor, kind)
 		if ally == null:
@@ -505,6 +513,7 @@ func _support(actor: Fighter) -> void:
 
 
 func _guard(actor: Fighter) -> void:
+	GameAudio.play_battle_guard()
 	_set_guarding(actor, true)
 	if is_instance_valid(actor.unit):
 		actor.unit.hold_guard_pose()
@@ -1508,9 +1517,17 @@ func _finish_attack_kits(actor: Fighter) -> void:
 		actor.kit["first_attack"] = false
 	if actor.sheet_id == 79:
 		actor.kit["water_empowered"] = false
+
+
+func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null or not is_instance_valid(target.unit):
+		return
+	if bool(actor.kit.get("continuity_done", false)):
+		return
+	actor.kit["continuity_done"] = true
 	if actor.sheet_id == 12:
-		await _itami_after_attack(actor)
-	await _apply_randoseru(actor)
+		await _itami_dot_on(actor, target)
+	await _apply_randoseru_on(actor, target)
 
 
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
@@ -1592,7 +1609,8 @@ func _play_hit_fx(actor: Fighter, target: Fighter) -> void:
 	var parent: Node = _host.units_root if _host != null else null
 	if parent == null:
 		return
-	AttributeHitFx.play(parent, actor.element, target.unit.global_position)
+	## 味方へのヒットは属性アニメをユニットより手前に出す。
+	AttributeHitFx.play(parent, actor.element, target.unit.global_position, not target.enemy)
 
 
 func _apply_dot(actor: Fighter, target: Fighter) -> void:
@@ -2120,6 +2138,7 @@ func _arita_copy(arita: Fighter) -> void:
 	var kind := str(arita.kit.get("last_kind", ""))
 	var amount := float(arita.kit.get("last_amount", 0.0))
 	if is_instance_valid(arita.unit) and is_instance_valid(target.unit):
+		GameAudio.play_battle_support()
 		await _play_status_transfer(arita.unit, target.unit, true)
 	_apply_buff_value(target, kind, amount)
 	arita.kit["copy_target_id"] = target.unit.get_instance_id()
@@ -2358,12 +2377,29 @@ func _reduce_break_gauge(actor: Fighter, target: Fighter) -> bool:
 	left = maxi(0, left - BREAK_STEP)
 	target.break_left[element] = left
 	if left > 0:
+		## 削られているあいだだけHP上に撃破ゲージを出す。
+		_sync_break_gauge(target, element, false)
 		return false
+	GameAudio.play_battle_break()
+	## 撃破瞬間は0で見せてからリセットして隠す。
+	_sync_break_gauge(target, element, true)
 	target.break_left[element] = BREAK_MAX
 	if is_instance_valid(actor.unit) and is_instance_valid(target.unit):
 		target.unit.popup_battle_text("撃破", Color(0.75, 0.9, 1.0))
 		_host._log("%s が %s の%sを撃破した" % [actor.unit.get_display_name(), target.unit.get_display_name(), element])
 	return true
+
+
+func _sync_break_gauge(fighter: Fighter, element: String, just_broke: bool) -> void:
+	if fighter == null or not is_instance_valid(fighter.unit):
+		return
+	if just_broke:
+		## 空ゲージを一瞬出してから消す。
+		fighter.unit.set_battle_break(0, BREAK_MAX, true, 0.35)
+		return
+	var left := int(fighter.break_left.get(element, BREAK_MAX))
+	## 満タン（未削り／撃破後）は出さない。削り中だけ表示。
+	fighter.unit.set_battle_break(left, BREAK_MAX, left < BREAK_MAX)
 
 
 func _consume_action_skip(fighter: Fighter) -> bool:
@@ -2407,6 +2443,7 @@ func _awaji_break_damage(actor: Fighter, target: Fighter) -> void:
 	var bonus := _kit_bonus(actor, target, false) + _break_damage_bonus(actor)
 	var connected := _roll_hit(target)
 	if not connected:
+		GameAudio.play_battle_miss()
 		if is_instance_valid(target.unit):
 			target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
 			_host._log("%s の撃破ダメージは %s に外れた" % [actor.unit.get_display_name(), target.unit.get_display_name()])
@@ -2628,10 +2665,9 @@ func _suita_add_gauge(suita: Fighter, amount: int) -> void:
 	_host._log("%s の次の行動が早くなる" % suita.unit.get_display_name())
 
 
-func _apply_randoseru(actor: Fighter) -> void:
+func _apply_randoseru_on(actor: Fighter, target: Fighter) -> void:
 	if not actor.alive or not _has_synergy(actor, "ランドセル"):
 		return
-	var target := _fighter_by_id(int(actor.kit.get("last_attack_target_id", -1)))
 	if target == null or not target.alive:
 		return
 	var layers := 1
@@ -2830,12 +2866,15 @@ func _ikuno_opening(actor: Fighter) -> void:
 		actor.unit.popup_battle_text("開幕", Color(0.7, 0.9, 1.0))
 	_host._log("%s の開幕攻撃 → %s" % [actor.unit.get_display_name(), target.unit.get_display_name()])
 	await _wait(ATTACK_HIT_TIME)
+	actor.kit["continuity_done"] = false
 	var connected := _roll_hit(target)
 	var broke := _reduce_break_gauge(actor, target)
 	if not connected:
+		GameAudio.play_battle_miss()
 		if is_instance_valid(target.unit):
 			target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
 		_host._log("%s の開幕攻撃は %s に外れた" % [actor.unit.get_display_name(), target.unit.get_display_name()])
+		await _continuity_with_attack(actor, target)
 		actor.kit["opening_strike"] = false
 		actor.kit["follow_left"] = int(actor.kit.get("follow_attacks", 1))
 		if is_instance_valid(actor.unit) and not actor.unit.battle_ko:
@@ -2855,6 +2894,7 @@ func _ikuno_opening(actor: Fighter) -> void:
 		var color := Color(1.0, 0.86, 0.35) if crit else Color(0.75, 0.9, 1.0)
 		target.unit.popup_battle_text("-%d" % dealt, color)
 	_host._log(_damage_log(actor.unit.get_display_name(), target.unit.get_display_name(), raw, dealt, absorbed, crit, guarded, "開幕ダメージ"))
+	await _continuity_with_attack(actor, target)
 	if dealt > 0 and target.alive and target.hp > 0:
 		var bump := int(actor.kit.get("ap_bump", 0))
 		if bump > 0:
@@ -3035,8 +3075,7 @@ func _itami_reflect_wind(itami: Fighter, attacker: Fighter) -> void:
 		_host._log("%s の属性耐性が上がった" % itami.unit.get_display_name())
 
 
-func _itami_after_attack(actor: Fighter) -> void:
-	var target := _fighter_by_id(int(actor.kit.get("last_attack_target_id", -1)))
+func _itami_dot_on(actor: Fighter, target: Fighter) -> void:
 	if target == null or not target.alive:
 		return
 	actor.kit["dot_ratio"] = _tokaido_dot_ratio(actor.enemy)
@@ -3818,7 +3857,7 @@ func _era2_lane_neighbor(unit: Fighter) -> Fighter:
 	var local := unit.stand_slot - base
 	var candidates: Array = []
 	for delta in [-1, 1]:
-		var slot := base + local + delta
+		var slot: int = base + local + int(delta)
 		if slot < base or slot >= base + BoardController.FRONT_COUNT:
 			continue
 		for entry in _side(unit.enemy):

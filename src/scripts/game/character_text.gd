@@ -111,13 +111,20 @@ static func icon_px(font_size: int) -> int:
 
 static func with_attribute_icons(text: String, px: int) -> String:
 	var result := text
-	for attr_name in ATTRIBUTE_ICONS.keys():
+	## 「炎属性」を先に置換してから「炎」単体を置換する。
+	var names: Array = ATTRIBUTE_ICONS.keys()
+	names.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return str(a).length() > str(b).length()
+	)
+	for attr_name_value in names:
+		var attr_name := str(attr_name_value)
 		var entry: Dictionary = ATTRIBUTE_ICONS[attr_name]
 		var path := str(entry.get("path", ""))
 		var width := maxi(1, int(round(float(px) * float(entry.get("aspect", 1.0)))))
 		var hint := attribute_tooltip(attr_name)
 		var tag := "[url=%s][img=%dx%d]%s[/img][/url]" % [hint, width, px, path]
-		result = result.replace(str(attr_name), tag)
+		result = result.replace(attr_name + "属性", tag)
+		result = result.replace(attr_name, tag)
 	return result
 
 

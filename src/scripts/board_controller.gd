@@ -669,6 +669,25 @@ func place_enemy_unit(unit: GameUnit, slot_index: int) -> bool:
 	return true
 
 
+## スサミ: 敵サークルを1つ分回す。steps > 0 で右まわり（0前左→1前中→2前右→3後右→4後中→5後左→0）。
+## 空の位置と倒れた敵もいっしょに回る。
+func rotate_enemy_slots(steps: int) -> void:
+	var shift := posmod(steps, SLOTS_PER_FACE)
+	if shift == 0:
+		return
+	var rotated: Array = []
+	rotated.resize(SLOTS_PER_FACE)
+	rotated.fill(null)
+	for slot_index in SLOTS_PER_FACE:
+		var source := posmod(slot_index - shift, SLOTS_PER_FACE)
+		var unit: GameUnit = _enemy_slots[source]
+		rotated[slot_index] = unit
+		if unit != null and is_instance_valid(unit):
+			unit.circle_slot = slot_index
+	_enemy_slots = rotated
+	refresh_presentation()
+
+
 func clear_enemy_units() -> void:
 	for unit in _enemy_slots:
 		if unit != null and is_instance_valid(unit):

@@ -220,6 +220,7 @@ func finish() -> void:
 	if _motion != null:
 		_motion.kill()
 		_motion = null
+	_era6_on_finish()
 	_clear_battle_debuffs()
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
@@ -332,6 +333,7 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 		return
 	actor.kit["last_attack_target_id"] = primary.unit.get_instance_id()
 	actor.kit["did_attack"] = true
+	_era6_begin_attack(actor)
 	actor.kit["attack_no_crit"] = false
 	actor.kit["bare_fire"] = false
 	actor.kit["charged_strike"] = false
@@ -385,6 +387,7 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	if actor.sheet_id == 61 and float(actor.kit.get("torahime_pending_earth", 0.0)) > 0.0 and not bool(actor.kit.get("extra_earth_armed", false)):
 		actor.kit["torahime_pending_earth"] = 0.0
 	await _era5_finish_attack(actor, primary)
+	await _era6_finish_attack(actor, primary)
 	if ikeda_armed:
 		actor.kit["multi_armed"] = false
 		await _ikeda_extra_hits(actor, primary)
@@ -428,6 +431,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	if direct:
 		broke = _reduce_break_gauge(actor, target)
 		_era4_note_break(actor, target, broke)
+		_era6_note_break(actor, target, broke)
 		if broke and actor.sheet_id == 67 and actor.element == "wind" and int(actor.kit.get("aoe_charges_left", 0)) > 0:
 			actor.kit["nawate_full_aoe"] = true
 			actor.kit["aoe_charges_left"] = int(actor.kit.get("aoe_charges_left", 0)) - 1
@@ -557,6 +561,10 @@ func _support(actor: Fighter) -> void:
 			var ally_front := _backline_style_buff_target(actor, false)
 			if ally_front == null:
 				ally_front = actor
+			var gated_front: bool = await _era6_buff_gate(actor, ally_front, kind)
+			if gated_front:
+				await _wait(BUFF_TIME)
+				return
 			await _play_status_transfer(actor.unit, ally_front.unit, true)
 			_set_single_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
 			actor.kit["front_buff_active"] = true
@@ -569,8 +577,12 @@ func _support(actor: Fighter) -> void:
 			var ally := _buff_target(actor, kind)
 			if ally == null:
 				ally = actor
-			if _tanabe_block_enemy_buff(actor, ally):
+			var gated: bool = await _era6_buff_gate(actor, ally, kind)
+			if gated:
+				await _wait(0.2)
+			elif _tanabe_block_enemy_buff(actor, ally):
 				_host._log("%s へのバフはタナベが消した" % ally.unit.get_display_name())
+				await _era6_on_buff_erased(actor)
 				await _wait(0.2)
 			else:
 				await _play_status_transfer(actor.unit, ally.unit, true)
@@ -583,7 +595,9 @@ func _support(actor: Fighter) -> void:
 				_nose_note_enemy_buff(actor, ally)
 				await _note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
 	else:
-		if actor.sheet_id == 51 and bool(actor.kit.get("aoe_debuff_armed", false)):
+		if _era6_custom_debuff_ready(actor):
+			await _sano_summon_debuff(actor, kind)
+		elif actor.sheet_id == 51 and bool(actor.kit.get("aoe_debuff_armed", false)):
 			actor.kit["aoe_debuff_armed"] = false
 			await _takatsuki_aoe_debuff(actor, kind)
 		else:
@@ -645,6 +659,7 @@ func _ko(fighter: Fighter) -> void:
 	if is_instance_valid(unit):
 		unit.defeat_playing = false
 		unit.visible = false
+	await _era6_after_ko(fighter)
 
 
 func _flinch(target: Fighter) -> void:
@@ -1003,6 +1018,7 @@ func _assign_sheet(fighter: Fighter, sheet: Dictionary) -> void:
 		if fighter.sheet_id == 69:
 			fighter.kit["mark_moves_left"] = int(fighter.kit.get("mark_moves", 1))
 			fighter.kit["nose_mark_id"] = -1
+	_era6_assign_kit(fighter)
 	_recompute_speed(fighter, true)
 	fighter.ap = fighter.base_ap
 	fighter.saved_ap = fighter.base_ap
@@ -1066,6 +1082,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		resist += float(defender.kit.get("received_wind_resist", 0.0))
 	if element == "absorb":
 		resist += float(defender.kit.get("received_absorb_resist", 0.0))
+	if element == "earth":
+		resist += float(defender.kit.get("received_earth_resist", 0.0))
 	var resist_coef := 1.0 - resist
 	var taken_coef := 1.0 + defender.damage_taken
 	var can_crit := allow_crit and not bool(attacker.kit.get("attack_no_crit", false))
@@ -1110,6 +1128,7 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		amount *= maxf(0.0, 1.0 - taken_cut)
 	if not defender.enemy and _host != null:
 		amount *= maxf(0.0, 1.0 - RelicEconomy.growth_taken(_host.session, defender.unit))
+	amount *= _era6_damage_coef(attacker, defender, use_general_bonus)
 	if amount < 0.0:
 		amount = 0.0
 	var dealt := int(round(amount))
@@ -1385,6 +1404,7 @@ func _threat(fighter: Fighter) -> int:
 		value -= int(fighter.kit.get("priority_cut", 0))
 	if fighter.sheet_id == 33 and not _is_backline(fighter) and fighter.hp > 0 and _gojo_has_mark(fighter.enemy):
 		value -= int(fighter.kit.get("priority_cut", 0))
+	value += _era6_threat_delta(fighter)
 	value += RelicCombat.aura_priority(fighter, _fighters, _host.board if _host != null else null)
 	return maxi(0, value)
 
@@ -1475,7 +1495,7 @@ func _describe_effect(kind: String, amount: float) -> String:
 		"lowest_defense_resist":
 			return "属性耐性 %+d%%" % int(round(amount * 100.0))
 		_:
-			return kind
+			return _era6_describe_effect(kind, amount)
 
 
 func _mitigate(defender: Fighter, amount: int) -> int:
@@ -1588,6 +1608,7 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 	if int(defender.layers.get("absorb", 0)) > 0:
 		bonus += float(attacker.kit.get("received_absorb", 0.0))
 	bonus += _era2_kit_bonus(attacker, defender, is_dot)
+	bonus += _era6_kit_bonus(attacker, defender)
 	bonus -= float(attacker.kit.get("outgoing_cut", 0.0))
 	bonus -= float(attacker.kit.get("outgoing_cut_buff", 0.0))
 	return bonus
@@ -1670,6 +1691,9 @@ func _pick_attack_target(actor: Fighter) -> Fighter:
 		var marked_nose := _fighter_by_id(int(actor.kit.get("nose_mark_id", -1)))
 		if marked_nose != null and marked_nose.alive and marked_nose.hp > 0 and marked_nose.enemy != actor.enemy:
 			return marked_nose
+	var era6_forced := _era6_forced_target(actor)
+	if era6_forced != null:
+		return era6_forced
 	var nabari := _nabari_taunt_target(actor)
 	if nabari != null:
 		return nabari
@@ -1745,6 +1769,7 @@ func _attack_packets(actor: Fighter, primary: Fighter) -> Array:
 	elif actor.sheet_id == 67 and actor.element == "wind" and _noukyo_splash_count(actor) > 1:
 		splash = true
 		extras = _goshodan_extras(actor, primary, _noukyo_splash_count(actor) - 1)
+	extras = _era6_attack_extras(actor, primary, extras)
 	extras = _era2_attack_extras(actor, primary, extras)
 	if not extras.is_empty():
 		splash = true
@@ -1813,6 +1838,7 @@ func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 		await _itami_dot_on(actor, target)
 	await _apply_randoseru_on(actor, target)
 	await _era4_on_attack_contact(actor, target)
+	await _era6_continuity(actor, target)
 
 
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
@@ -2103,6 +2129,7 @@ func _on_fighter_down(dead: Fighter) -> void:
 		RelicEconomy.note_growth_kill(_host.session, _growth_killer.unit if _growth_killer != null and is_instance_valid(_growth_killer.unit) else null, _deployed_allies())
 	if dead.sheet_id == 17:
 		await _otsu_on_death(dead)
+	await _era6_on_death(dead)
 	await _era2_on_death(dead)
 	_clear_buffs_touching(dead)
 	_refresh_passive_kits()
@@ -2215,7 +2242,7 @@ func _buff_target(actor: Fighter, kind: String) -> Fighter:
 		"highest_attack_dealt_cut":
 			return _extreme(_opponents(actor), "attack", true)
 		_:
-			return _extreme(_side(actor.enemy), "speed", true)
+			return _era6_buff_target(actor, kind)
 
 
 func _extreme(pool: Array, stat: String, highest: bool) -> Fighter:
@@ -2251,6 +2278,9 @@ func _stat(fighter: Fighter, stat: String) -> float:
 
 
 func _debuff_target(actor: Fighter) -> Fighter:
+	var era6_target := _era6_debuff_target(actor)
+	if era6_target != null:
+		return era6_target
 	if actor.sheet_id == 8:
 		var opening := _fighter_by_id(int(actor.kit.get("opening_target_id", -1)))
 		if opening != null and opening.alive and opening.hp > 0 and opening.enemy != actor.enemy:
@@ -2492,6 +2522,8 @@ func _apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
 			target.kit["received_dot_cut"] = float(target.kit.get("received_dot_cut", 0.0)) + amount
 		"lowest_defense_resist":
 			target.attribute_resist += amount
+		_:
+			_era6_apply_buff_value(target, kind, amount)
 
 
 func _clear_single_buff(actor: Fighter) -> void:
@@ -3247,6 +3279,7 @@ func _opening_kits() -> void:
 	await _otsu_opening_layers()
 	await _daito_opening_dots()
 	await _era4_opening()
+	await _era6_opening()
 	var openers: Array = []
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
@@ -3409,6 +3442,7 @@ func _refresh_passive_kits() -> void:
 	_refresh_sakai_aura()
 	_refresh_tanabe_back_buff()
 	_refresh_era4_back_buffs()
+	_era6_refresh_passive()
 
 
 func _best_sheet(enemy: bool, sheet_id: int) -> Fighter:
@@ -3442,9 +3476,11 @@ func _note_primary_target_effects(actor: Fighter, target: Fighter) -> void:
 			actor.kit["attack_no_crit"] = true
 			target.kit["hit_speed_bonus"] = int(uda.kit.get("hit_speed", 0))
 	_era2_on_targeted(actor, target)
+	_era6_on_targeted(actor, target)
 
 
 func _on_attack_contact(actor: Fighter, target: Fighter, _connected: bool, dealt: int, direct: bool) -> void:
+	_era6_on_attack_contact(actor, target, _connected)
 	if direct and target.sheet_id == 12 and target.alive and target.hp > 0:
 		await _itami_reflect_wind(target, actor)
 	if direct and dealt > 0 and actor.sheet_id == 15 and bool(actor.kit.get("aoe_resolving", false)) == false:
@@ -5526,3 +5562,957 @@ func _era5_finish_attack(actor: Fighter, primary: Fighter) -> void:
 	actor.kit["nishimino_second"] = true
 	await _resolve_packet(actor, foe, true, false, false)
 	actor.kit["nishimino_second"] = false
+
+
+# ---------------------------------------------------------------------------
+# 037 サヤマ / 038 サノ / 039 サバエ / 040 サンダ / 041 シマガワ / 043 スサミ / 044 スズカ / 045 スマ
+## 未適用・置き換え:
+## - サノの召喚物は別ユニットを出さず、倒れたサノのユニットを召喚物として起こし直す（氷色の膜で見分ける）。
+##   ビアンカ・オーバースタディの召喚物はゲームに無いので、「それとは別に残る」は対象がない。
+## - サノを継続ダメージで倒したときの「層を最後に与えた敵」は記録が無いので、倒した攻撃の主
+##   （分からないときは直前にサノを攻撃した敵）で代用する。
+## - スマの「笑うなが消したバフ」は、笑うな自体が汎用には未実装なので、タナベがバフを消したときだけ数える。
+## - サヤマの吸収耐性の低下・味方の受けるダメージの低下、サバエの層持ちからの軽減、シマガワ/スズカ/スマの
+##   バフの継続ダメージ分は、属性耐性の式に足さず最終ダメージへの倍率で近似している。
+## - にぎやかな未来の「攻撃したあと対象に炎の層を1つ」（battle.md の継続シナジー）は、ここで炎のメンバー全員に入れる。
+## - 範囲シナジー（狂気の沙汰も金次第・カーテンコール・シグナル・ノイズ）の4人以上の与ダメージ上昇は書き写さない。
+
+func _era6_assign_kit(fighter: Fighter) -> void:
+	match fighter.sheet_id:
+		38:
+			fighter.kit["sano_summoned"] = false
+			fighter.kit["sano_summon_active"] = false
+			fighter.kit["sano_summon_pending"] = false
+			fighter.kit["sano_last_hitter_id"] = -1
+			fighter.kit["sano_summon_hitter_id"] = -1
+		39:
+			fighter.kit["sabae_fire_active"] = false
+			fighter.kit["sabae_opened"] = false
+		40:
+			fighter.kit["sanda_mark_id"] = -1
+			fighter.kit["sanda_fresh"] = false
+			fighter.kit["sanda_defense_applied"] = 0.0
+		41:
+			fighter.kit["swaps_left"] = int(fighter.kit.get("swap_count", 1))
+			fighter.kit["shima_mark_id"] = -1
+			fighter.kit["shima_mark_seq"] = 0
+		43:
+			fighter.kit["rotate_left"] = int(fighter.kit.get("rotate_count", 1))
+			fighter.kit["susami_kept_id"] = -1
+			fighter.kit["susami_rotate_target"] = -1
+		44:
+			fighter.kit["suzuka_deaths_left"] = int(fighter.kit.get("death_count", 1))
+			fighter.kit["layer_break_left"] = int(fighter.kit.get("layer_break_count", 1))
+		45:
+			fighter.kit["erase_left"] = int(fighter.kit.get("erase_count", 3))
+			fighter.kit["reserve_left"] = int(fighter.kit.get("reserve_cap", 1))
+
+
+func _era6_living_all(enemy: bool) -> Array:
+	## 後衛も含めた、体力が0より大きい片側の全員。
+	var found: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy != enemy or not fighter.alive or fighter.hp <= 0:
+			continue
+		if not is_instance_valid(fighter.unit) or fighter.unit.battle_ko:
+			continue
+		found.append(fighter)
+	return found
+
+
+func _era6_sorted(pool: Array) -> Array:
+	var out: Array = pool.duplicate()
+	out.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		if a.unit.unit_id != b.unit.unit_id:
+			return a.unit.unit_id < b.unit.unit_id
+		return a.unit.get_instance_id() < b.unit.get_instance_id()
+	)
+	return out
+
+
+func _era6_is_live_foe(actor: Fighter, other: Fighter) -> bool:
+	return other != null and other.alive and other.hp > 0 and other.enemy != actor.enemy and is_instance_valid(other.unit)
+
+
+func _era6_is_live_front_foe(actor: Fighter, other: Fighter) -> bool:
+	return _era6_is_live_foe(actor, other) and other.in_queue and not _is_backline(other)
+
+
+func _era6_range_total(enemy: bool, synergy_name: String) -> int:
+	var count := _synergy_member_count(enemy, synergy_name)
+	if count >= 6:
+		return 3
+	if count >= 2:
+		return 2
+	return 1
+
+
+func _era6_clear_own_debuffs(actor: Fighter) -> void:
+	var list: Array = actor.kit.get("debuffs", [])
+	if list.is_empty():
+		return
+	actor.kit["debuffs"] = []
+	for entry in list:
+		var item: Dictionary = entry
+		var target := _fighter_by_id(int(item.get("target_id", -1)))
+		if target != null:
+			_apply_buff_value(target, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
+			_refresh_unit_aura(target.unit)
+	_release_stale_debuffs()
+
+
+## 撃破ゲージを times 回だけ進める（撃破ダメージとは呼ばない）。減った回数を返す。途中で0になったら止める。
+func _era6_step_break(target: Fighter, element: String, times: int) -> int:
+	if target == null or not target.alive or target.hp <= 0 or not is_instance_valid(target.unit):
+		return 0
+	var reduced := 0
+	for _i in maxi(0, times):
+		var left := int(target.break_left.get(element, BREAK_MAX))
+		if left <= 0:
+			break
+		left = maxi(0, left - BREAK_STEP)
+		reduced += 1
+		if left <= 0:
+			GameAudio.play_battle_break()
+			_sync_break_gauge(target, element, true)
+			target.break_left[element] = BREAK_MAX
+			target.unit.popup_battle_text("撃破", Color(0.75, 0.9, 1.0))
+			_host._log("%s の%sの撃破ゲージが0になった" % [target.unit.get_display_name(), element])
+			break
+		target.break_left[element] = left
+		_sync_break_gauge(target, element, false)
+	return reduced
+
+
+## 行動にならない1回の攻撃。属性を一時的に差し替え、命中・ガードは通常どおり見る。
+func _era6_side_strike(attacker: Fighter, target: Fighter, element: String, label: String, allow_break: bool) -> Dictionary:
+	var result := {"connected": false, "dealt": 0, "broke": false}
+	if attacker == null or target == null or not is_instance_valid(attacker.unit) or not is_instance_valid(target.unit):
+		return result
+	if not target.alive or target.hp <= 0:
+		return result
+	var saved_element := attacker.element
+	attacker.element = element
+	var attacker_name := attacker.unit.get_display_name()
+	var target_name := target.unit.get_display_name()
+	var connected := _roll_hit(target)
+	if allow_break:
+		result["broke"] = _reduce_break_gauge(attacker, target)
+	if not connected:
+		attacker.element = saved_element
+		GameAudio.play_battle_miss()
+		target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
+		_host._log("%s の%sは %s に外れた" % [attacker_name, label, target_name])
+		await _wait(0.12)
+		return result
+	result["connected"] = true
+	var bonus := _kit_bonus(attacker, target, false)
+	var rolled := _roll_damage(attacker, target, true, bonus, -1.0)
+	var raw := int(rolled["amount"])
+	var crit := bool(rolled["crit"])
+	var guarded := target.guarding and raw > 0
+	var dealt := _mitigate(target, raw)
+	_play_attack_sounds(attacker, crit)
+	_play_hit_fx(attacker, target)
+	attacker.element = saved_element
+	var absorbed := _apply_damage(target, dealt)
+	result["dealt"] = dealt
+	if guarded:
+		target.unit.popup_battle_text("ガード", Color(0.62, 0.84, 1.0))
+	if dealt > 0:
+		var color := Color(1.0, 0.86, 0.35) if crit else Color(1.0, 0.95, 0.9)
+		target.unit.popup_battle_text("-%d" % dealt, color)
+	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded, label))
+	await _wait(0.22)
+	if not target.alive:
+		_growth_killer = attacker
+		RelicCombat.note_kill(attacker)
+		await _ko(target)
+	return result
+
+
+func _era6_kit_bonus(attacker: Fighter, defender: Fighter) -> float:
+	var bonus := 0.0
+	match attacker.element:
+		"absorb":
+			bonus += float(attacker.kit.get("era6_absorb_dmg", 0.0))
+		"fire":
+			bonus += float(attacker.kit.get("era6_fire_dmg", 0.0))
+		"wind":
+			bonus += float(attacker.kit.get("era6_wind_dmg", 0.0))
+	if attacker.sheet_id == 37 and bool(attacker.kit.get("sayama_death_strike", false)):
+		bonus += float(attacker.kit.get("death_bonus", 0.3))
+	if attacker.sheet_id == 39 and attacker.element == "fire" and bool(attacker.kit.get("sabae_fire_active", false)):
+		bonus += float(attacker.kit.get("fire_empower", 0.15))
+	bonus -= float(attacker.kit.get("sano_dealt_cut", 0.0))
+	if attacker.sheet_id == 40 and attacker.element == "earth" and defender != null and is_instance_valid(defender.unit):
+		if not bool(attacker.kit.get("sanda_fresh", false)) and int(attacker.kit.get("sanda_mark_id", -1)) == defender.unit.get_instance_id():
+			bonus += float(attacker.kit.get("mark_bonus", 0.15))
+	return bonus
+
+
+func _era6_damage_coef(attacker: Fighter, defender: Fighter, general: bool) -> float:
+	var coef := 1.0
+	if attacker == null or defender == null:
+		return coef
+	if not general:
+		## 継続ダメージ: シマガワ/スズカ/スマのバフは継続にも入る。
+		match attacker.element:
+			"absorb":
+				coef *= 1.0 + float(attacker.kit.get("era6_absorb_dmg", 0.0))
+			"fire":
+				coef *= 1.0 + float(attacker.kit.get("era6_fire_dmg", 0.0))
+			"wind":
+				coef *= 1.0 + float(attacker.kit.get("era6_wind_dmg", 0.0))
+	## サバエ: 炎の層を持つ敵からの攻撃と継続ダメージを軽減する。
+	if defender.sheet_id == 39 and defender.hp > 0 and attacker.enemy != defender.enemy and int(attacker.layers.get("fire", 0)) > 0:
+		coef *= maxf(0.0, 1.0 - float(defender.kit.get("layered_taken_cut", 0.2)))
+	if general:
+		if attacker.element == "absorb":
+			coef *= 1.0 + float(defender.kit.get("sayama_absorb_cut", 0.0))
+		coef *= maxf(0.0, 1.0 - float(defender.kit.get("sayama_ally_cut", 0.0)))
+		if defender.sheet_id == 38 and bool(defender.kit.get("sano_summon_active", false)):
+			coef *= maxf(0.0, 1.0 - float(defender.kit.get("summon_taken_cut", 0.2)))
+	return coef
+
+
+func _era6_threat_delta(fighter: Fighter) -> int:
+	if fighter == null or not is_instance_valid(fighter.unit) or fighter.hp <= 0:
+		return 0
+	var fid := fighter.unit.get_instance_id()
+	var delta := 0
+	for key in _fighters.keys():
+		var sanda: Fighter = _fighters[key]
+		if sanda.sheet_id != 40 or sanda.enemy == fighter.enemy:
+			continue
+		if not sanda.alive or sanda.hp <= 0 or not sanda.in_queue or _is_backline(sanda):
+			continue
+		if int(sanda.kit.get("sanda_mark_id", -1)) == fid:
+			delta += int(sanda.kit.get("mark_priority", 0))
+	return delta
+
+
+func _era6_describe_effect(kind: String, amount: float) -> String:
+	match kind:
+		"earth_resist":
+			return "土のダメージ耐性 %+d%%" % int(round(-amount * 100.0))
+		"shimagawa_absorb":
+			return "吸収与ダメージ %+d%%" % int(round(amount * 100.0))
+		"suzuka_fire":
+			return "炎与ダメージ %+d%%" % int(round(amount * 100.0))
+		"suma_wind":
+			return "風与ダメージ %+d%%" % int(round(amount * 100.0))
+		"susami_mark":
+			return "スサミの氷の狙い"
+	return kind
+
+
+func _era6_apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
+	match kind:
+		"earth_resist":
+			target.kit["received_earth_resist"] = float(target.kit.get("received_earth_resist", 0.0)) - amount
+		"shimagawa_absorb":
+			target.kit["era6_absorb_dmg"] = float(target.kit.get("era6_absorb_dmg", 0.0)) + amount
+		"suzuka_fire":
+			target.kit["era6_fire_dmg"] = float(target.kit.get("era6_fire_dmg", 0.0)) + amount
+		"suma_wind":
+			target.kit["era6_wind_dmg"] = float(target.kit.get("era6_wind_dmg", 0.0)) + amount
+
+
+func _era6_buff_target(actor: Fighter, kind: String) -> Fighter:
+	match kind:
+		"shimagawa_absorb", "suzuka_fire":
+			return _extreme(_side(actor.enemy), "attack", true)
+		"suma_wind":
+			var chosen: Fighter = null
+			for entry in _side(actor.enemy):
+				var ally: Fighter = entry
+				if ally == actor or ally.hp <= 0:
+					continue
+				if chosen == null or ally.crit_damage > chosen.crit_damage or (is_equal_approx(ally.crit_damage, chosen.crit_damage) and ally.unit.unit_id < chosen.unit.unit_id):
+					chosen = ally
+			return chosen if chosen != null else actor
+	return _extreme(_side(actor.enemy), "speed", true)
+
+
+func _era6_debuff_target(actor: Fighter) -> Fighter:
+	match actor.sheet_id:
+		37:
+			return _extreme(_opponents(actor), "attack", true)
+		38:
+			var key := "sano_summon_hitter_id" if bool(actor.kit.get("sano_summon_active", false)) else "sano_last_hitter_id"
+			var hitter := _fighter_by_id(int(actor.kit.get(key, -1)))
+			if _era6_is_live_foe(actor, hitter):
+				return hitter
+			return _extreme(_opponents(actor), "threat", true)
+		39:
+			var last := _fighter_by_id(int(actor.kit.get("last_attack_target_id", -1)))
+			if _era6_is_live_foe(actor, last):
+				return last
+			return _extreme(_opponents(actor), "threat", true)
+		40:
+			var mark := _fighter_by_id(int(actor.kit.get("sanda_mark_id", -1)))
+			if _era6_is_live_foe(actor, mark):
+				return mark
+			return _extreme(_opponents(actor), "threat", true)
+		43:
+			var kept := _fighter_by_id(int(actor.kit.get("susami_kept_id", -1)))
+			if _era6_is_live_front_foe(actor, kept):
+				return kept
+			return _extreme(_opponents(actor), "hp", true)
+	return null
+
+
+func _era6_custom_debuff_ready(actor: Fighter) -> bool:
+	return actor.sheet_id == 38 and bool(actor.kit.get("sano_summon_active", false))
+
+
+## サノの召喚物のデバフ。サノが残したデバフとは別に1つ持つ。
+func _sano_summon_debuff(actor: Fighter, kind: String) -> void:
+	var foe := _era6_debuff_target(actor)
+	if foe == null or not is_instance_valid(foe.unit):
+		_host._log("%s の召喚物のデバフは対象がいない" % actor.unit.get_display_name())
+		await _wait(0.25)
+		return
+	var amount := float(actor.kit.get("buff_amount", 0.0))
+	await _play_status_transfer(actor.unit, foe.unit, false)
+	var kept: Array = []
+	for entry in actor.kit.get("debuffs", []):
+		var item: Dictionary = entry
+		if not bool(item.get("summon", false)):
+			kept.append(item)
+			continue
+		var old := _fighter_by_id(int(item.get("target_id", -1)))
+		if old != null:
+			_apply_buff_value(old, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
+			_refresh_unit_aura(old.unit)
+	_apply_buff_value(foe, kind, amount)
+	kept.append({"target_id": foe.unit.get_instance_id(), "kind": kind, "amount": amount, "summon": true})
+	actor.kit["debuffs"] = kept
+	_refresh_unit_aura(foe.unit)
+	foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
+	_host._log("%s の召喚物が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, amount)])
+	if actor.enemy and not foe.enemy:
+		_host.board.mark_debuffed_unit(foe.unit)
+		_release_stale_debuffs()
+		_sync_queue()
+
+
+func _era6_sabae_taunter(enemy_side: bool) -> Fighter:
+	var chosen: Fighter = null
+	for entry in _side(enemy_side):
+		var fighter: Fighter = entry
+		if fighter.sheet_id != 39 or fighter.hp <= 0:
+			continue
+		if chosen == null or fighter.unit.stars > chosen.unit.stars or (fighter.unit.stars == chosen.unit.stars and fighter.unit.get_instance_id() < chosen.unit.get_instance_id()):
+			chosen = fighter
+	return chosen
+
+
+func _era6_susami_debuff_target(susami: Fighter) -> Fighter:
+	for entry in susami.kit.get("debuffs", []):
+		var item: Dictionary = entry
+		if str(item.get("kind", "")) == "susami_mark":
+			return _fighter_by_id(int(item.get("target_id", -1)))
+	return null
+
+
+func _era6_forced_target(actor: Fighter) -> Fighter:
+	## サンダ: 前衛での土の攻撃は、覚えた敵を狙い続ける（アンジップ）。
+	if actor.sheet_id == 40 and actor.element == "earth" and not _is_backline(actor):
+		var mark := _fighter_by_id(int(actor.kit.get("sanda_mark_id", -1)))
+		if _era6_is_live_front_foe(actor, mark):
+			return mark
+	## スサミ: デバフの対象が前衛で生きていれば、氷の通常の攻撃はその敵。
+	if actor.sheet_id == 43 and actor.element == "ice":
+		var marked := _era6_susami_debuff_target(actor)
+		if _era6_is_live_front_foe(actor, marked):
+			return marked
+	## シマガワ: 入れ替わりのあと、味方の吸収の通常の攻撃が1回だけ少ない前衛を狙う。
+	if actor.element == "absorb":
+		var holder := _best_sheet(actor.enemy, 41)
+		if holder != null:
+			var seq := int(holder.kit.get("shima_mark_seq", 0))
+			if seq > 0 and int(actor.kit.get("shima_used_seq", 0)) != seq:
+				actor.kit["shima_used_seq"] = seq
+				var low := _fighter_by_id(int(holder.kit.get("shima_mark_id", -1)))
+				if _era6_is_live_front_foe(actor, low):
+					return low
+	## サバエ: 炎の層を持つ敵は、優先度に関係なくサバエを狙う。
+	if int(actor.layers.get("fire", 0)) > 0:
+		var sabae := _era6_sabae_taunter(not actor.enemy)
+		if sabae != null:
+			return sabae
+	return null
+
+
+func _era6_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Array:
+	if not extras.is_empty() or primary == null:
+		return extras
+	match actor.sheet_id:
+		40:
+			if actor.element == "earth":
+				var need40 := _era6_range_total(actor.enemy, "狂気の沙汰も金次第") - 1
+				if need40 > 0:
+					return _era2_smallest_id(actor, primary, need40, extras)
+		41:
+			if actor.element == "absorb":
+				var need41 := _era6_range_total(actor.enemy, "カーテンコール") - 1
+				if need41 > 0:
+					var picks := _era2_smallest_id(actor, primary, need41, extras)
+					if picks.size() < need41:
+						## 前衛が足りないときだけ後衛で埋める。
+						var backs: Array = []
+						for entry in _era6_living_all(not actor.enemy):
+							var foe: Fighter = entry
+							if foe != primary and _is_backline(foe) and not picks.has(foe):
+								backs.append(foe)
+						for entry in _era6_sorted(backs):
+							if picks.size() >= need41:
+								break
+							picks.append(entry)
+					return picks
+		43:
+			if actor.element == "ice":
+				var need43 := _signal_noise_splash_count(actor) - 1
+				if need43 > 0:
+					var out: Array = []
+					var kept := _fighter_by_id(int(actor.kit.get("susami_kept_id", -1)))
+					if kept != primary and _era6_is_live_front_foe(actor, kept):
+						out.append(kept)
+					for foe in _era2_smallest_id(actor, primary, need43 - out.size(), out):
+						out.append(foe)
+					return out
+	return extras
+
+
+func _era6_continuity(actor: Fighter, target: Fighter) -> void:
+	## にぎやかな未来: 炎で攻撃したあと、対象に炎の継続ダメージを1層与える（命中しなくても）。
+	if actor == null or target == null or not actor.alive or actor.element != "fire":
+		return
+	if not target.alive or target.hp <= 0 or not _has_synergy(actor, "にぎやかな未来"):
+		return
+	_add_layers(target, "fire", 1)
+	var saved := float(actor.kit.get("dot_ratio", 0.05))
+	actor.kit["dot_ratio"] = _nigiyaka_dot_ratio(actor.enemy)
+	await _apply_dot(actor, target)
+	actor.kit["dot_ratio"] = saved
+
+
+func _era6_begin_attack(actor: Fighter) -> void:
+	actor.kit["era6_hit_ids"] = {}
+	actor.kit["susami_rotate_target"] = -1
+	var snapshot := {}
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		snapshot[key] = int(fighter.layers.get("fire", 0))
+	actor.kit["era6_fire_snapshot"] = snapshot
+
+
+func _era6_layered_fire(actor: Fighter) -> Array:
+	var snapshot: Dictionary = actor.kit.get("era6_fire_snapshot", {})
+	var found: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy == actor.enemy:
+			continue
+		if int(fighter.layers.get("fire", 0)) > int(snapshot.get(key, 0)):
+			found.append(fighter)
+	return found
+
+
+func _era6_note_break(actor: Fighter, target: Fighter, broke: bool) -> void:
+	if broke and actor.sheet_id == 43 and actor.element == "ice" and is_instance_valid(target.unit):
+		actor.kit["susami_rotate_target"] = target.unit.get_instance_id()
+
+
+func _era6_on_attack_contact(actor: Fighter, target: Fighter, connected: bool) -> void:
+	if actor == null or target == null or actor.enemy == target.enemy or not connected:
+		return
+	if not is_instance_valid(target.unit):
+		return
+	var hits: Dictionary = actor.kit.get("era6_hit_ids", {})
+	hits[target.unit.get_instance_id()] = true
+	actor.kit["era6_hit_ids"] = hits
+	## スマ: 前衛での風の攻撃が当たると、その敵の次のバフを消す予約が1つ残る。
+	if actor.sheet_id == 45 and actor.element == "wind" and not _is_backline(actor) and actor.hp > 0:
+		var left := int(actor.kit.get("reserve_left", 0))
+		if left > 0:
+			actor.kit["reserve_left"] = left - 1
+			target.kit["suma_reserve"] = int(target.kit.get("suma_reserve", 0)) + 1
+			_host._log("%s が %s の次のバフを消す予約を残した" % [actor.unit.get_display_name(), target.unit.get_display_name()])
+
+
+func _era6_on_targeted(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null or actor.enemy == target.enemy:
+		return
+	if not is_instance_valid(actor.unit) or not is_instance_valid(target.unit):
+		return
+	## サバエの開始時の層を受けた敵の最初の攻撃は、サバエへの命中が下がる。
+	if bool(actor.kit.get("sabae_evade_pending", false)):
+		actor.kit["sabae_evade_pending"] = false
+		if target.sheet_id == 39 and target.hp > 0:
+			target.kit["hit_speed_bonus"] = int(target.kit.get("hit_speed_bonus", 0)) + int(actor.kit.get("sabae_evade_speed", 0))
+	if target.sheet_id == 38:
+		var key := "sano_summon_hitter_id" if bool(target.kit.get("sano_summon_active", false)) else "sano_last_hitter_id"
+		target.kit[key] = actor.unit.get_instance_id()
+	if actor.sheet_id == 40 and actor.element == "earth" and not _is_backline(actor) and actor.hp > 0:
+		_sanda_remember(actor, target)
+
+
+func _sanda_remember(sanda: Fighter, target: Fighter) -> void:
+	var tid := target.unit.get_instance_id()
+	if int(sanda.kit.get("sanda_mark_id", -1)) == tid:
+		sanda.kit["sanda_fresh"] = false
+		return
+	_sanda_forget(sanda)
+	var cut := float(sanda.kit.get("mark_defense_cut", 0))
+	target.kit["received_defense_cut"] = float(target.kit.get("received_defense_cut", 0.0)) + cut
+	sanda.kit["sanda_defense_applied"] = cut
+	sanda.kit["sanda_mark_id"] = tid
+	sanda.kit["sanda_fresh"] = true
+	_host._log("%s が %s を覚えた" % [sanda.unit.get_display_name(), target.unit.get_display_name()])
+
+
+func _sanda_forget(sanda: Fighter) -> void:
+	var old := _fighter_by_id(int(sanda.kit.get("sanda_mark_id", -1)))
+	if old != null:
+		old.kit["received_defense_cut"] = float(old.kit.get("received_defense_cut", 0.0)) - float(sanda.kit.get("sanda_defense_applied", 0.0))
+	sanda.kit["sanda_defense_applied"] = 0.0
+	sanda.kit["sanda_mark_id"] = -1
+	sanda.kit["sanda_fresh"] = false
+
+
+func _era6_finish_attack(actor: Fighter, _primary: Fighter) -> void:
+	if actor == null:
+		return
+	var layered := _era6_layered_fire(actor)
+	if not layered.is_empty():
+		_sabae_after_fire(actor)
+		_suzuka_on_layers(actor, layered)
+	if actor.sheet_id == 41 and actor.element == "absorb":
+		_shimagawa_swap(actor)
+	if actor.sheet_id == 43:
+		await _susami_try_rotate(actor)
+	actor.kit["era6_hit_ids"] = {}
+
+
+func _sabae_after_fire(actor: Fighter) -> void:
+	if actor.sheet_id != 39 or actor.element != "fire" or bool(actor.kit.get("sabae_fire_active", false)):
+		return
+	actor.kit["sabae_fire_active"] = true
+	actor.kit["received_speed"] = int(actor.kit.get("received_speed", 0)) + int(actor.kit.get("after_speed", 0))
+	_recompute_speed(actor, true)
+	if is_instance_valid(actor.unit):
+		actor.unit.popup_battle_text("加速", Color(1.0, 0.7, 0.4))
+		_host._log("%s の速度と炎の与ダメージが上がった" % actor.unit.get_display_name())
+
+
+func _suzuka_on_layers(actor: Fighter, layered: Array) -> void:
+	var suzuka := _best_sheet(actor.enemy, 44)
+	if suzuka == null or suzuka.hp <= 0 or not _is_backline(suzuka):
+		return
+	if int(suzuka.kit.get("layer_break_left", 0)) <= 0:
+		return
+	var reduced := 0
+	for entry in _era6_living_all(not actor.enemy):
+		var foe: Fighter = entry
+		if layered.has(foe):
+			continue
+		reduced += _era6_step_break(foe, "fire", 1)
+	if reduced > 0:
+		suzuka.kit["layer_break_left"] = int(suzuka.kit.get("layer_break_left", 0)) - 1
+		_host._log("%s が層の付かなかった敵の炎の撃破を進めた" % suzuka.unit.get_display_name())
+
+
+func _shimagawa_swap(actor: Fighter) -> void:
+	if _best_sheet(actor.enemy, 41) != actor or int(actor.kit.get("swaps_left", 0)) <= 0:
+		return
+	var hits: Dictionary = actor.kit.get("era6_hit_ids", {})
+	var hi: Fighter = null
+	var lo: Fighter = null
+	for key in hits.keys():
+		var foe := _fighter_by_id(int(key))
+		if not _era6_is_live_front_foe(actor, foe):
+			continue
+		if hi == null or foe.hp > hi.hp or (foe.hp == hi.hp and foe.unit.unit_id < hi.unit.unit_id):
+			hi = foe
+		if lo == null or foe.hp < lo.hp or (foe.hp == lo.hp and foe.unit.unit_id < lo.unit.unit_id):
+			lo = foe
+	if hi == null or lo == null or hi == lo or hi.hp == lo.hp:
+		return
+	var hi_hp := hi.hp
+	var lo_hp := lo.hp
+	lo.hp = mini(lo.max_hp, hi_hp)
+	hi.hp = lo_hp
+	actor.kit["swaps_left"] = int(actor.kit.get("swaps_left", 0)) - 1
+	for entry in [hi, lo]:
+		var foe: Fighter = entry
+		foe.unit.set_battle_hp(foe.hp, foe.max_hp)
+		foe.unit.popup_battle_text("入れ替え", Color(0.75, 0.55, 1.0))
+	_host._log("%s の吸収で %s と %s の体力が入れ替わった" % [actor.unit.get_display_name(), hi.unit.get_display_name(), lo.unit.get_display_name()])
+	var low := lo
+	if hi.hp < lo.hp or (hi.hp == lo.hp and hi.unit.unit_id < lo.unit.unit_id):
+		low = hi
+	actor.kit["shima_mark_id"] = low.unit.get_instance_id()
+	actor.kit["shima_mark_seq"] = int(actor.kit.get("shima_mark_seq", 0)) + 1
+
+
+func _susami_try_rotate(actor: Fighter) -> void:
+	var target_id := int(actor.kit.get("susami_rotate_target", -1))
+	actor.kit["susami_rotate_target"] = -1
+	if target_id < 0 or not actor.alive or actor.hp <= 0:
+		return
+	if int(actor.kit.get("rotate_left", 0)) <= 0:
+		return
+	var target := _fighter_by_id(target_id)
+	if target == null or not target.alive or target.hp <= 0 or target.enemy == actor.enemy:
+		return
+	await _susami_rotate(actor, target)
+
+
+## スサミ: 撃破した敵の位置で向きを決め、相手のサークルを1つ分回す。
+## サークルの順は 0(前左)→1(前中)→2(前右)→3(後右)→4(後中)→5(後左)→0。
+func _susami_rotate(actor: Fighter, target: Fighter) -> void:
+	var board: BoardController = _host.board
+	var slot := board.slot_of_unit(target.unit)
+	if slot < 0:
+		return
+	var steps := -1 if (slot == 2 or slot == 3) else 1
+	var was_back: Dictionary = {}
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy != target.enemy or not is_instance_valid(fighter.unit):
+			continue
+		was_back[key] = not fighter.in_queue
+	actor.kit["rotate_left"] = int(actor.kit.get("rotate_left", 0)) - 1
+	if target.enemy:
+		board.rotate_enemy_slots(steps)
+	else:
+		await _spin_circle(steps)
+	_sync_queue()
+	var ratio := float(actor.kit.get("enter_ap_ratio", 0.2))
+	for key in was_back.keys():
+		var fighter: Fighter = _fighters.get(key, null)
+		if fighter == null or not bool(was_back[key]) or not fighter.in_queue or not fighter.alive:
+			continue
+		fighter.ap = int(round(float(fighter.base_ap) * (1.0 + ratio)))
+		fighter.saved_ap = fighter.ap
+		if is_instance_valid(fighter.unit):
+			fighter.unit.action_value = fighter.ap
+	if target.in_queue and not _is_backline(target):
+		actor.kit["susami_kept_id"] = target.unit.get_instance_id()
+	if is_instance_valid(target.unit):
+		target.unit.popup_battle_text("回転", Color(0.6, 0.85, 1.0))
+	_host._log("%s の氷の撃破で、相手のサークルが%sに1つ回った" % [actor.unit.get_display_name(), "右まわり" if steps > 0 else "左まわり"])
+	_refresh_passive_kits()
+	_refresh_bar()
+
+
+func _era6_opening() -> void:
+	var sabaes: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 39 and fighter.alive and fighter.hp > 0 and not bool(fighter.kit.get("sabae_opened", false)):
+			sabaes.append(fighter)
+	for entry in _era6_sorted(sabaes):
+		var sabae: Fighter = entry
+		sabae.kit["sabae_opened"] = true
+		var foes := _era6_sorted(_opponents(sabae))
+		if foes.is_empty():
+			continue
+		var layers := maxi(1, int(sabae.kit.get("start_layers", 2)))
+		for foe_entry in foes:
+			var foe: Fighter = foe_entry
+			_add_layers(foe, "fire", layers)
+			foe.kit["sabae_evade_pending"] = true
+			foe.kit["sabae_evade_speed"] = int(sabae.kit.get("start_speed", 30))
+		_host._log("%s が敵すべてに炎の層を %d 付けた" % [sabae.unit.get_display_name(), layers])
+		var saved := float(sabae.kit.get("dot_ratio", 0.05))
+		sabae.kit["dot_ratio"] = _nigiyaka_dot_ratio(sabae.enemy)
+		for foe_entry in foes:
+			var foe: Fighter = foe_entry
+			if not foe.alive or foe.hp <= 0:
+				continue
+			await _apply_dot(sabae, foe)
+			if not foe.alive and is_instance_valid(foe.unit) and not foe.unit.battle_ko:
+				_growth_killer = sabae
+				await _ko(foe)
+		sabae.kit["dot_ratio"] = saved
+
+
+func _era6_refresh_passive() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if not fighter.alive or fighter.hp <= 0 or not is_instance_valid(fighter.unit):
+			continue
+		match fighter.sheet_id:
+			41, 44, 45:
+				## 体力があるあいだは常に入るバフ。対象が変わると移る。
+				var kind := str(fighter.kit.get("buff_kind", ""))
+				var target := _era6_buff_target(fighter, kind)
+				if target == null:
+					target = fighter
+				if int(fighter.kit.get("buff_target_id", -1)) != target.unit.get_instance_id() or str(fighter.kit.get("buff_kind_active", "")) != kind:
+					_set_single_buff(fighter, target, kind, float(fighter.kit.get("buff_amount", 0.0)))
+			43:
+				var marked := _era6_susami_debuff_target(fighter)
+				if marked != null and (not marked.alive or marked.hp <= 0 or not marked.in_queue or _is_backline(marked)):
+					_era6_clear_own_debuffs(fighter)
+
+
+func _era6_on_death(dead: Fighter) -> void:
+	if dead == null or not is_instance_valid(dead.unit):
+		return
+	var dead_id := dead.unit.get_instance_id()
+	for key in _fighters.keys():
+		var sanda: Fighter = _fighters[key]
+		if sanda.sheet_id == 40 and sanda != dead and int(sanda.kit.get("sanda_mark_id", -1)) == dead_id:
+			_sanda_forget(sanda)
+	match dead.sheet_id:
+		37:
+			await _sayama_on_death(dead)
+		38:
+			_sano_on_death(dead)
+		39, 43:
+			_era6_clear_own_debuffs(dead)
+		40:
+			_sanda_forget(dead)
+			_era6_clear_own_debuffs(dead)
+		45:
+			_suma_on_death(dead)
+	await _suzuka_on_enemy_death(dead)
+
+
+func _sayama_on_death(dead: Fighter) -> void:
+	## 朝のガスパール: 敵の前衛すべてに吸収の攻撃を1回ずつ（IDが小さい順）。
+	var foes := _era6_sorted(_opponents(dead))
+	if not foes.is_empty():
+		_host._log("%s が倒され、敵の前衛に吸収の攻撃が入る" % dead.unit.get_display_name())
+	var resist_cut := float(dead.kit.get("death_absorb_cut", 0.15))
+	dead.kit["sayama_death_strike"] = true
+	for entry in foes:
+		var foe: Fighter = entry
+		if not foe.alive or foe.hp <= 0:
+			continue
+		var res: Dictionary = await _era6_side_strike(dead, foe, "absorb", "倒されたときの攻撃", false)
+		if bool(res.get("connected", false)) and int(res.get("dealt", 0)) > 0 and foe.alive and foe.hp > 0 and not bool(foe.kit.get("sayama_absorb_marked", false)):
+			foe.kit["sayama_absorb_marked"] = true
+			foe.kit["sayama_absorb_cut"] = float(foe.kit.get("sayama_absorb_cut", 0.0)) + resist_cut
+	dead.kit["sayama_death_strike"] = false
+	var ally_cut := float(dead.kit.get("death_ally_cut", 0.1))
+	for entry in _side(dead.enemy):
+		var ally: Fighter = entry
+		if ally == dead or ally.hp <= 0:
+			continue
+		ally.kit["sayama_ally_cut"] = float(ally.kit.get("sayama_ally_cut", 0.0)) + ally_cut
+	_era6_clear_own_debuffs(dead)
+
+
+func _sano_on_death(dead: Fighter) -> void:
+	if bool(dead.kit.get("sano_summon_active", false)) or bool(dead.kit.get("sano_summoned", false)):
+		## 召喚物が倒れた。もう1体は残らない。
+		dead.kit["sano_summon_active"] = false
+		_era6_clear_own_debuffs(dead)
+		return
+	dead.kit["sano_summoned"] = true
+	dead.kit["sano_summon_pending"] = true
+	dead.kit["sano_death_hp"] = dead.max_hp
+	dead.kit["sano_death_attack"] = dead.attack
+	dead.kit["sano_death_threat"] = _threat(dead)
+	var killer: Fighter = _growth_killer
+	if killer == null or killer.enemy == dead.enemy or not is_instance_valid(killer.unit):
+		killer = _fighter_by_id(int(dead.kit.get("sano_last_hitter_id", -1)))
+	if killer == null or killer.enemy == dead.enemy or not killer.alive or killer.hp <= 0:
+		return
+	killer.kit["sano_dealt_cut"] = float(killer.kit.get("sano_dealt_cut", 0.0)) + float(dead.kit.get("killer_dealt_cut", 0.18))
+	var delay := int(dead.kit.get("ap_delay", 120))
+	if killer.in_queue:
+		killer.ap += delay
+		killer.unit.action_value = killer.ap
+	else:
+		killer.saved_ap += delay
+	killer.unit.popup_battle_text("遅れ", Color(0.7, 0.85, 1.0))
+	_host._log("%s の与ダメージが下がり、次の行動が遅れる" % killer.unit.get_display_name())
+
+
+func _era6_after_ko(fighter: Fighter) -> void:
+	if fighter == null or not bool(fighter.kit.get("sano_summon_pending", false)):
+		return
+	fighter.kit["sano_summon_pending"] = false
+	var unit := fighter.unit
+	if _host == null or not _host.is_inside_tree() or not is_instance_valid(unit):
+		return
+	var hp := maxi(1, int(round(float(fighter.kit.get("sano_death_hp", fighter.max_hp)) * float(fighter.kit.get("summon_hp", 0.5)))))
+	fighter.max_hp = hp
+	fighter.hp = hp
+	fighter.attack = float(fighter.kit.get("sano_death_attack", fighter.attack)) * float(fighter.kit.get("summon_attack", 0.3))
+	fighter.priority = int(fighter.kit.get("sano_death_threat", fighter.priority)) + int(fighter.kit.get("summon_priority", 40))
+	fighter.layers = {}
+	fighter.dot_bank = {}
+	_init_break_gauges(fighter)
+	fighter.barrier = 0
+	fighter.guarding = false
+	fighter.alive = true
+	fighter.kit["sano_summon_active"] = true
+	fighter.kit["sano_summon_hitter_id"] = -1
+	unit.battle_ko = false
+	unit.defeat_playing = false
+	unit.release_battle_clip()
+	unit.rotation.x = 0.0
+	var board: BoardController = _host.board
+	fighter.in_queue = board.front_slot_of(unit) >= 0 and not bool(fighter.kit.get("never_acts", false))
+	fighter.ap = fighter.base_ap
+	fighter.saved_ap = fighter.base_ap
+	unit.action_value = fighter.ap
+	board.refresh_presentation()
+	unit.set_battle_hp(fighter.hp, fighter.max_hp)
+	_show_gauge(fighter)
+	_era6_tint_summon(unit)
+	unit.play_battle_role("idle")
+	unit.popup_battle_text("召喚", Color(0.6, 0.9, 1.0))
+	_host._log("%s のいた位置に氷の召喚物が残った（体力 %d）" % [unit.get_display_name(), hp])
+	_refresh_passive_kits()
+	_refresh_bar()
+
+
+func _era6_on_finish() -> void:
+	## サノの召喚物の膜を外す（敵ユニットは refresh_visuals を通らずに消えるため）。
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 38 and bool(fighter.kit.get("sano_summoned", false)) and is_instance_valid(fighter.unit) and fighter.unit.model_root != null:
+			_era6_overlay(fighter.unit.model_root, null)
+
+
+func _era6_tint_summon(unit: GameUnit) -> void:
+	## 戦闘後の refresh_visuals が material_overlay を外すので、ここで付けた膜は残らない。
+	if unit == null or unit.model_root == null:
+		return
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.55, 0.85, 1.0, 0.4)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_era6_overlay(unit.model_root, mat)
+
+
+func _era6_overlay(node: Node, mat: Material) -> void:
+	if node is GeometryInstance3D:
+		(node as GeometryInstance3D).material_overlay = mat
+	for child in node.get_children():
+		_era6_overlay(child, mat)
+
+
+func _suzuka_on_enemy_death(dead: Fighter) -> void:
+	var layers := int(dead.layers.get("fire", 0))
+	if layers <= 0:
+		return
+	var suzuka := _best_sheet(not dead.enemy, 44)
+	if suzuka == null or suzuka.hp <= 0:
+		return
+	var left := int(suzuka.kit.get("suzuka_deaths_left", 0))
+	if left <= 0:
+		return
+	suzuka.kit["suzuka_deaths_left"] = left - 1
+	var times := mini(layers, maxi(1, int(suzuka.kit.get("death_break_cap", 3))))
+	for entry in _era6_living_all(dead.enemy):
+		var foe: Fighter = entry
+		if foe == dead:
+			continue
+		_era6_step_break(foe, "fire", times)
+	_host._log("%s が倒れ、%s が残りの敵の炎の撃破を %d 回進めた" % [dead.unit.get_display_name(), suzuka.unit.get_display_name(), times])
+	var strikers := _era6_sorted(_side(suzuka.enemy))
+	if strikers.is_empty():
+		return
+	for index in times:
+		var target := _extreme(_side(dead.enemy), "threat", true)
+		if target == null:
+			break
+		var striker: Fighter = strikers[index % strikers.size()]
+		if not striker.alive or striker.hp <= 0:
+			continue
+		await _era6_side_strike(striker, target, "fire", "炎の追撃", true)
+
+
+func _suma_on_death(dead: Fighter) -> void:
+	if _best_sheet(dead.enemy, 45) != null:
+		return
+	for key in _fighters.keys():
+		var foe: Fighter = _fighters[key]
+		if foe.enemy == dead.enemy:
+			continue
+		foe.kit["suma_reserve"] = 0
+		foe.kit["suma_redirect_pending"] = false
+
+
+## スマ: 相手が仲間へ出すバフ（予約があれば自分へのバフも）を消し、出した敵へ風の攻撃。
+## バフを消された敵の次のバフは、こちらの体力が最も低い味方に入る。処理したら true。
+func _era6_buff_gate(buffer: Fighter, target: Fighter, kind: String) -> bool:
+	if buffer == null or target == null or not is_instance_valid(buffer.unit) or not is_instance_valid(target.unit):
+		return false
+	var suma := _best_sheet(not buffer.enemy, 45)
+	if suma == null or suma.hp <= 0:
+		return false
+	if bool(buffer.kit.get("suma_redirect_pending", false)):
+		buffer.kit["suma_redirect_pending"] = false
+		buffer.kit["suma_redirect_done"] = true
+		var dest := _extreme(_side(suma.enemy), "hp", false)
+		if dest != null and is_instance_valid(dest.unit):
+			var amount := float(buffer.kit.get("buff_amount", 0.0))
+			await _play_status_transfer(buffer.unit, dest.unit, true)
+			_set_single_buff(buffer, dest, kind, amount)
+			dest.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+			_host._log("%s のバフが %s に入った（%s）" % [buffer.unit.get_display_name(), dest.unit.get_display_name(), _describe_effect(kind, amount)])
+			return true
+	var left := int(suma.kit.get("erase_left", 0))
+	if left <= 0:
+		return false
+	var reserve := int(buffer.kit.get("suma_reserve", 0))
+	if target == buffer and reserve <= 0:
+		return false
+	if reserve > 0:
+		buffer.kit["suma_reserve"] = reserve - 1
+	suma.kit["erase_left"] = left - 1
+	target.unit.popup_battle_text("バフ無効", Color(1.0, 0.7, 0.35))
+	_host._log("%s へのバフは %s が消した" % [target.unit.get_display_name(), suma.unit.get_display_name()])
+	_suma_arm_redirect(buffer)
+	await _suma_strike(suma, buffer)
+	return true
+
+
+func _era6_on_buff_erased(buffer: Fighter) -> void:
+	## タナベ（笑うな）が消したバフも、スマの回数が残っていれば同じ風の攻撃に入る。
+	if buffer == null:
+		return
+	var suma := _best_sheet(not buffer.enemy, 45)
+	if suma == null or suma.hp <= 0:
+		return
+	var left := int(suma.kit.get("erase_left", 0))
+	if left <= 0:
+		return
+	suma.kit["erase_left"] = left - 1
+	_suma_arm_redirect(buffer)
+	await _suma_strike(suma, buffer)
+
+
+func _suma_arm_redirect(buffer: Fighter) -> void:
+	if bool(buffer.kit.get("suma_redirect_pending", false)) or bool(buffer.kit.get("suma_redirect_done", false)):
+		return
+	buffer.kit["suma_redirect_pending"] = true
+
+
+func _suma_strike(suma: Fighter, buffer: Fighter) -> void:
+	if buffer == null or not buffer.alive or buffer.hp <= 0:
+		return
+	var striker: Fighter = null
+	for entry in _era6_living_all(suma.enemy):
+		var ally: Fighter = entry
+		if ally == suma:
+			continue
+		if striker == null or ally.attack > striker.attack or (is_equal_approx(ally.attack, striker.attack) and ally.unit.unit_id < striker.unit.unit_id):
+			striker = ally
+	if striker == null:
+		striker = suma
+	var res: Dictionary = await _era6_side_strike(striker, buffer, "wind", "風の攻撃", true)
+	if bool(res.get("connected", false)) and buffer.alive and buffer.hp > 0:
+		_era6_step_break(buffer, "wind", maxi(1, int(suma.kit.get("break_extra", 1))))

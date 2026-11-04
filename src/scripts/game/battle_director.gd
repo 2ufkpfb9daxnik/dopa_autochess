@@ -283,6 +283,8 @@ func play() -> Dictionary:
 			won = allies > 0
 			break
 		_set_guarding(actor, false)
+		## 代行ガード（055）は、次にその敵が行動するまで。
+		actor.kit["proxy_guard_for_id"] = -1
 		var spent := actor.ap
 		if _arita_skips(actor):
 			if is_instance_valid(actor.unit):
@@ -450,7 +452,6 @@ func _act(actor: Fighter) -> bool:
 				actor.kit["proxy_guard_for_id"] = tamba_redirect.unit.get_instance_id()
 				_proxy_guard_seq += 1
 				actor.kit["proxy_guard_seq"] = _proxy_guard_seq
-				actor.guarding = true
 				if is_instance_valid(actor.unit):
 					actor.unit.play_battle_role("guard")
 					actor.unit.popup_battle_text("代行ガード", Color(0.62, 0.84, 1.0))
@@ -465,9 +466,12 @@ func _act(actor: Fighter) -> bool:
 
 func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = null) -> void:
 	var forced := false
-	if actor.sheet_id == 3 and bool(actor.kit.get("force_hit", false)):
+	if actor.sheet_id == 3 and actor.element == "thunder" and bool(actor.kit.get("force_hit", false)):
 		forced = true
 		actor.kit["force_hit"] = false
+	## 021 カタノ: 回数が残っているあいだの土の攻撃は外れない。
+	if actor.sheet_id == 21 and actor.element == "earth" and int(actor.kit.get("synth_left", 0)) > 0:
+		forced = true
 	if actor.sheet_id == 47 and actor.element == "thunder" and int(actor.kit.get("force_hit_left", 0)) > 0:
 		forced = true
 		actor.kit["force_hit_left"] = int(actor.kit.get("force_hit_left", 0)) - 1
@@ -512,7 +516,6 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	var dest := _approach(actor.unit.global_position, primary.unit.global_position, home.y)
 	await _move(actor.unit, dest, STEP_TIME)
 	await _wait(ATTACK_HIT_TIME)
-	var nawate_hit: Dictionary = {}
 	for packet in packets:
 		var target: Fighter = packet["target"]
 		if target == null or not target.alive or not is_instance_valid(target.unit):
@@ -521,21 +524,6 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 		await _resolve_packet(actor, target, direct, bool(packet["aoe"]), forced or opening)
 		_era3_on_crit(actor)
 		_era5_after_packet(actor, target, direct)
-		if is_instance_valid(target.unit):
-			nawate_hit[target.unit.get_instance_id()] = true
-		## ナワテ: 風撃破したその攻撃で、まだ当たっていない敵へ全体範囲を足す。
-		if actor.sheet_id == 67 and bool(actor.kit.get("nawate_full_aoe", false)) and direct:
-			actor.kit["nawate_full_aoe"] = false
-			actor.kit["nawate_aoe_crit"] = true
-			for entry_n in _opponents(actor):
-				var foe_n: Fighter = entry_n
-				if foe_n == null or not foe_n.alive or not is_instance_valid(foe_n.unit):
-					continue
-				if nawate_hit.has(foe_n.unit.get_instance_id()):
-					continue
-				nawate_hit[foe_n.unit.get_instance_id()] = true
-				await _resolve_packet(actor, foe_n, false, true, forced or opening)
-				_era5_after_packet(actor, foe_n, false)
 	actor.kit["tarumi_aoe_resolving"] = false
 	actor.kit["nawate_aoe_crit"] = false
 	actor.kit["nawate_full_aoe"] = false
@@ -622,17 +610,19 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		if direct and actor.sheet_id == 7:
 			await _awaji_after_ice_attack(actor, target, broke)
 		return
-	if direct and target.sheet_id == 14 and target.alive and target.hp > 0:
-		_ibaraki_before_hit(target)
 	if direct and broke and actor.element == "thunder" and _sumoto_active(actor.enemy):
 		actor.kit["force_crit_break"] = true
 	var bonus := _kit_bonus(actor, target, false)
 	var dealt := 0
 	var crit := false
 	var direct_crit := false
+	var direct_amount := 0
 	if direct:
+		actor.kit["rolling_direct"] = true
 		var rolled := _roll_damage(actor, target, true, bonus, -1.0)
-		dealt += int(rolled["amount"])
+		actor.kit["rolling_direct"] = false
+		direct_amount = int(rolled["amount"])
+		dealt += direct_amount
 		crit = bool(rolled["crit"])
 		direct_crit = crit
 		if crit and actor.element == "water" and bool(actor.kit.get("tatsuno_break_armed", false)) and _has_synergy(actor, "東雲"):
@@ -653,6 +643,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	dealt = _mitigate(target, raw)
 	var cap_before := dealt
 	dealt = _ktrnksy_cap(target, dealt, direct)
+	## 014 イバラキ: ガードで0にならず、軽減のあとにダメージが残る命中だけ、ダメージの前に最大体力が上がる。
+	if direct and target.sheet_id == 14 and target.alive and target.hp > 0 and not guarded and dealt > 0:
+		_ibaraki_before_hit(target)
 	_play_attack_sounds(actor, crit)
 	_play_hit_fx(actor, target)
 	var absorbed := _apply_damage(target, dealt)
@@ -669,7 +662,13 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		var color := Color(1.0, 0.86, 0.35) if crit else Color(1.0, 0.95, 0.9)
 		target.unit.popup_battle_text("-%d" % dealt, color)
 	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded, "ダメージ", cap_before))
+	## 通常の攻撃の分だけのダメージ（通常の対象が範囲も受けたときは、範囲の分を除く）。068 ニシミノが使う。
+	var direct_dealt := 0
+	if direct:
+		direct_dealt = dealt if raw <= 0 or direct_amount >= raw else int(round(float(dealt) * float(direct_amount) / float(raw)))
+	actor.kit["last_direct_dealt"] = direct_dealt
 	await _on_damage_dealt(actor, target, dealt, absorbed)
+	actor.kit["last_direct_dealt"] = -1
 	## 継続ダメージは行動のあとではなく、攻撃と同時に出す。
 	if direct:
 		await _continuity_with_attack(actor, target)
@@ -1082,6 +1081,7 @@ func _assign_sheet(fighter: Fighter, sheet: Dictionary) -> void:
 	fighter.kit["first_attack"] = true
 	fighter.kit["empowered"] = false
 	fighter.kit["force_hit"] = false
+	fighter.kit["force_hit_used"] = false
 	fighter.kit["reflect_roster"] = {}
 	fighter.kit["extra_layer_used"] = false
 	fighter.kit["aoe_pending"] = false
@@ -1275,7 +1275,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	crit_rate += float(attacker.kit.get("hit_crit_stacks", 0.0))
 	crit_rate += _era2_side_crit(attacker)
 	var force_id := int(attacker.kit.get("force_crit_target_id", -1))
-	var force_crit := force_id > 0 and is_instance_valid(defender.unit) and defender.unit.get_instance_id() == force_id
+	## 034 ゴセ: 決まった1体の範囲ダメージだけがクリティカルする（通常の攻撃の分には入らない）。
+	var force_crit := force_id > 0 and not bool(attacker.kit.get("rolling_direct", false)) and is_instance_valid(defender.unit) and defender.unit.get_instance_id() == force_id
 	var force_break_crit := bool(attacker.kit.get("force_crit_break", false))
 	if force_break_crit:
 		attacker.kit["force_crit_break"] = false
@@ -1739,7 +1740,7 @@ func _guard_nullifies(defender: Fighter, amount: int) -> bool:
 		var did := defender.unit.get_instance_id()
 		for key in _fighters.keys():
 			var fighter: Fighter = _fighters[key]
-			if int(fighter.kit.get("proxy_guard_for_id", -1)) == did and fighter.alive and fighter.hp > 0 and fighter.guarding:
+			if int(fighter.kit.get("proxy_guard_for_id", -1)) == did and fighter.alive and fighter.hp > 0:
 				guard = fighter
 				break
 	if guard == null:
@@ -1750,14 +1751,14 @@ func _guard_nullifies(defender: Fighter, amount: int) -> bool:
 func _mitigate(defender: Fighter, amount: int) -> int:
 	if amount <= 0:
 		return amount
+	## 055 タンバの代行ガードは、代行する側がガード中でなくても入る。
+	var proxy: Fighter = null
 	if not defender.guarding:
-		var proxy := _tamba_proxy_guard(defender)
+		proxy = _tamba_proxy_guard(defender)
 		if proxy == null:
 			return amount
-		defender = proxy
-	if not defender.guarding:
-		return amount
-	if bool(defender.kit.get("ignore_guard", false)):
+	var guard: Fighter = proxy if proxy != null else defender
+	if bool(guard.kit.get("ignore_guard", false)):
 		return amount
 	return maxi(0, int(round(float(amount) / 2.5)))
 
@@ -1771,7 +1772,10 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 		target.barrier -= soaked
 		left -= soaked
 		if target.barrier <= 0:
-			target.kit["force_hit"] = true
+			## 003 アシヤ: バリアが0になったあとの次の雷の攻撃は、その戦闘で1回だけ必ず命中する。
+			if target.sheet_id == 3 and not bool(target.kit.get("force_hit_used", false)):
+				target.kit["force_hit"] = true
+				target.kit["force_hit_used"] = true
 			_recompute_speed(target, false)
 			_host._log("%s のバリアが割れた" % target.unit.get_display_name())
 	## カドマ（024）の「体力1で耐えたあと、次に受けるダメージが低い」は、次にダメージを受けたら終わる。
@@ -1835,8 +1839,6 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 		bonus += float(attacker.kit.get("charged_bonus", 0.0))
 	if element == "fire" and bool(attacker.kit.get("bare_fire", false)):
 		bonus += float(attacker.kit.get("bare_bonus", 0.0))
-	if attacker.sheet_id == 68 and bool(attacker.kit.get("nishimino_second", false)):
-		bonus += float(attacker.kit.get("nishimino_second_bonus", 0.0))
 	## アヅチ（004）のバフは、属性によらず吸収の層を持つ敵へのダメージに入る。
 	if int(defender.layers.get("absorb", 0)) > 0:
 		bonus += float(attacker.kit.get("received_layer_bonus", 0.0))
@@ -2123,8 +2125,6 @@ func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
 	if actor.sheet_id == 8 and bool(actor.kit.get("opening_strike", false)):
 		actor.kit["opening_dealt"] = dealt
-	## この直後の継続（_continuity_with_attack）で、いまのダメージのクリティカルを見てよい印。外れでは付かない。
-	actor.kit["roll_fresh"] = true
 	if dealt <= 0:
 		_era2_on_damage_dealt(actor, target, dealt)
 		return
@@ -2158,7 +2158,8 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 	## 002 アサヒ: 強い氷の1回は、その攻撃が終わってから消える（範囲にも入る）。
 	if actor.sheet_id == 2 and actor.element == "ice" and bool(actor.kit.get("empowered", false)):
 		actor.kit["empowered_spent"] = true
-	if actor.sheet_id == 3:
+	## 003 アシヤ: 雷の攻撃が命中したときだけバリアが戻る。ガードで0になった攻撃では戻らない。
+	if actor.sheet_id == 3 and actor.element == "thunder" and not bool(target.kit.get("last_guard_zero", false)):
 		var cap := int(actor.kit.get("barrier_max", actor.barrier))
 		if actor.barrier < cap:
 			actor.barrier = cap
@@ -2261,14 +2262,6 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var stacks := int(target.layers.get(actor.element, 0))
 	if stacks <= 0 or not target.alive:
 		return
-	if target.sheet_id == 49 and not bool(target.kit.get("dot_block_used", false)):
-		target.kit["dot_block_used"] = true
-		target.defense *= 1.0 + float(target.kit.get("dot_defense", 0.0))
-		if is_instance_valid(target.unit):
-			target.unit.popup_battle_text("継続無効", Color(0.7, 0.9, 1.0))
-			_host._log("%s は継続ダメージを1回防いだ" % target.unit.get_display_name())
-		return
-	GameAudio.play_battle_dot(stacks)
 	var power := actor.attack * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
 	var rolled := _roll_damage(actor, target, false, _kit_bonus(actor, target, true), power, false)
 	var raw := int(rolled["amount"])
@@ -2281,6 +2274,15 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 		raw = maxi(0, int(round(float(raw) * (1.0 - device_cut))))
 	var guarded := _guard_nullifies(target, raw)
 	var dealt := _mitigate(target, raw)
+	## 049 タイシ: 1回だけの継続ダメージ無効は、ダメージが0より大きい継続ダメージで使う。
+	if target.sheet_id == 49 and dealt > 0 and not bool(target.kit.get("dot_block_used", false)):
+		target.kit["dot_block_used"] = true
+		target.defense *= 1.0 + float(target.kit.get("dot_defense", 0.0))
+		if is_instance_valid(target.unit):
+			target.unit.popup_battle_text("継続無効", Color(0.7, 0.9, 1.0))
+			_host._log("%s は継続ダメージを1回防いだ" % target.unit.get_display_name())
+		return
+	GameAudio.play_battle_dot(stacks)
 	var absorbed := _apply_damage(target, dealt)
 	_note_actor_dealt(actor, absorbed)
 	if dealt > 0 and is_instance_valid(target.unit):
@@ -2891,7 +2893,7 @@ func _clear_single_buff(actor: Fighter) -> void:
 func _clear_copy(arita: Fighter) -> void:
 	var target := _fighter_by_id(int(arita.kit.get("copy_target_id", -1)))
 	if target != null:
-		_apply_buff_value(target, str(arita.kit.get("copy_kind", "")), -float(arita.kit.get("copy_amount", 0.0)))
+		_apply_buff_value(target, str(arita.kit.get("copy_kind", "")), -float(arita.kit.get("copy_amount", 0.0)), int(arita.kit.get("copy_source", 0)))
 		_refresh_unit_aura(target.unit)
 	arita.kit["copy_target_id"] = -1
 	arita.kit["copy_amount"] = 0.0
@@ -2931,6 +2933,8 @@ func _note_arita_buff(actor: Fighter, target: Fighter, kind: String, amount: flo
 		ally.kit["last_kind"] = kind
 		ally.kit["last_target_id"] = target.unit.get_instance_id()
 		ally.kit["last_amount"] = amount
+		## コピーも、もとのバフを入れたキャラと同じ扱い（継続ダメージに入るか、アヅチの層つき上昇）にする。
+		ally.kit["last_source"] = actor.sheet_id
 		if int(ally.kit.get("gauge", 0)) >= 100:
 			await _arita_copy(ally)
 			ally.kit["gauge"] = 0
@@ -2944,13 +2948,15 @@ func _arita_copy(arita: Fighter) -> void:
 		return
 	var kind := str(arita.kit.get("last_kind", ""))
 	var amount := float(arita.kit.get("last_amount", 0.0))
+	var source := int(arita.kit.get("last_source", 0))
 	if is_instance_valid(arita.unit) and is_instance_valid(target.unit):
 		GameAudio.play_battle_support()
 		await _play_status_transfer(arita.unit, target.unit, true)
-	_apply_buff_value(target, kind, amount)
+	_apply_buff_value(target, kind, amount, source)
 	arita.kit["copy_target_id"] = target.unit.get_instance_id()
 	arita.kit["copy_kind"] = kind
 	arita.kit["copy_amount"] = amount
+	arita.kit["copy_source"] = source
 	_buff_seq += 1
 	arita.kit["copy_stamp"] = _buff_seq
 	_refresh_unit_aura(target.unit)
@@ -3290,7 +3296,8 @@ func _awaji_break_damage(actor: Fighter, target: Fighter) -> void:
 	var rolled := _roll_damage(actor, target, true, bonus, -1.0)
 	var raw := int(rolled["amount"])
 	var crit := bool(rolled["crit"])
-	var guarded := target.guarding and raw > 0
+	var guarded := _guard_nullifies(target, raw)
+	target.kit["last_guard_zero"] = guarded
 	var dealt := _mitigate(target, raw)
 	_play_attack_sounds(actor, crit)
 	_play_hit_fx(actor, target)
@@ -4743,7 +4750,8 @@ func _kit_side_hit(actor: Fighter, target: Fighter, bonus: float, attack_overrid
 	var rolled := _roll_damage(actor, target, true, bonus, attack_override)
 	var raw := int(rolled["amount"])
 	var crit := bool(rolled["crit"])
-	var guarded := target.guarding and raw > 0
+	var guarded := _guard_nullifies(target, raw)
+	target.kit["last_guard_zero"] = guarded
 	var dealt := _mitigate(target, raw)
 	_play_attack_sounds(actor, crit)
 	_play_hit_fx(actor, target)
@@ -5031,7 +5039,7 @@ func _refresh_sakai_aura() -> void:
 		side_bonus += float(sakai.kit.get("relic_damage", 0.0)) * float(relic_n)
 		var side_crit := float(sakai.kit.get("side_crit", 0.0))
 		var speed_bonus := int(sakai.kit.get("swing_speed_bonus", 0))
-		for ally in _side(sakai.enemy):
+		for ally in _side_all(sakai.enemy):
 			if ally == sakai or not ally.alive:
 				continue
 			ally.kit["sakai_damage_bonus"] = float(ally.kit.get("sakai_damage_bonus", 0.0)) + ally_bonus
@@ -5231,10 +5239,12 @@ func _arita_restore_copy(arita: Fighter) -> void:
 		return
 	var kind := str(data.get("kind", ""))
 	var amount := float(data.get("amount", 0.0))
-	_apply_buff_value(target, kind, amount)
+	var source := int(data.get("source", 0))
+	_apply_buff_value(target, kind, amount, source)
 	arita.kit["copy_target_id"] = target_id
 	arita.kit["copy_kind"] = kind
 	arita.kit["copy_amount"] = amount
+	arita.kit["copy_source"] = source
 	_refresh_unit_aura(target.unit)
 	_host._log("%s のコピーが %s に残っている（%s）" % [arita.unit.get_display_name(), target.unit.get_display_name(), _describe_effect(kind, amount)])
 
@@ -5251,6 +5261,7 @@ func _arita_save_copies() -> void:
 				"target_id": target.unit.get_instance_id(),
 				"kind": str(arita.kit.get("copy_kind", "")),
 				"amount": float(arita.kit.get("copy_amount", 0.0)),
+				"source": int(arita.kit.get("copy_source", 0)),
 			}
 		else:
 			arita.unit.kit_flags.erase("arita_copy")
@@ -5335,10 +5346,10 @@ func _era3_battle_start_sync() -> void:
 		if fighter.sheet_id == 48 and not _is_backline(fighter):
 			fighter.kit["sosaki_self_thunder"] = float(fighter.kit.get("self_thunder", 0.0))
 			var col := fighter.stand_slot
-			## 後衛は in_queue でないので、_side ではなく全員から同じ列の後衛を探す。
-			for other_key in _fighters.keys():
-				var other: Fighter = _fighters[other_key]
-				if other == fighter or other.enemy != fighter.enemy or not other.alive or other.hp <= 0:
+			## 後衛は in_queue でないので、_side ではなく _side_all から同じ列の後衛を探す。
+			for entry in _side_all(fighter.enemy):
+				var other: Fighter = entry
+				if other == fighter or not other.alive or other.hp <= 0:
 					continue
 				if other.stand_slot == col + BoardController.FRONT_COUNT:
 					var column := float(fighter.kit.get("column_thunder", 0.0))
@@ -5957,7 +5968,7 @@ func _tamba_proxy_guard(defender: Fighter) -> Fighter:
 		var fighter: Fighter = _fighters[key]
 		if int(fighter.kit.get("proxy_guard_for_id", -1)) != did:
 			continue
-		if not fighter.alive or fighter.hp <= 0 or not fighter.guarding:
+		if not fighter.alive or fighter.hp <= 0:
 			continue
 		var seq := int(fighter.kit.get("proxy_guard_seq", 0))
 		if chosen == null or seq > best_seq:
@@ -6037,7 +6048,6 @@ func _era4_on_attack_contact(actor: Fighter, target: Fighter) -> void:
 		if int(actor.kit.get("lock_target_id", -1)) == (target.unit.get_instance_id() if is_instance_valid(target.unit) else -2):
 			actor.kit["lock_left"] = int(actor.kit.get("lock_left", 0)) - 1
 	## 次の炎・風の上昇は、範囲ダメージにも入るので攻撃の終わり（_era4_finish_attack）で消す。
-	actor.kit["roll_fresh"] = false
 
 
 ## 056 チハヤ / 058 トウイン: 次の通常の攻撃の上昇を、攻撃が終わってから消す・渡す。
@@ -6060,7 +6070,6 @@ func _era4_finish_attack(actor: Fighter) -> void:
 		actor.kit["touin_next_wind"] = maxf(float(actor.kit.get("touin_next_wind", 0.0)), wind_pending)
 		actor.kit["touin_next_wind_pending"] = 0.0
 	actor.kit["touin_crit_counted"] = false
-	actor.kit["roll_fresh"] = false
 
 
 func _chihaya_best(side: bool) -> Fighter:
@@ -6114,8 +6123,8 @@ func _touin_on_wind_attack(actor: Fighter, target: Fighter) -> void:
 	if touin == null or not _is_backline(touin) or touin.hp <= 0:
 		return
 	## この風の攻撃の本体がクリティカルで4つ目がそろうなら、この攻撃で使う。
-	## （命中してダメージを決めたあとだけ。_touin_on_crit で同じクリティカルを二重に数えない）
-	if not bool(touin.kit.get("sign_ready", false)) and bool(actor.kit.get("roll_fresh", false)) and bool(actor.kit.get("last_roll_crit", false)):
+	## （last_direct_crit はパケットごとに消えるので外れでは立たない。_touin_on_crit で同じクリティカルを二重に数えない）
+	if not bool(touin.kit.get("sign_ready", false)) and bool(actor.kit.get("last_direct_crit", false)):
 		_touin_on_crit(actor)
 		actor.kit["touin_crit_counted"] = true
 	if not bool(touin.kit.get("sign_ready", false)):
@@ -6620,7 +6629,9 @@ func _era5_on_damage_dealt(actor: Fighter, target: Fighter, dealt: int) -> void:
 	## 068 ニシミノ: 1回目の通常の攻撃で通常の対象に入ったダメージを覚える（2回目の元）。
 	if actor.sheet_id == 68 and dealt > 0 and target != null and is_instance_valid(target.unit):
 		if target.unit.get_instance_id() == int(actor.kit.get("last_attack_target_id", -1)) and int(actor.kit.get("nishimino_first_dealt", 0)) <= 0:
-			actor.kit["nishimino_first_dealt"] = dealt
+			## 範囲の分は入れない（_resolve_packet の外から来たときは dealt のまま）。
+			var direct_part := int(actor.kit.get("last_direct_dealt", -1))
+			actor.kit["nishimino_first_dealt"] = direct_part if direct_part >= 0 else dealt
 
 
 ## 攻撃の終わり（通常の攻撃と範囲がすべて出たあと）にまとめて行う、キャラ固有の処理。
@@ -6712,7 +6723,8 @@ func _nishimino_second_strike(actor: Fighter, primary: Fighter) -> void:
 		_host._log("%s の2回目は %s に外れた" % [name, foe_name])
 	else:
 		var raw := int(round(float(base) * float(actor.kit.get("nishimino_second_bonus", 0.0))))
-		var guarded := foe.guarding and raw > 0
+		var guarded := _guard_nullifies(foe, raw)
+		foe.kit["last_guard_zero"] = guarded
 		var dealt := _mitigate(foe, raw)
 		var cap_before := dealt
 		dealt = _ktrnksy_cap(foe, dealt, true)
@@ -7392,7 +7404,8 @@ func _era6_side_strike(attacker: Fighter, target: Fighter, element: String, labe
 	var rolled := _roll_damage(attacker, target, true, bonus, -1.0)
 	var raw := int(rolled["amount"])
 	var crit := bool(rolled["crit"])
-	var guarded := target.guarding and raw > 0
+	var guarded := _guard_nullifies(target, raw)
+	target.kit["last_guard_zero"] = guarded
 	var dealt := _mitigate(target, raw)
 	_play_attack_sounds(attacker, crit)
 	_play_hit_fx(attacker, target)

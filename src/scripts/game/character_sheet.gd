@@ -307,7 +307,7 @@ static func _binds_for(unit_id: int) -> Array:
 				["命中時の速度", "hit_speed", false],
 				["受けるダメージ", "guard_taken_cut", true],
 				["行動の遅れ", "ap_delay", false],
-				["バフの防御力", "buff_amount", false],
+				["バフの防御力", "buff_amount", true],
 			]
 		31:
 			return [
@@ -617,7 +617,6 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["buff_kind"] = "highest_attack_earth"
 		21:
 			sheet["buff_kind"] = "highest_attack_earth"
-			sheet["uses_buff"] = false
 		23:
 			sheet["buff_kind"] = "highest_attack_thunder"
 		24:
@@ -627,7 +626,6 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["buff_kind"] = "highest_attack_wind"
 		26:
 			sheet["buff_kind"] = "highest_attack_wind"
-			sheet["uses_buff"] = false
 		27:
 			sheet["buff_kind"] = "fire_resist"
 			sheet["uses_buff"] = false
@@ -636,7 +634,6 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["gauge"] = 0
 		29:
 			sheet["buff_kind"] = "highest_attack_absorb"
-			sheet["uses_buff"] = false
 		30:
 			sheet["buff_kind"] = "highest_defense"
 		31:

@@ -27,11 +27,111 @@ const BREAK_SYNERGY := {
 	"wind": "オレンジの種五つ",
 	"absorb": "伊豆は飛鳥",
 }
+## 範囲シナジー。攻撃属性ごとに、範囲の体数を決めるシナジー。
+const SPLASH_SYNERGY := {
+	"fire": "ジャックポット",
+	"water": "世界はゴ冗談",
+	"thunder": "旅のラゴス",
+	"earth": "狂気の沙汰も金次第",
+	"ice": "シグナル・ノイズ",
+	"wind": "農協月へ行く",
+	"absorb": "カーテンコール",
+}
+## シナジー判定が取れなくても、その範囲シナジーを持つものとして扱うキャラ。
+const SPLASH_SHEET_OVERRIDE := {
+	"世界はゴ冗談": 16,
+	"旅のラゴス": 48,
+	"シグナル・ノイズ": 54,
+	"農協月へ行く": 67,
+}
+## 攻撃側が持つ、その属性の攻撃の与ダメージ上昇（通常の攻撃と範囲。継続ダメージには入らない）。
+const ELEMENT_BONUS_KEYS := {
+	"fire": ["fire_ramp", "received_fire", "daito_gauge_fire", "chihaya_next_fire"],
+	"water": ["swing_water_bonus", "received_water"],
+	"thunder": ["received_thunder", "swing_thunder_bonus", "sosaki_self_thunder", "sosaki_column_thunder"],
+	"earth": ["received_earth", "torahime_pending_earth", "torahime_opening_bonus"],
+	"ice": ["received_ice", "nabari_ice_empower"],
+	"wind": ["received_wind", "touin_next_wind"],
+	"absorb": ["received_absorb"],
+}
+## 攻撃側が持つ、その属性の継続ダメージにも入る与ダメージ上昇。
+## received_*_dot は、設計書で「継続ダメージに入る」バフだけが積む（_apply_buff_value）。
+const ELEMENT_DOT_KEYS := {
+	"fire": ["received_fire_dot"],
+	"water": ["received_water_dot", "swing_water_bonus"],
+	"thunder": ["received_thunder_dot", "swing_thunder_bonus"],
+	"earth": ["received_earth_dot"],
+	"ice": ["received_ice_dot"],
+	"wind": ["received_wind_dot"],
+	"absorb": ["received_absorb_dot"],
+}
+## 受ける側が持つ、その属性の攻撃で受けるダメージ上昇（継続ダメージには入らない）。
+const ELEMENT_TAKEN_KEYS := {
+	"ice": ["received_ice_taken"],
+	"thunder": ["naura_thunder_taken"],
+	"wind": ["nose_wind_taken"],
+	"absorb": ["received_absorb_taken"],
+}
+## バフ/デバフの種類ごとに変える値。[キー, 倍率]。"@" で始まるキーは Fighter の値。
+const BUFF_KEYS := {
+	"highest_speed_bonus": ["@bonus_damage", 1.0],
+	"highest_attack_bonus": ["@bonus_damage", 1.0],
+	"lowest_speed_speed": ["@speed", 1.0],
+	"highest_attack_speed": ["@speed", 1.0],
+	"highest_ap_speed": ["@speed", 1.0],
+	"highest_cost_fire": ["received_fire", 1.0],
+	"highest_attack_fire": ["received_fire", 1.0],
+	"highest_attack_absorb": ["received_absorb", 1.0],
+	"lowest_speed_absorb": ["received_absorb", 1.0],
+	"lowest_attack_water": ["received_water", 1.0],
+	"highest_attack_water": ["received_water", 1.0],
+	"highest_water_water": ["received_water", 1.0],
+	"highest_attack_thunder": ["received_thunder", 1.0],
+	"highest_thunder_thunder": ["received_thunder", 1.0],
+	"highest_attack_earth": ["received_earth", 1.0],
+	"lowest_priority_earth": ["received_earth", 1.0],
+	"highest_attack_ice": ["received_ice", 1.0],
+	"highest_attack_ice_other": ["received_ice", 1.0],
+	"highest_attack_wind": ["received_wind", 1.0],
+	"highest_crit_wind": ["received_wind", 1.0],
+	"thunder_resist": ["received_thunder_resist", -1.0],
+	"fire_resist": ["received_fire_resist", -1.0],
+	"ice_resist": ["received_ice_resist", -1.0],
+	"water_resist": ["received_water_resist", -1.0],
+	"wind_resist": ["received_wind_resist", -1.0],
+	"highest_hp_wind_resist": ["received_wind_resist", -1.0],
+	"earth_resist": ["received_earth_resist", -1.0],
+	"absorb_resist": ["received_absorb_resist", -1.0],
+	"ice_taken": ["received_ice_taken", 1.0],
+	"absorb_taken": ["received_absorb_taken", 1.0],
+	"taken_vuln": ["received_taken_vuln", 1.0],
+	"defense_cut": ["received_defense_cut", 1.0],
+	"highest_attack_crit_damage": ["@crit_damage", 1.0],
+	"highest_crit_crit_damage": ["@crit_damage", 1.0],
+	"self_crit_rate": ["@crit_rate", 0.01],
+	"lowest_attack_bonus": ["@attack", 1.0],
+	"highest_defense": ["@defense_ratio", 1.0],
+	"front_taken_cut": ["received_taken_cut", 1.0],
+	"highest_threat_taken_cut": ["received_taken_cut", 1.0],
+	"highest_attack_dealt_cut": ["outgoing_cut_buff", 1.0],
+	"most_earth_dot_vuln": ["received_dot_taken", 1.0],
+	"lowest_hp_dot_cut": ["received_dot_cut", 1.0],
+	"attr_resist_cut": ["@attribute_resist", -1.0],
+	"lowest_defense_resist": ["@attribute_resist", 1.0],
+}
+## 属性の与ダメージを上げるバフのキー。継続ダメージにも入るバフは *_dot にも積む。
+const ELEMENT_DAMAGE_KEYS: PackedStringArray = ["received_fire", "received_water", "received_thunder", "received_earth", "received_ice", "received_wind", "received_absorb"]
+## 設計書で「継続ダメージには入らない」と書かれた属性バフを持つキャラ。
+const BUFF_NO_DOT_SHEETS: Array[int] = [5, 16, 23, 25, 34, 61]
+## 攻撃属性が同じ味方だけを選ぶ属性バフ（その属性の味方がいなければ自分）。
+const SAME_ELEMENT_BUFF_SHEETS := {21: "earth", 26: "wind", 29: "absorb"}
 
 var _host: Node
 var _fighters: Dictionary = {}
 var _motion: Tween
 var _relic_started := false
+## 戦闘開始時の効果（_era2_battle_start_flags）を、この戦闘ですでに出したか。
+var _battle_start_done := false
 var _relic_blocks := 0
 var _relic_actions := 0
 var _relic36_done := false
@@ -126,6 +226,8 @@ class Fighter:
 	var guarding := false
 	var alive := true
 	var in_queue := false
+	## いまの面の前衛か後衛にいる。後衛は in_queue にならないので、配置を見るときはこちら。
+	var on_board := false
 	var entered_once := false
 
 
@@ -136,6 +238,7 @@ func setup(host: Node) -> void:
 func play() -> Dictionary:
 	_fighters.clear()
 	_relic_started = false
+	_battle_start_done = false
 	_relic_blocks = 0
 	_relic_actions = 0
 	_relic36_done = false
@@ -323,9 +426,7 @@ func _act(actor: Fighter) -> bool:
 				await _attack(actor)
 		"buff":
 			if tamba_redirect != null and actor.uses_buff:
-				await _play_status_transfer(actor.unit, tamba_redirect.unit, true)
-				_set_single_buff(actor, tamba_redirect, str(actor.kit.get("buff_kind", "")), float(actor.kit.get("buff_amount", 0.0)))
-				tamba_redirect.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+				await _cast_buff(actor, tamba_redirect, str(actor.kit.get("buff_kind", "")), float(actor.kit.get("buff_amount", 0.0)))
 				await _wait(BUFF_TIME)
 			else:
 				await _support(actor)
@@ -356,8 +457,8 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	if actor.sheet_id == 62 and bool(actor.kit.get("nagano_force_hit_armed", false)):
 		forced = true
 		actor.kit["nagano_force_hit_armed"] = false
-	if float(actor.kit.get("outgoing_cut", 0.0)) > 0.0:
-		actor.kit["outgoing_cut"] = 0.0
+	## 「次の1回の攻撃で与ダメージが低い」は、この攻撃の全パケットに入れてから、攻撃の終わりで消す。
+	var outgoing_cut := float(actor.kit.get("outgoing_cut", 0.0))
 	var ikeda_armed := actor.sheet_id == 9 and bool(actor.kit.get("multi_armed", false))
 	var inabe_charged := actor.sheet_id == 13 and bool(actor.kit.get("charged_ready", false))
 	var picked := forced_target if forced_target != null else _pick_attack_target(actor)
@@ -436,6 +537,9 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	RelicCombat.finish_attack(actor)
 	if actor.relic_speed_stack != speed_before:
 		_recompute_speed(actor, true)
+	## 攻撃中に新しく付いた低下は次の攻撃に残す。
+	if outgoing_cut > 0.0 and is_equal_approx(float(actor.kit.get("outgoing_cut", 0.0)), outgoing_cut):
+		actor.kit["outgoing_cut"] = 0.0
 	await _finish_attack_kits(actor)
 	if actor.sheet_id == 88 and primary != null and is_instance_valid(primary.unit):
 		await _miyake_store_aoe(actor, primary)
@@ -457,11 +561,23 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		actor.kit["last_target_id"] = target.unit.get_instance_id()
 	if direct and target.sheet_id == 10 and not bool(target.kit.get("first_hit_done", false)):
 		_izumi_on_first_targeted(actor, target)
+	## このパケットのクリティカル。外れはクリティカルしないので、前のパケットの値を残さない。
+	actor.kit["last_roll_crit"] = false
+	actor.kit["last_direct_crit"] = false
+	target.kit["last_guard_zero"] = false
+	## 狙われたときに付く「次の命中判定の速度」は、この攻撃の命中判定のあとから入る。
+	var prior_hit_speed := int(target.kit.get("hit_speed_bonus", 0))
+	var armed_hit_speed := 0
 	if direct:
+		target.kit["hit_speed_bonus"] = 0
 		_note_primary_target_effects(actor, target)
+		armed_hit_speed = int(target.kit.get("hit_speed_bonus", 0))
+		target.kit["hit_speed_bonus"] = prior_hit_speed
 	var attacker_name := actor.unit.get_display_name()
 	var target_name := target.unit.get_display_name()
 	var connected := forced or _roll_hit(target)
+	if armed_hit_speed > 0:
+		target.kit["hit_speed_bonus"] = maxi(armed_hit_speed, int(target.kit.get("hit_speed_bonus", 0)))
 	var broke := false
 	if direct:
 		broke = _reduce_break_gauge(actor, target)
@@ -480,7 +596,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 			_sumoto_on_miss(actor, target)
 			## 命中しなくても層と継続は、攻撃ヒットと同じタイミングで出す。
 			await _continuity_with_attack(actor, target)
-			await _on_attack_contact(actor, target, false, 0, false)
+			await _on_attack_contact(actor, target, false, 0, direct)
 		if direct and actor.sheet_id == 4:
 			await _absorb_followup(actor, target)
 		if direct and actor.sheet_id == 7:
@@ -503,20 +619,17 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 			var extra := maxi(1, int(actor.kit.get("break_extra_pending", 1)))
 			actor.kit["tatsuno_break_armed"] = false
 			actor.kit["break_extra_pending"] = 0
-			for _i in extra:
-				var left_b := int(target.break_left.get("water", BREAK_MAX))
-				if left_b <= 0:
-					break
-				target.break_left["water"] = maxi(0, left_b - BREAK_STEP)
-				if int(target.break_left["water"]) <= 0:
-					target.break_left["water"] = BREAK_MAX
-					broke = true
+			if _extra_break_steps(actor, target, "water", extra):
+				broke = true
 	if aoe:
 		var splash := _roll_damage(actor, target, true, bonus, -1.0)
 		dealt += int(splash["amount"])
 		crit = crit or bool(splash["crit"])
+	actor.kit["last_roll_crit"] = crit
+	actor.kit["last_direct_crit"] = direct_crit
 	var raw := dealt
-	var guarded := target.guarding and raw > 0
+	var guarded := _guard_nullifies(target, raw)
+	target.kit["last_guard_zero"] = guarded
 	dealt = _mitigate(target, raw)
 	var cap_before := dealt
 	dealt = _ktrnksy_cap(target, dealt, direct)
@@ -567,6 +680,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 					await _apply_dot(layer_bearer, target)
 	if connected and target.relic_next_cut > 0.0:
 		target.relic_next_cut = 0.0
+	## タナベの「次に受ける攻撃のダメージが低い」は、当たったときに終わる。外れでは残る。
+	if connected and float(target.kit.get("tanabe_next_cut", 0.0)) > 0.0:
+		target.kit["tanabe_next_cut"] = 0.0
 	if connected:
 		RelicCombat.note_front_hit(target, _fighters, _host.board)
 		if dealt > 0:
@@ -613,31 +729,17 @@ func _support(actor: Fighter) -> void:
 			var ally_front := _backline_style_buff_target(actor, false)
 			if ally_front == null:
 				ally_front = actor
-			await _play_status_transfer(actor.unit, ally_front.unit, true)
-			_set_single_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
+			var was_front := bool(actor.kit.get("front_buff_active", false))
 			actor.kit["front_buff_active"] = true
-			_refresh_unit_aura(ally_front.unit)
-			ally_front.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
-			_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally_front.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
-			_nose_note_enemy_buff(actor, ally_front)
-			await _note_arita_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
+			if not await _cast_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0))):
+				actor.kit["front_buff_active"] = was_front
 		else:
 			var ally := _buff_target(actor, kind)
 			if ally == null:
 				ally = actor
-			if _tanabe_block_enemy_buff(actor, ally):
-				_host._log("%s へのバフはタナベが消した" % ally.unit.get_display_name())
-				await _wait(0.2)
-			else:
-				await _play_status_transfer(actor.unit, ally.unit, true)
-				_set_single_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
+			if await _cast_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0))):
 				if actor.sheet_id == 11:
 					actor.kit["front_buff_active"] = true
-				_refresh_unit_aura(ally.unit)
-				ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
-				_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
-				_nose_note_enemy_buff(actor, ally)
-				await _note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
 	else:
 		if actor.sheet_id == 51 and bool(actor.kit.get("aoe_debuff_armed", false)):
 			actor.kit["aoe_debuff_armed"] = false
@@ -737,6 +839,7 @@ func _sync_queue() -> void:
 		present[enemy] = true
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
+		fighter.on_board = false
 		if not is_instance_valid(fighter.unit):
 			continue
 		var on_front: bool = present.has(fighter.unit)
@@ -749,6 +852,7 @@ func _sync_queue() -> void:
 		var fighter := _fighter(unit, unit.circle_slot)
 		fighter.enemy = bool(present[unit])
 		fighter.stand_slot = board.front_slot_of(unit)
+		fighter.on_board = true
 		if not fighter.alive:
 			continue
 		if not fighter.in_queue:
@@ -768,7 +872,10 @@ func _sync_queue() -> void:
 		_show_gauge(fighter)
 	_register_backline(board, false)
 	_register_backline(board, true)
-	_era2_battle_start_flags()
+	## 戦闘開始時の効果は1戦闘に1回。毎ターンの同期で重ねがけしない。
+	if not _battle_start_done:
+		_battle_start_done = true
+		_era2_battle_start_flags()
 	_refresh_passive_kits()
 	_publish_waiting_ap(board)
 	if not _relic_started:
@@ -796,6 +903,7 @@ func _register_backline(board: BoardController, enemies: bool) -> void:
 		fighter.enemy = enemies
 		fighter.stand_slot = board.slot_of_unit(back)
 		fighter.in_queue = false
+		fighter.on_board = true
 		if not fighter.entered_once:
 			fighter.entered_once = true
 		if is_instance_valid(fighter.unit):
@@ -1116,18 +1224,9 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		dealt_coef += attacker.bonus_damage
 	var element_coef := 1.0 + float(attacker.element_damage.get(element, 0.0)) + _formation_bonus(attacker) + RelicCombat.element_outgoing(attacker, element)
 	var resist := float(defender.element_resist.get(element, 0.0)) + defender.attribute_resist + RelicCombat.aura_resist(defender, _fighters, board)
-	if element == "thunder":
-		resist += float(defender.kit.get("received_thunder_resist", 0.0))
-	if element == "fire":
-		resist += float(defender.kit.get("received_fire_resist", 0.0))
-	if element == "ice":
-		resist += float(defender.kit.get("received_ice_resist", 0.0))
-	if element == "water":
-		resist += float(defender.kit.get("received_water_resist", 0.0))
-	if element == "wind":
-		resist += float(defender.kit.get("received_wind_resist", 0.0))
-	if element == "absorb":
-		resist += float(defender.kit.get("received_absorb_resist", 0.0))
+	## デバフで下がった、その属性のダメージ耐性（received_<属性>_resist は負の値で積む）。
+	if not element.is_empty():
+		resist += float(defender.kit.get("received_%s_resist" % element, 0.0))
 	var resist_coef := 1.0 - resist
 	var taken_coef := 1.0 + defender.damage_taken
 	var can_crit := allow_crit and not bool(attacker.kit.get("attack_no_crit", false))
@@ -1147,7 +1246,6 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	if attacker.sheet_id == 52 and attacker.element == "water" and int(attacker.kit.get("gauge", 0)) >= 50:
 		crit_rate += float(attacker.kit.get("gauge_crit", 0.0))
 	var crit := can_crit and (force_crit or force_break_crit or randf() < crit_rate)
-	attacker.kit["last_roll_crit"] = crit
 	if force_crit:
 		attacker.kit["force_crit_target_id"] = -1
 	var crit_damage := attacker.crit_damage + float(attacker.kit.get("front_crit_damage_active", 0.0)) / 100.0
@@ -1156,7 +1254,10 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	if crit and attacker.element == "ice" and attacker.sheet_id == 64:
 		crit_damage += float(attacker.kit.get("ice_crit_damage", 200.0)) / 100.0
 	var crit_coef := (1.0 + crit_damage) if crit else 1.0
-	dealt_coef += float(defender.kit.get("mark_taken_active", 0.0))
+	## ゴジョーの印（033）とそのデバフは継続ダメージには入らない。カコガワの炎の上昇（019）は継続にも入る。
+	if use_general_bonus:
+		dealt_coef += float(defender.kit.get("mark_taken_active", 0.0))
+		dealt_coef += float(defender.kit.get("received_taken_vuln", 0.0))
 	dealt_coef += float(defender.kit.get("kakogawa_fire_vuln", 0.0)) if element == "fire" else 0.0
 	var amount := attack * defense_coef * dealt_coef * element_coef * resist_coef * taken_coef * crit_coef
 	amount *= RelicCombat.named_coef(attacker, not use_general_bonus)
@@ -1167,6 +1268,7 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		taken_cut += float(defender.kit.get("break_taken_cut_active", 0.0))
 		taken_cut += float(defender.kit.get("redirect_taken_cut_active", 0.0))
 		taken_cut += float(defender.kit.get("next_taken_cut_active", 0.0))
+		taken_cut += float(defender.kit.get("tanabe_next_cut", 0.0))
 		taken_cut += float(defender.kit.get("received_taken_cut", 0.0))
 		taken_cut += float(defender.kit.get("nabari_first_cut", 0.0))
 		taken_cut += RelicCombat.extra_taken_cut(defender)
@@ -1541,8 +1643,39 @@ func _describe_effect(kind: String, amount: float) -> String:
 			return "継続ダメージ %+d%%" % int(round(-amount * 100.0))
 		"lowest_defense_resist":
 			return "属性耐性 %+d%%" % int(round(amount * 100.0))
+		"highest_attack_water":
+			return "水与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_defense":
+			return "防御力 %+d%%" % int(round(amount * 100.0))
+		"earth_resist":
+			return "土のダメージ耐性 %+d%%" % int(round(-amount * 100.0))
+		"absorb_taken":
+			return "吸収被ダメージ %+d%%" % int(round(amount * 100.0))
+		"taken_vuln":
+			return "受けるダメージ %+d%%" % int(round(amount * 100.0))
 		_:
 			return kind
+
+
+## 設計書の「ガードでダメージが0になった」の扱い。
+## ガードは受けるダメージを 1/2.5 にするだけで、実際にはほぼ0にならない。そこで、
+## 本人のガードか代行ガード（タンバ）で軽減された命中は、すべて「ガードで0」とみなす。
+## ガード無視（ignore_guard）で軽減されなかったときと、もとのダメージが0のときは入らない。
+## 代行ガードは消費しない（消費は _mitigate が行う）ので、_mitigate より前に呼ぶ。
+func _guard_nullifies(defender: Fighter, amount: int) -> bool:
+	if defender == null or amount <= 0:
+		return false
+	var guard: Fighter = defender if defender.guarding else null
+	if guard == null and is_instance_valid(defender.unit):
+		var did := defender.unit.get_instance_id()
+		for key in _fighters.keys():
+			var fighter: Fighter = _fighters[key]
+			if int(fighter.kit.get("proxy_guard_for_id", -1)) == did and fighter.alive and fighter.hp > 0 and fighter.guarding:
+				guard = fighter
+				break
+	if guard == null:
+		return false
+	return not bool(guard.kit.get("ignore_guard", false))
 
 
 func _mitigate(defender: Fighter, amount: int) -> int:
@@ -1572,17 +1705,19 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 			target.kit["force_hit"] = true
 			_recompute_speed(target, false)
 			_host._log("%s のバリアが割れた" % target.unit.get_display_name())
+	## カドマ（024）の「体力1で耐えたあと、次に受けるダメージが低い」は、次にダメージを受けたら終わる。
+	## 0ダメージ（外れ・バリアで吸った分）では終わらない。耐えた一撃そのものでは消さない。
+	var survive_hit := false
 	if left > 0 and target.sheet_id == 24 and target.hp > 0 and left >= target.hp and not bool(target.kit.get("survive_used", false)):
 		target.kit["survive_used"] = true
 		target.kit["next_taken_cut_active"] = float(target.kit.get("redirect_taken_cut", 0.0))
+		survive_hit = true
 		left = target.hp - 1
 		_host._log("%s は体力1で耐えた" % target.unit.get_display_name())
 	if left > 0 and RelicCombat.try_survive(target, left):
 		left = target.hp - 1
 		_host._log("%s は完結で体力1で耐えた" % target.unit.get_display_name())
-	if float(target.kit.get("next_taken_cut_active", 0.0)) > 0.0 and left > 0 and target.hp - left > 0:
-		pass
-	elif float(target.kit.get("next_taken_cut_active", 0.0)) > 0.0 and left > 0:
+	if not survive_hit and left > 0 and float(target.kit.get("next_taken_cut_active", 0.0)) > 0.0:
 		target.kit["next_taken_cut_active"] = 0.0
 	if left > 0:
 		var lost_hp := mini(left, target.hp)
@@ -1600,21 +1735,26 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 
 func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 	var bonus := _neighbor_bonus(attacker)
+	var element := attacker.element
 	if is_dot:
+		## 継続ダメージには、設計書で「継続ダメージに入る」属性の上昇だけを入れる。
+		for key in ELEMENT_DOT_KEYS.get(element, []):
+			bonus += float(attacker.kit.get(str(key), 0.0))
 		return bonus
-	if attacker.element == "fire":
-		bonus += float(attacker.kit.get("fire_ramp", 0.0))
-		bonus += float(attacker.kit.get("received_fire", 0.0))
-	if attacker.element == "ice" and bool(attacker.kit.get("empowered", false)):
+	for key in ELEMENT_BONUS_KEYS.get(element, []):
+		bonus += float(attacker.kit.get(str(key), 0.0))
+	for key in ELEMENT_TAKEN_KEYS.get(element, []):
+		bonus += float(defender.kit.get(str(key), 0.0))
+	if element == "ice" and bool(attacker.kit.get("empowered", false)):
 		bonus += float(attacker.kit.get("ice_empower", 0.0))
-	if attacker.element == "thunder" and attacker.barrier > 0:
+	if element == "thunder" and attacker.barrier > 0:
 		bonus += float(attacker.kit.get("barrier_damage", 0.0))
-	if attacker.sheet_id == 6 and attacker.element == "earth":
+	if attacker.sheet_id == 6 and element == "earth":
 		if bool(attacker.kit.get("first_attack", false)):
 			bonus += float(attacker.kit.get("first_bonus", 0.0))
 		else:
 			bonus += float(defender.kit.get("ayakawa_vuln", 0.0))
-	if attacker.sheet_id == 42 and attacker.element == "earth" and int(attacker.kit.get("gauge", 0)) >= 50:
+	if attacker.sheet_id == 42 and element == "earth" and int(attacker.kit.get("gauge", 0)) >= 50:
 		bonus += float(attacker.kit.get("earth_empower", 0.0))
 	if attacker.sheet_id == 79 and bool(attacker.kit.get("water_empowered", false)):
 		bonus += float(attacker.kit.get("water_empower", 0.0))
@@ -1624,41 +1764,13 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 		bonus += float(attacker.kit.get("opening_bonus", 0.0))
 	if bool(attacker.kit.get("charged_strike", false)):
 		bonus += float(attacker.kit.get("charged_bonus", 0.0))
-	if attacker.element == "ice":
-		bonus += float(defender.kit.get("received_ice_taken", 0.0))
-	if attacker.element == "fire" and bool(attacker.kit.get("bare_fire", false)):
+	if element == "fire" and bool(attacker.kit.get("bare_fire", false)):
 		bonus += float(attacker.kit.get("bare_bonus", 0.0))
-	if attacker.element == "water":
-		bonus += float(attacker.kit.get("swing_water_bonus", 0.0))
-		bonus += float(attacker.kit.get("received_water", 0.0))
-	if attacker.element == "thunder":
-		bonus += float(attacker.kit.get("received_thunder", 0.0))
-		bonus += float(attacker.kit.get("swing_thunder_bonus", 0.0))
-		bonus += float(attacker.kit.get("sosaki_self_thunder", 0.0))
-		bonus += float(attacker.kit.get("sosaki_column_thunder", 0.0))
-	if attacker.element == "earth":
-		bonus += float(attacker.kit.get("received_earth", 0.0))
-	if attacker.element == "ice":
-		bonus += float(attacker.kit.get("received_ice", 0.0))
-		bonus += float(attacker.kit.get("nabari_ice_empower", 0.0))
-	if attacker.element == "thunder":
-		bonus += float(defender.kit.get("naura_thunder_taken", 0.0))
-	if attacker.element == "wind":
-		bonus += float(defender.kit.get("nose_wind_taken", 0.0))
 	if attacker.sheet_id == 68 and bool(attacker.kit.get("nishimino_second", false)):
 		bonus += float(attacker.kit.get("nishimino_second_bonus", 0.0))
-	if attacker.element == "wind":
-		bonus += float(attacker.kit.get("received_wind", 0.0))
-	if attacker.element == "fire":
-		bonus += float(attacker.kit.get("daito_gauge_fire", 0.0))
-		bonus += float(attacker.kit.get("chihaya_next_fire", 0.0))
-	if attacker.element == "wind":
-		bonus += float(attacker.kit.get("touin_next_wind", 0.0))
-	if attacker.element == "earth":
-		bonus += float(attacker.kit.get("torahime_pending_earth", 0.0))
-		bonus += float(attacker.kit.get("torahime_opening_bonus", 0.0))
+	## アヅチ（004）のバフは、属性によらず吸収の層を持つ敵へのダメージに入る。
 	if int(defender.layers.get("absorb", 0)) > 0:
-		bonus += float(attacker.kit.get("received_absorb", 0.0))
+		bonus += float(attacker.kit.get("received_layer_bonus", 0.0))
 	bonus += _era2_kit_bonus(attacker, defender, is_dot)
 	bonus -= float(attacker.kit.get("outgoing_cut", 0.0))
 	bonus -= float(attacker.kit.get("outgoing_cut_buff", 0.0))
@@ -1671,7 +1783,7 @@ func _formation_bonus(attacker: Fighter) -> float:
 	if attacker.element.is_empty():
 		return 0.0
 	var elements: Array[String] = ["", "", ""]
-	for entry in _side(attacker.enemy):
+	for entry in _side_all(attacker.enemy):
 		var ally: Fighter = entry
 		if ally.stand_slot < 0 or ally.stand_slot >= BoardController.FRONT_COUNT:
 			continue
@@ -1700,9 +1812,13 @@ func _neighbor_bonus(attacker: Fighter) -> float:
 	if attacker.stand_slot < 0:
 		return 0.0
 	var total := 0.0
-	for other in _side(attacker.enemy):
+	var back_row := _is_backline(attacker)
+	for other in _side_all(attacker.enemy):
 		var ally: Fighter = other
 		if ally == attacker or absi(ally.stand_slot - attacker.stand_slot) != 1:
+			continue
+		## 隣は同じ段だけ（前衛の右端と後衛の左端は隣ではない）。
+		if _is_backline(ally) != back_row or ally.stand_slot < 0:
 			continue
 		total += float(ally.kit.get("neighbor", 0.0))
 	return total
@@ -1784,23 +1900,13 @@ func _attack_packets(actor: Fighter, primary: Fighter) -> Array:
 	elif actor.sheet_id == 1 and bool(actor.kit.get("first_attack", false)):
 		splash = true
 		extras = _extra_enemies(actor, primary, int(actor.kit.get("extra_targets", 1)))
-	elif _goshodan_splash_count(actor) > 1:
-		splash = true
-		extras = _goshodan_extras(actor, primary, _goshodan_splash_count(actor) - 1)
-	elif actor.sheet_id == 48 and actor.element == "thunder" and _lagosu_splash_count(actor) > 1:
-		splash = true
-		extras = _sosaki_extras(actor, primary, _lagosu_splash_count(actor) - 1)
-	elif actor.sheet_id == 54 and actor.element == "ice":
-		if bool(actor.kit.get("tarumi_full_aoe", false)):
-			var iced := _tarumi_ice_targets(actor, primary)
-			if not iced.is_empty():
-				splash = true
-				extras = iced
-				actor.kit["tarumi_aoe_resolving"] = true
-				actor.kit["tarumi_full_aoe"] = false
-		elif _signal_noise_splash_count(actor) > 1:
+	elif actor.sheet_id == 54 and actor.element == "ice" and bool(actor.kit.get("tarumi_full_aoe", false)):
+		var iced := _tarumi_ice_targets(actor, primary)
+		if not iced.is_empty():
 			splash = true
-			extras = _goshodan_extras(actor, primary, _signal_noise_splash_count(actor) - 1)
+			extras = iced
+			actor.kit["tarumi_aoe_resolving"] = true
+			actor.kit["tarumi_full_aoe"] = false
 	elif actor.sheet_id == 51 and actor.element == "ice" and bool(actor.kit.get("extra_ice_armed", false)):
 		actor.kit["extra_ice_armed"] = false
 		var need51 := maxi(1, int(actor.kit.get("extra_targets", 1)))
@@ -1817,9 +1923,16 @@ func _attack_packets(actor: Fighter, primary: Fighter) -> Array:
 			var foe: Fighter = entry
 			if foe != primary and foe.alive:
 				extras.append(foe)
-	elif actor.sheet_id == 67 and actor.element == "wind" and _noukyo_splash_count(actor) > 1:
-		splash = true
-		extras = _goshodan_extras(actor, primary, _noukyo_splash_count(actor) - 1)
+	elif actor.sheet_id != 88:
+		## 範囲シナジー（攻撃属性ごと）。残りの体は IDが小さい敵から。ソサキ（048）は同じ列の味方の記憶を先に使う。
+		## ミヤケ（088）のジャックポットの範囲は、あとから入る（_miyake_store_aoe）。
+		var splash_n := _element_splash_count(actor)
+		if splash_n > 1:
+			splash = true
+			if actor.sheet_id == 48 and actor.element == "thunder":
+				extras = _sosaki_extras(actor, primary, splash_n - 1)
+			else:
+				extras = _goshodan_extras(actor, primary, splash_n - 1)
 	extras = _era2_attack_extras(actor, primary, extras)
 	if not extras.is_empty():
 		splash = true
@@ -1988,7 +2101,7 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 		return
 	GameAudio.play_battle_dot(stacks)
 	var power := actor.attack * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
-	var rolled := _roll_damage(actor, target, false, _neighbor_bonus(actor), power, false)
+	var rolled := _roll_damage(actor, target, false, _kit_bonus(actor, target, true), power, false)
 	var raw := int(rolled["amount"])
 	var cut := float(target.kit.get("received_dot_cut", 0.0))
 	var taken := float(target.kit.get("received_dot_taken", 0.0))
@@ -1997,7 +2110,7 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var device_cut := float(target.kit.get("device_taken_cut", 0.0))
 	if device_cut > 0.0:
 		raw = maxi(0, int(round(float(raw) * (1.0 - device_cut))))
-	var guarded := target.guarding and raw > 0
+	var guarded := _guard_nullifies(target, raw)
 	var dealt := _mitigate(target, raw)
 	var absorbed := _apply_damage(target, dealt)
 	_note_actor_dealt(actor, absorbed)
@@ -2005,6 +2118,10 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 		target.unit.popup_battle_text("継続-%d" % dealt, Color(0.75, 0.45, 0.9))
 	if is_instance_valid(actor.unit) and is_instance_valid(target.unit):
 		_host._log(_damage_log(actor.unit.get_display_name(), target.unit.get_display_name(), raw, dealt, absorbed, false, guarded, "継続ダメージ"))
+	## 継続ダメージで倒れたら、ここで倒れる処理まで行う（呼び出し側の _ko と重なっても二重にはならない）。
+	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+		_growth_killer = actor
+		await _ko(target)
 
 
 func _relic_neighbor(actor: Fighter, primary: Fighter) -> Fighter:
@@ -2214,37 +2331,42 @@ func _on_fighter_down(dead: Fighter) -> void:
 	var azuchi := _living_sheet(not dead.enemy, 4)
 	if azuchi == null or not receiver.alive:
 		return
-	_apply_dot(azuchi, receiver)
+	await _apply_dot(azuchi, receiver)
 	if not receiver.alive and is_instance_valid(receiver.unit) and not receiver.unit.battle_ko:
 		await _ko(receiver)
 
 
+## 攻撃属性が同じ味方だけから選ぶバフなら、その属性。そうでなければ空。
+func _same_element_buff(actor: Fighter, kind: String) -> String:
+	match kind:
+		"highest_thunder_thunder":
+			return "thunder"
+		"highest_water_water":
+			return "water"
+	if kind.begins_with("highest_attack_"):
+		return str(SAME_ELEMENT_BUFF_SHEETS.get(actor.sheet_id, ""))
+	return ""
+
+
 func _buff_target(actor: Fighter, kind: String) -> Fighter:
+	var same := _same_element_buff(actor, kind)
+	if not same.is_empty():
+		## 攻撃属性が同じで体力が0より大きい味方のうち、攻撃力が最も高い1体。いなければ自分。
+		var same_pool: Array = []
+		for entry in _side(actor.enemy):
+			var ally: Fighter = entry
+			if ally.alive and ally.hp > 0 and ally.element == same:
+				same_pool.append(ally)
+		if same_pool.is_empty():
+			return actor
+		return _extreme(same_pool, "attack", true)
 	match kind:
 		"lowest_speed_speed", "lowest_speed_absorb":
 			return _extreme(_side(actor.enemy), "speed", false)
 		"self_crit_rate":
 			return actor
-		"highest_threat_taken_cut":
+		"highest_threat_taken_cut", "highest_defense":
 			return _extreme(_side(actor.enemy), "threat", true)
-		"highest_thunder_thunder":
-			var th_pool: Array = []
-			for entry in _side(actor.enemy):
-				var ally: Fighter = entry
-				if ally.alive and ally.hp > 0 and ally.element == "thunder":
-					th_pool.append(ally)
-			if th_pool.is_empty():
-				return actor
-			return _extreme(th_pool, "attack", true)
-		"highest_water_water":
-			var w_pool: Array = []
-			for entry in _side(actor.enemy):
-				var ally_w: Fighter = entry
-				if ally_w.alive and ally_w.hp > 0 and ally_w.element == "water":
-					w_pool.append(ally_w)
-			if w_pool.is_empty():
-				return actor
-			return _extreme(w_pool, "attack", true)
 		"highest_hp_wind_resist":
 			return _extreme(_opponents(actor), "hp", true)
 		"lowest_hp_dot_cut":
@@ -2253,7 +2375,7 @@ func _buff_target(actor: Fighter, kind: String) -> Fighter:
 			return _extreme(_side(actor.enemy), "defense", false)
 		"lowest_attack_water", "lowest_attack_bonus":
 			return _extreme(_side(actor.enemy), "attack", false)
-		"highest_attack_bonus", "highest_attack_absorb", "highest_attack_speed", "highest_attack_thunder", "highest_attack_crit_damage", "highest_attack_fire", "highest_attack_earth", "highest_attack_ice", "highest_attack_ice_other", "highest_attack_wind", "front_taken_cut":
+		"highest_attack_bonus", "highest_attack_absorb", "highest_attack_speed", "highest_attack_thunder", "highest_attack_crit_damage", "highest_attack_fire", "highest_attack_earth", "highest_attack_ice", "highest_attack_ice_other", "highest_attack_wind", "highest_attack_water", "front_taken_cut":
 			if kind == "highest_attack_ice_other":
 				var pool: Array = []
 				for entry in _side(actor.enemy):
@@ -2492,92 +2614,73 @@ func _unit_has_debuff(unit: GameUnit) -> bool:
 	return false
 
 
+## 行動で味方へバフを入れる。タナベ（053）の無効化、ノセ（069）の記憶、アリタ（005）の記録をここで通す。
+## タンバ（055）の行き先変更でも同じ。入ったら true。
+func _cast_buff(actor: Fighter, ally: Fighter, kind: String, amount: float) -> bool:
+	if actor == null or ally == null or not is_instance_valid(ally.unit):
+		return false
+	if _tanabe_block_enemy_buff(actor, ally):
+		_host._log("%s へのバフはタナベが消した" % ally.unit.get_display_name())
+		await _wait(0.2)
+		return false
+	await _play_status_transfer(actor.unit, ally.unit, true)
+	_set_single_buff(actor, ally, kind, amount)
+	ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+	_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect(kind, amount)])
+	_nose_note_enemy_buff(actor, ally)
+	await _note_arita_buff(actor, ally, kind, amount)
+	return true
+
+
 func _set_single_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
 	_clear_single_buff(actor)
-	_apply_buff_value(target, kind, amount)
+	_apply_buff_value(target, kind, amount, actor.sheet_id)
 	actor.kit["buff_target_id"] = target.unit.get_instance_id()
 	actor.kit["buff_kind_active"] = kind
 	actor.kit["buff_amount_active"] = amount
+	actor.kit["buff_source_active"] = actor.sheet_id
 	_refresh_unit_aura(target.unit)
 
 
-func _apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
-	match kind:
-		"highest_speed_bonus", "highest_attack_bonus":
-			target.bonus_damage += amount
-		"lowest_speed_speed", "highest_attack_speed", "highest_ap_speed":
-			target.kit["received_speed"] = int(target.kit.get("received_speed", 0)) + int(round(amount))
+## バフ/デバフの値を足す（amount が負なら戻す）。source_sheet は入れたキャラの ID で、
+## 継続ダメージに入るか（BUFF_NO_DOT_SHEETS）と、アヅチ（004）の層つき上昇の判定に使う。
+## 戻すときは、入れたときと同じ source_sheet を渡す。
+func _apply_buff_value(target: Fighter, kind: String, amount: float, source_sheet: int = 0) -> void:
+	if not BUFF_KEYS.has(kind):
+		return
+	var entry: Array = BUFF_KEYS[kind]
+	var key := str(entry[0])
+	var value := amount * float(entry[1])
+	if kind == "highest_attack_absorb" and source_sheet == 4:
+		key = "received_layer_bonus"
+	match key:
+		"@bonus_damage":
+			target.bonus_damage += value
+		"@speed":
+			target.kit["received_speed"] = int(target.kit.get("received_speed", 0)) + int(round(value))
 			_recompute_speed(target, true)
-		"highest_cost_fire":
-			target.kit["received_fire"] = float(target.kit.get("received_fire", 0.0)) + amount
-		"highest_attack_absorb":
-			target.kit["received_absorb"] = float(target.kit.get("received_absorb", 0.0)) + amount
-		"thunder_resist":
-			target.kit["received_thunder_resist"] = float(target.kit.get("received_thunder_resist", 0.0)) - amount
-		"fire_resist":
-			target.kit["received_fire_resist"] = float(target.kit.get("received_fire_resist", 0.0)) - amount
-		"ice_resist":
-			target.kit["received_ice_resist"] = float(target.kit.get("received_ice_resist", 0.0)) - amount
-		"ice_taken":
-			target.kit["received_ice_taken"] = float(target.kit.get("received_ice_taken", 0.0)) + amount
-		"defense_cut":
-			target.kit["received_defense_cut"] = float(target.kit.get("received_defense_cut", 0.0)) + amount
-		"absorb_resist":
-			target.kit["received_absorb_resist"] = float(target.kit.get("received_absorb_resist", 0.0)) - amount
-		"wind_resist":
-			target.kit["received_wind_resist"] = float(target.kit.get("received_wind_resist", 0.0)) - amount
-		"water_resist":
-			target.kit["received_water_resist"] = float(target.kit.get("received_water_resist", 0.0)) - amount
-		"lowest_attack_water":
-			target.kit["received_water"] = float(target.kit.get("received_water", 0.0)) + amount
-		"highest_attack_thunder":
-			target.kit["received_thunder"] = float(target.kit.get("received_thunder", 0.0)) + amount
-		"highest_attack_crit_damage", "highest_crit_crit_damage":
-			target.crit_damage += amount
-		"highest_attack_fire":
-			target.kit["received_fire"] = float(target.kit.get("received_fire", 0.0)) + amount
-		"highest_attack_earth":
-			target.kit["received_earth"] = float(target.kit.get("received_earth", 0.0)) + amount
-		"highest_attack_ice", "highest_attack_ice_other":
-			target.kit["received_ice"] = float(target.kit.get("received_ice", 0.0)) + amount
-		"highest_attack_wind":
-			target.kit["received_wind"] = float(target.kit.get("received_wind", 0.0)) + amount
-		"lowest_attack_bonus":
-			target.attack += amount
-		"front_taken_cut":
-			target.kit["received_taken_cut"] = float(target.kit.get("received_taken_cut", 0.0)) + amount
-		"highest_attack_dealt_cut":
-			target.kit["outgoing_cut_buff"] = float(target.kit.get("outgoing_cut_buff", 0.0)) + amount
-		"highest_crit_wind":
-			target.kit["received_wind"] = float(target.kit.get("received_wind", 0.0)) + amount
-		"lowest_priority_earth":
-			target.kit["received_earth"] = float(target.kit.get("received_earth", 0.0)) + amount
-		"most_earth_dot_vuln":
-			target.kit["received_dot_taken"] = float(target.kit.get("received_dot_taken", 0.0)) + amount
-		"lowest_speed_absorb":
-			target.kit["received_absorb"] = float(target.kit.get("received_absorb", 0.0)) + amount
-		"self_crit_rate":
-			target.crit_rate += amount / 100.0
-		"highest_threat_taken_cut":
-			target.kit["received_taken_cut"] = float(target.kit.get("received_taken_cut", 0.0)) + amount
-		"highest_thunder_thunder":
-			target.kit["received_thunder"] = float(target.kit.get("received_thunder", 0.0)) + amount
-		"highest_water_water":
-			target.kit["received_water"] = float(target.kit.get("received_water", 0.0)) + amount
-		"highest_hp_wind_resist":
-			target.kit["received_wind_resist"] = float(target.kit.get("received_wind_resist", 0.0)) - amount
-		"attr_resist_cut":
-			target.attribute_resist -= amount
-		"lowest_hp_dot_cut":
-			target.kit["received_dot_cut"] = float(target.kit.get("received_dot_cut", 0.0)) + amount
-		"lowest_defense_resist":
-			target.attribute_resist += amount
+		"@crit_damage":
+			target.crit_damage += value
+		"@crit_rate":
+			target.crit_rate += value
+		"@attack":
+			target.attack += value
+		"@attribute_resist":
+			target.attribute_resist += value
+		"@defense_ratio":
+			## 防御力の割合上昇。戻すときに同じ量になるよう、シートの防御力を基準にする。
+			target.defense += float(target.kit.get("defense", target.defense)) * value
+		_:
+			target.kit[key] = float(target.kit.get(key, 0.0)) + value
+			if ELEMENT_DAMAGE_KEYS.has(key) and not BUFF_NO_DOT_SHEETS.has(source_sheet):
+				var dot_key := key + "_dot"
+				target.kit[dot_key] = float(target.kit.get(dot_key, 0.0)) + value
 
 
 func _clear_single_buff(actor: Fighter) -> void:
 	var target := _fighter_by_id(int(actor.kit.get("buff_target_id", -1)))
 	if target != null:
-		_apply_buff_value(target, str(actor.kit.get("buff_kind_active", "")), -float(actor.kit.get("buff_amount_active", 0.0)))
+		_apply_buff_value(target, str(actor.kit.get("buff_kind_active", "")), -float(actor.kit.get("buff_amount_active", 0.0)), int(actor.kit.get("buff_source_active", 0)))
 		_refresh_unit_aura(target.unit)
 	actor.kit["buff_target_id"] = -1
 
@@ -2597,12 +2700,20 @@ func _clear_buffs_touching(dead: Fighter) -> void:
 	var dead_id := dead.unit.get_instance_id()
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if fighter == dead and fighter.uses_buff:
+		if fighter == dead and int(fighter.kit.get("buff_target_id", -1)) >= 0:
 			_clear_single_buff(fighter)
 		elif int(fighter.kit.get("buff_target_id", -1)) == dead_id:
 			_clear_single_buff(fighter)
 		if fighter == dead or int(fighter.kit.get("copy_target_id", -1)) == dead_id:
 			_clear_copy(fighter)
+	## 倒れたキャラが入れていたデバフも消す（「対象か本人の体力が0以下になったときに消える」）。
+	for entry in dead.kit.get("debuffs", []):
+		var item: Dictionary = entry
+		var foe := _fighter_by_id(int(item.get("target_id", -1)))
+		if foe != null:
+			_apply_buff_value(foe, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
+			_refresh_unit_aura(foe.unit)
+	dead.kit["debuffs"] = []
 	_clear_debuffs_on_target(dead_id)
 
 
@@ -2715,7 +2826,7 @@ func _ktrnksy_on_ally_action(actor: Fighter) -> void:
 
 func _greek_gauge_step(enemy: bool) -> int:
 	var count := 0
-	for entry in _side(enemy):
+	for entry in _side_all(enemy):
 		var ally: Fighter = entry
 		if ally.alive and ally.hp > 0 and _has_synergy(ally, "ギリシャ語通訳"):
 			count += 1
@@ -2815,6 +2926,16 @@ func _side(enemy: bool) -> Array:
 	return found
 
 
+## 前衛と後衛の両方。後衛は in_queue にならないので、配置・シナジー人数・後衛の常時効果はこちらで見る。
+func _side_all(enemy: bool) -> Array:
+	var found: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy == enemy and fighter.alive and (fighter.on_board or fighter.in_queue) and is_instance_valid(fighter.unit):
+			found.append(fighter)
+	return found
+
+
 func _opponents(actor: Fighter) -> Array:
 	return _side(not actor.enemy)
 
@@ -2860,6 +2981,15 @@ func _reduce_break_gauge(actor: Fighter, target: Fighter) -> bool:
 	if actor == null or target == null or not _can_break(actor):
 		return false
 	return _step_break_gauge(actor, target, actor.element)
+
+
+## 撃破ゲージを times 回分減らす（キャラ効果の追加の減少）。途中で0になったら残りは行わない。
+## 0にしたら true。撃破ダメージとは呼ばない減少なので、撃破時の効果は呼び出し側が決める。
+func _extra_break_steps(actor: Fighter, target: Fighter, element: String, times: int) -> bool:
+	for _i in maxi(0, times):
+		if _step_break_gauge(actor, target, element):
+			return true
+	return false
 
 
 ## 撃破ゲージを1回分減らす。撃破シナジーの判定はしない。0にしたら true。
@@ -2978,7 +3108,7 @@ func _cut_ap(fighter: Fighter, amount: int) -> void:
 
 func _synergy_member_count(enemy: bool, synergy_name: String) -> int:
 	var count := 0
-	for entry in _side(enemy):
+	for entry in _side_all(enemy):
 		var ally: Fighter = entry
 		if ally.alive and ally.hp > 0 and not ally.relic_temp and _has_synergy(ally, synergy_name):
 			count += 1
@@ -3027,12 +3157,7 @@ func _randoseru_dot_ratio(enemy: bool) -> float:
 
 
 func _jackpot_aoe_count(enemy: bool) -> int:
-	var count := _synergy_member_count(enemy, "ジャックポット")
-	if count >= 6:
-		return 3
-	if count >= 2:
-		return 2
-	return 1
+	return _splash_tier(_synergy_member_count(enemy, "ジャックポット"))
 
 
 func _note_hit_received(attacker: Fighter, target: Fighter, is_dot: bool) -> void:
@@ -3492,15 +3617,20 @@ func _refresh_passive_kits() -> void:
 	_refresh_era4_back_buffs()
 
 
-func _best_sheet(enemy: bool, sheet_id: int) -> Fighter:
+## 同じキャラが複数いるとき、効果を持つ1体（星が最も高い1体）。
+## 同じキャラは ID も同じなので、同じ星のときはインスタンスの古い順で決める。
+## include_dead のときは倒れた1体も比べる（「倒れたあとも残る」効果の持ち主を決めるとき）。
+func _best_sheet(enemy: bool, sheet_id: int, include_dead: bool = false) -> Fighter:
 	var chosen: Fighter = null
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
 		if fighter.enemy != enemy or fighter.sheet_id != sheet_id:
 			continue
-		if not fighter.alive or fighter.hp <= 0 or not is_instance_valid(fighter.unit):
+		if not is_instance_valid(fighter.unit):
 			continue
-		if chosen == null or fighter.unit.stars > chosen.unit.stars or (fighter.unit.stars == chosen.unit.stars and fighter.unit.unit_id < chosen.unit.unit_id):
+		if not include_dead and (not fighter.alive or fighter.hp <= 0):
+			continue
+		if chosen == null or fighter.unit.stars > chosen.unit.stars or (fighter.unit.stars == chosen.unit.stars and fighter.unit.get_instance_id() < chosen.unit.get_instance_id()):
 			chosen = fighter
 	return chosen
 
@@ -3614,15 +3744,33 @@ func _tokaido_dot_ratio(enemy: bool) -> float:
 	return 0.05
 
 
-func _goshodan_splash_count(actor: Fighter) -> int:
-	if not _has_synergy(actor, "世界はゴ冗談") and actor.sheet_id != 16:
+## 範囲シナジーの体数（通常の対象を含む）。2人で2体、4人で2体、6人で3体。2人より少なければ1体。
+## ドローン（レリック037）は、範囲が出るときだけ1体増やす。
+## sheet_override は、シナジー判定が取れなくてもそのシナジーを持つものとして扱うキャラの ID。
+func _splash_count(actor: Fighter, synergy_name: String, sheet_override: int = -1) -> int:
+	if actor == null or synergy_name.is_empty():
 		return 1
-	var count := _synergy_member_count(actor.enemy, "世界はゴ冗談")
-	if count >= 6:
-		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	if count >= 2:
-		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
+	if actor.sheet_id != sheet_override and not _has_synergy(actor, synergy_name):
+		return 1
+	var count := _splash_tier(_synergy_member_count(actor.enemy, synergy_name))
+	if count <= 1:
+		return 1
+	return count + RelicCombat.drone_extra(actor, _fighters, _host.board)
+
+
+## 範囲シナジーの人数から体数（通常の対象を含む）。
+func _splash_tier(members: int) -> int:
+	if members >= 6:
+		return 3
+	if members >= 2:
+		return 2
 	return 1
+
+
+## いまの攻撃属性の範囲シナジーで決まる体数。
+func _element_splash_count(actor: Fighter) -> int:
+	var synergy_name := str(SPLASH_SYNERGY.get(actor.element, ""))
+	return _splash_count(actor, synergy_name, int(SPLASH_SHEET_OVERRIDE.get(synergy_name, -1)))
 
 
 func _goshodan_extras(actor: Fighter, primary: Fighter, need: int) -> Array:
@@ -3693,8 +3841,7 @@ func _ise_on_absorb_layers(actor: Fighter, primary: Fighter) -> void:
 		if left <= 0:
 			continue
 		var reduce := mini(times, left)
-		foe.break_left["absorb"] = left - reduce
-		if is_instance_valid(foe.unit):
+		if not _extra_break_steps(ise, foe, "absorb", times) and is_instance_valid(foe.unit):
 			foe.unit.popup_battle_text("撃破-%d" % reduce, Color(0.75, 0.85, 1.0))
 	ise.kit["ise_extra_budget"] = int(ise.kit.get("ise_extra_budget", int(ise.kit.get("extra_attacks", 1))))
 
@@ -4461,28 +4608,6 @@ func _nigiyaka_dot_ratio(enemy: bool) -> float:
 	return 0.05
 
 
-func _lagosu_splash_count(actor: Fighter) -> int:
-	if not _has_synergy(actor, "旅のラゴス") and actor.sheet_id != 48:
-		return 1
-	var count := _synergy_member_count(actor.enemy, "旅のラゴス")
-	if count >= 6:
-		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	if count >= 2:
-		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	return 1
-
-
-func _signal_noise_splash_count(actor: Fighter) -> int:
-	if not _has_synergy(actor, "シグナル・ノイズ") and actor.sheet_id != 54:
-		return 1
-	var count := _synergy_member_count(actor.enemy, "シグナル・ノイズ")
-	if count >= 6:
-		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	if count >= 2:
-		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	return 1
-
-
 func _sosaki_extras(actor: Fighter, primary: Fighter, need: int) -> Array:
 	var chosen: Array = []
 	var ally := _fighter_by_id(int(actor.kit.get("sosaki_column_ally", -1)))
@@ -4742,13 +4867,10 @@ func _tanabe_block_enemy_buff(buffer: Fighter, target: Fighter) -> bool:
 	target.kit["tanabe_mark_order"] = int(tanabe.kit.get("mark_seq", 0)) + 1
 	tanabe.kit["mark_seq"] = int(target.kit.get("tanabe_mark_order", 0))
 	# reduce earth break one step
-	var br := int(target.break_left.get("earth", BREAK_MAX))
-	if br > 0:
-		target.break_left["earth"] = br - BREAK_STEP
-		_sync_break_gauge(target, "earth", int(target.break_left["earth"]) <= 0)
+	_extra_break_steps(tanabe, target, "earth", 1)
 	var ally := _extreme(_side(tanabe.enemy), "hp", false)
 	if ally != null:
-		ally.kit["next_taken_cut_active"] = float(tanabe.kit.get("ally_taken_cut", 0.0))
+		ally.kit["tanabe_next_cut"] = float(tanabe.kit.get("ally_taken_cut", 0.0))
 	if is_instance_valid(target.unit):
 		target.unit.popup_battle_text("バフ無効", Color(1.0, 0.7, 0.35))
 	return true
@@ -5076,13 +5198,7 @@ func _chihaya_on_fire_attack(actor: Fighter, target: Fighter) -> void:
 		chihaya.unit.kit_flags["gem_charges"] = int(chihaya.kit.get("chihaya_left", 0))
 	var extra := maxi(1, int(chihaya.kit.get("break_extra", 1)))
 	if target.alive and target.hp > 0:
-		for _i in extra:
-			var left_b := int(target.break_left.get("fire", BREAK_MAX))
-			if left_b <= 0:
-				break
-			target.break_left["fire"] = maxi(0, left_b - BREAK_STEP)
-			if int(target.break_left["fire"]) <= 0:
-				target.break_left["fire"] = BREAK_MAX
+		_extra_break_steps(actor, target, "fire", extra)
 	actor.kit["chihaya_next_fire"] = float(chihaya.kit.get("next_fire", 0.0))
 	actor.kit["chihaya_consume_next"] = false
 	_host._log("%s の炎撃破が進み、次の炎が強くなる" % actor.unit.get_display_name())
@@ -5119,13 +5235,7 @@ func _touin_on_wind_attack(actor: Fighter, target: Fighter) -> void:
 		touin.unit.kit_flags["sign_stacks"] = 0
 	var extra := maxi(1, int(touin.kit.get("break_extra", 2)))
 	if target.alive and target.hp > 0:
-		for _i in extra:
-			var left_b := int(target.break_left.get("wind", BREAK_MAX))
-			if left_b <= 0:
-				break
-			target.break_left["wind"] = maxi(0, left_b - BREAK_STEP)
-			if int(target.break_left["wind"]) <= 0:
-				target.break_left["wind"] = BREAK_MAX
+		_extra_break_steps(actor, target, "wind", extra)
 	actor.kit["touin_next_wind"] = float(touin.kit.get("next_wind", 0.0))
 	actor.kit["touin_consume_next"] = false
 	_host._log("%s の風撃破が進み、次の風が強くなる" % actor.unit.get_display_name())
@@ -5167,12 +5277,8 @@ func _era4_note_break(actor: Fighter, target: Fighter, broke: bool) -> void:
 		return
 	# non-deep-arch allies get an extra reduce step when targeting via toba
 	if not _has_synergy(actor, "ディープ・アーキテクチャ") and _toba_earth_target(actor) == target:
-		var left_b := int(target.break_left.get("earth", BREAK_MAX))
-		if left_b > 0 and not broke:
-			target.break_left["earth"] = maxi(0, left_b - BREAK_STEP)
-			if int(target.break_left["earth"]) <= 0:
-				target.break_left["earth"] = BREAK_MAX
-				broke = true
+		if not broke and _extra_break_steps(actor, target, "earth", 1):
+			broke = true
 	if broke:
 		if _host != null and _host.session != null:
 			_host.session.gain_experience(maxi(1, int(toba.kit.get("break_xp", 1))))
@@ -5449,13 +5555,7 @@ func _naura_break_reduce(naura: Fighter, times: int, prefer_last: bool) -> void:
 		target = _extreme(_opponents(naura), "threat", true)
 	if target == null:
 		return
-	for _i in times:
-		var left_b := int(target.break_left.get("thunder", BREAK_MAX))
-		if left_b <= 0:
-			break
-		target.break_left["thunder"] = maxi(0, left_b - BREAK_STEP)
-		if int(target.break_left["thunder"]) <= 0:
-			target.break_left["thunder"] = BREAK_MAX
+	_extra_break_steps(naura, target, "thunder", times)
 
 
 func _naura_on_death(dead: Fighter) -> void:
@@ -5467,13 +5567,7 @@ func _naura_on_death(dead: Fighter) -> void:
 		var foe: Fighter = entry
 		if _is_backline(foe) or not foe.alive or foe.hp <= 0:
 			continue
-		for _i in times:
-			var left_b := int(foe.break_left.get("thunder", BREAK_MAX))
-			if left_b <= 0:
-				break
-			foe.break_left["thunder"] = maxi(0, left_b - BREAK_STEP)
-			if int(foe.break_left["thunder"]) <= 0:
-				foe.break_left["thunder"] = BREAK_MAX
+		_extra_break_steps(dead, foe, "thunder", times)
 		var prev := float(foe.kit.get("naura_thunder_taken", 0.0))
 		if taken >= prev:
 			foe.kit["naura_thunder_taken"] = taken
@@ -5502,17 +5596,6 @@ func _nishimino_add_gauge(fighter: Fighter, amount: int) -> void:
 		fighter.unit.kit_flags["nishimino_second_bonus"] = bonus
 		fighter.unit.popup_battle_text("二連", Color(0.45, 0.75, 1.0))
 	_show_gauge(fighter)
-
-
-func _noukyo_splash_count(actor: Fighter) -> int:
-	if not _has_synergy(actor, "農協月へ行く") and actor.sheet_id != 67:
-		return 1
-	var count := _synergy_member_count(actor.enemy, "農協月へ行く")
-	if count >= 6:
-		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	if count >= 2:
-		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
-	return 1
 
 
 func _nose_note_enemy_buff(buffer: Fighter, target: Fighter) -> void:

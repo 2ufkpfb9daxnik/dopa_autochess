@@ -6,108 +6,115 @@ extends RefCounted
 ## 経済側の未適用は relic_economy.gd の先頭を参照。
 
 
+## bind で足し合わせる装備レリックの効果。能力ごとに [レリックID, 効果値の名前] を並べる。
+## 同じレリックを複数装備したときは枚数ぶん足す。新しいレリックは該当する行に足すだけでよい。
+const BIND_SUMS := {
+	## 与ダメージ（%）
+	"flat_damage": [[1, "与ダメージ"], [220, "与ダメージ"], [244, "与ダメージ"], [250, "与ダメージ"], [273, "与ダメージ"]],
+	## 貫通率（%）
+	"attack_pen": [[7, "貫通率"], [275, "貫通率"]],
+	## 自分の属性の与ダメージ（%）。属性名つきのキー（「炎の与ダメージ」など）は _element_bonus_from で足す。
+	"element_bonus": [[19, "属性の与ダメージ"]],
+	## 最初の攻撃の与ダメージ（%）
+	"opening_bonus": [[10, "最初の与ダメージ"], [222, "最初の与ダメージ"]],
+	## 瀕死の与ダメージ（%）
+	"low_bonus": [[20, "瀕死の与ダメージ"]],
+	## 受けるダメージの軽減（%）。継続ダメージにも入るもの（162）と、入らないもの（014・206・231）。
+	"taken_cut_dot": [[162, "受けるダメージ"]],
+	"taken_cut": [[14, "受けるダメージ"], [206, "受けるダメージ"], [231, "受けるダメージ"]],
+	## 命中したときの回復（%）と回数
+	"heal_ratio": [[9, "回復"]],
+	"heal_left": [[9, "回復の回数"]],
+	## 吸血（%）
+	"lifesteal": [[266, "吸血"], [280, "吸血"]],
+	"layers": [[13, "層"]],
+	"chase_left": [[11, "追撃の回数"]],
+	"speed_step": [[18, "速度の上昇"]],
+	"speed_cap": [[18, "速度の上限"]],
+	"speed": [[2, "速度"], [215, "速度"], [230, "速度"], [241, "速度"]],
+	"defense": [[3, "防御力"], [218, "防御力"], [243, "防御力"]],
+	## 防御力の割合（%）
+	"defense_rate": [[163, "防御力"]],
+	"max_hp": [[4, "最大体力"], [202, "最大体力"], [219, "最大体力"], [228, "最大体力"], [232, "最大体力"]],
+	## 最大体力の割合（%）
+	"max_hp_rate": [[161, "最大体力"], [269, "最大体力"]],
+	"attack": [[212, "攻撃力"], [237, "攻撃力"], [249, "攻撃力"]],
+	## クリティカル率・クリティカルダメージ・属性耐性（%）
+	"crit_rate": [[5, "クリティカル率"], [214, "クリティカル率"], [236, "クリティカル率"], [245, "クリティカル率"], [247, "クリティカル率"], [265, "クリティカル率"]],
+	"crit_damage": [[6, "クリティカルダメージ"], [227, "クリティカルダメージ"], [265, "クリティカルダメージ"]],
+	"attribute_resist": [[8, "属性耐性"]],
+	"priority_cut": [[15, "優先度の低下"]],
+	## 最大体力に対するシールド（%）
+	"shield": [[175, "シールド"]],
+	## ゲージの溜まり（%）
+	"gauge": [[217, "ゲージ"]],
+}
+
+
 static func bind(fighter, host: Node) -> void:
 	var ids := ids_of(fighter.unit, host)
+	var sums := _bind_sums(ids)
 	fighter.relic_ids = ids
-	fighter.relic_flat_damage = (
-		_sum_one(ids, 1, "与ダメージ")
-		+ _sum_one(ids, 220, "与ダメージ")
-		+ _sum_one(ids, 244, "与ダメージ")
-		+ _sum_one(ids, 250, "与ダメージ")
-		+ _sum_one(ids, 273, "与ダメージ")
-	) / 100.0
-	fighter.relic_attack_pen = (
-		_sum_one(ids, 7, "貫通率") + _sum_one(ids, 275, "貫通率")
-	) / 100.0
-	fighter.relic_element_bonus = _sum_one(ids, 19, "属性の与ダメージ") / 100.0
+	fighter.relic_flat_damage = sums["flat_damage"] / 100.0
+	fighter.relic_attack_pen = sums["attack_pen"] / 100.0
+	fighter.relic_element_bonus = sums["element_bonus"] / 100.0
 	fighter.relic_element_bonus += _element_bonus_from(ids, fighter.element)
-	fighter.relic_opening_bonus = (
-		_sum_one(ids, 10, "最初の与ダメージ") + _sum_one(ids, 222, "最初の与ダメージ")
-	) / 100.0
+	fighter.relic_opening_bonus = sums["opening_bonus"] / 100.0
 	fighter.relic_opening = fighter.relic_opening_bonus > 0.0
 	## 010 だけが「最初の攻撃は外れない」。222 は外れても終わる。
 	fighter.relic_opening_sure = ids.has(10)
-	fighter.relic_low_bonus = _sum_one(ids, 20, "瀕死の与ダメージ") / 100.0
-	## 継続ダメージにも入るもの（162）と、入らないもの（014・206・231）。
-	fighter.relic_taken_cut_dot = _sum_one(ids, 162, "受けるダメージ") / 100.0
-	fighter.relic_taken_cut = fighter.relic_taken_cut_dot + (
-		_sum_one(ids, 14, "受けるダメージ")
-		+ _sum_one(ids, 206, "受けるダメージ")
-		+ _sum_one(ids, 231, "受けるダメージ")
-	) / 100.0
-	fighter.relic_heal_ratio = _sum_one(ids, 9, "回復") / 100.0
-	fighter.relic_heal_left = int(_sum_one(ids, 9, "回復の回数"))
+	fighter.relic_low_bonus = sums["low_bonus"] / 100.0
+	fighter.relic_taken_cut_dot = sums["taken_cut_dot"] / 100.0
+	fighter.relic_taken_cut = fighter.relic_taken_cut_dot + sums["taken_cut"] / 100.0
+	fighter.relic_heal_ratio = sums["heal_ratio"] / 100.0
+	fighter.relic_heal_left = int(sums["heal_left"])
 	## 266・280 吸血: 与えたダメージの割合が戻る。継続・範囲にも入る。
-	fighter.relic_lifesteal = (_sum_one(ids, 266, "吸血") + _sum_one(ids, 280, "吸血")) / 100.0
+	fighter.relic_lifesteal = sums["lifesteal"] / 100.0
 	fighter.relic_low_shield_ready = ids.has(266)
-	fighter.relic_layers = int(_sum_one(ids, 13, "層"))
+	fighter.relic_layers = int(sums["layers"])
 	## relic_weaken_cut は「受けた弱体」。017 の付ける値は on_direct_hit で装備から取る。
 	fighter.relic_weaken_cut = 0.0
-	fighter.relic_chase_left = int(_sum_one(ids, 11, "追撃の回数"))
+	fighter.relic_chase_left = int(sums["chase_left"])
 	fighter.relic_neighbor = ids.has(16)
-	fighter.relic_speed_step = int(_sum_one(ids, 18, "速度の上昇"))
-	fighter.relic_speed_cap = int(_sum_one(ids, 18, "速度の上限"))
-	var flat_speed := int(
-		_sum_one(ids, 2, "速度")
-		+ _sum_one(ids, 215, "速度")
-		+ _sum_one(ids, 230, "速度")
-		+ _sum_one(ids, 241, "速度")
-	)
+	fighter.relic_speed_step = int(sums["speed_step"])
+	fighter.relic_speed_cap = int(sums["speed_cap"])
+	var flat_speed := int(sums["speed"])
 	if flat_speed != 0:
 		fighter.kit["relic_speed"] = int(fighter.kit.get("relic_speed", 0)) + flat_speed
-	fighter.defense += (
-		_sum_one(ids, 3, "防御力")
-		+ _sum_one(ids, 218, "防御力")
-		+ _sum_one(ids, 243, "防御力")
-	)
-	fighter.defense *= 1.0 + (
-		_sum_one(ids, 163, "防御力") / 100.0
-	)
-	var hp_bonus := int(_sum_one(ids, 4, "最大体力"))
-	hp_bonus += int(
-		_sum_one(ids, 202, "最大体力")
-		+ _sum_one(ids, 219, "最大体力")
-		+ _sum_one(ids, 228, "最大体力")
-		+ _sum_one(ids, 232, "最大体力")
-	)
-	var hp_rate := (
-		_sum_one(ids, 161, "最大体力")
-		+ _sum_one(ids, 269, "最大体力")
-	) / 100.0
+	fighter.defense += sums["defense"]
+	fighter.defense *= 1.0 + sums["defense_rate"] / 100.0
+	var hp_bonus := int(sums["max_hp"])
+	var hp_rate: float = sums["max_hp_rate"] / 100.0
 	if hp_bonus != 0 or not is_zero_approx(hp_rate):
 		var before: int = int(fighter.max_hp)
 		fighter.max_hp = maxi(1, int(round(float(fighter.max_hp + hp_bonus) * (1.0 + hp_rate))))
 		var gained: int = int(fighter.max_hp) - before
 		if gained != 0:
 			fighter.hp = clampi(int(fighter.hp) + gained, 1, int(fighter.max_hp))
-	fighter.attack += (
-		_sum_one(ids, 212, "攻撃力")
-		+ _sum_one(ids, 237, "攻撃力")
-		+ _sum_one(ids, 249, "攻撃力")
-	)
-	fighter.crit_rate += (
-		_sum_one(ids, 5, "クリティカル率")
-		+ _sum_one(ids, 214, "クリティカル率")
-		+ _sum_one(ids, 236, "クリティカル率")
-		+ _sum_one(ids, 245, "クリティカル率")
-		+ _sum_one(ids, 247, "クリティカル率")
-		+ _sum_one(ids, 265, "クリティカル率")
-	) / 100.0
-	fighter.crit_damage += (
-		_sum_one(ids, 6, "クリティカルダメージ")
-		+ _sum_one(ids, 227, "クリティカルダメージ")
-		+ _sum_one(ids, 265, "クリティカルダメージ")
-	) / 100.0
-	fighter.attribute_resist += _sum_one(ids, 8, "属性耐性") / 100.0
-	var priority_cut := int(_sum_one(ids, 15, "優先度の低下"))
+	fighter.attack += sums["attack"]
+	fighter.crit_rate += sums["crit_rate"] / 100.0
+	fighter.crit_damage += sums["crit_damage"] / 100.0
+	fighter.attribute_resist += sums["attribute_resist"] / 100.0
+	var priority_cut := int(sums["priority_cut"])
 	if priority_cut != 0:
 		fighter.priority = maxi(0, fighter.priority - priority_cut)
 	if ids.has(175):
-		fighter.barrier += int(round(float(fighter.max_hp) * _sum_one(ids, 175, "シールド") / 100.0))
-	var gauge_bonus := _sum_one(ids, 217, "ゲージ")
+		fighter.barrier += int(round(float(fighter.max_hp) * sums["shield"] / 100.0))
+	var gauge_bonus: float = sums["gauge"]
 	if gauge_bonus != 0.0:
 		fighter.kit["gauge_rate"] = float(fighter.kit.get("gauge_rate", 1.0)) + gauge_bonus / 100.0
 	_apply_pulse_kit(fighter, ids)
+
+
+## BIND_SUMS の能力ごとの合計（効果値のまま。% の換算は bind でする）。
+static func _bind_sums(ids: Array[int]) -> Dictionary:
+	var sums := {}
+	for stat in BIND_SUMS:
+		var total := 0.0
+		for entry in BIND_SUMS[stat]:
+			total += _sum_one(ids, int(entry[0]), str(entry[1]))
+		sums[stat] = total
+	return sums
 
 
 static func ids_of(unit: GameUnit, host: Node) -> Array[int]:
@@ -145,12 +152,6 @@ static func named_coef(fighter, is_dot: bool) -> float:
 	if fighter.relic_low_bonus > 0.0 and _is_low_hp(fighter):
 		coef *= 1.0 + fighter.relic_low_bonus
 	return coef
-
-
-static func taken_mult(fighter, is_dot: bool) -> float:
-	if is_dot or fighter.relic_taken_cut <= 0.0:
-		return 1.0
-	return maxf(0.0, 1.0 - fighter.relic_taken_cut)
 
 
 static func begin_attack(fighter) -> bool:
@@ -299,18 +300,19 @@ static func aura_taken_cut(defender, fighters: Dictionary, board: BoardControlle
 	if not defender.enemy and _owned_count(board, 176) >= int(_value(176, "枚数")):
 		cut += _value(176, "受けるダメージ") / 100.0
 	cut += _adjacent_mitigation(defender, fighters, board)
-	if float(defender.kit.get("relic_hit_stack", 0.0)) > 0.0 and float(defender.kit.get("relic_hit_stack", 0.0)) >= float(defender.kit.get("relic_hit_cap", 0.0)) and float(defender.kit.get("relic_hit_cap", 0.0)) > 0.0:
+	## 268 セクション: 積みが上限に届いていれば軽減も入る。
+	var hit_stack := float(defender.kit.get("relic_hit_stack", 0.0))
+	var hit_cap := float(defender.kit.get("relic_hit_cap", 0.0))
+	if hit_stack > 0.0 and hit_cap > 0.0 and hit_stack >= hit_cap:
 		cut += float(defender.relic_ids.count(268)) * _value(268, "軽減") / 100.0
 	if not defender.enemy:
 		cut += _owned_taken_cut(board)
+	if defender.relic_ids.has(270):
+		cut += _ostrich_cut(defender, fighters, board)
 	if is_dot:
-		if defender.relic_ids.has(270):
-			cut += _ostrich_cut(defender, fighters, board)
 		## 177 よろめき・185 土の装置・199 地震も継続ダメージに入る（攻撃側は _roll_damage で足す）。
 		cut += extra_taken_cut(defender)
 		return cut
-	if defender.relic_ids.has(270):
-		cut += _ostrich_cut(defender, fighters, board)
 	cut += _guard_neighbor_cut(defender, fighters, board)
 	return cut
 
@@ -387,34 +389,12 @@ static func crit_layer_bearer(actor, fighters: Dictionary, charges_left: int, bo
 	return _unique_living(fighters, 31, actor.enemy, board)
 
 
-static func battle_relic_value(fighters: Dictionary, relic_id: int, ally_enemy: bool, key: String) -> float:
-	if _unique_living(fighters, relic_id, ally_enemy) == null:
-		return 0.0
-	return _value(relic_id, key)
-
-
-static func side_has(fighters: Dictionary, relic_id: int, ally_enemy: bool) -> bool:
-	for key in fighters.keys():
-		var fighter = fighters[key]
-		if fighter.enemy == ally_enemy and fighter.relic_ids.has(relic_id):
-			return true
-	return false
-
-
 static func _neighbor_damage(attacker, fighters: Dictionary, board: BoardController) -> float:
-	var row := _row(attacker.unit, board)
-	if row.x < 0:
-		return 0.0
+	## 026: 隣の装備者1人ごとに1回分（装備者の枚数は見ない）。
 	var bonus := 0.0
 	var rate := _value(26, "与ダメージ") / 100.0
-	for key in fighters.keys():
-		var bearer = fighters[key]
-		if bearer == attacker or bearer.enemy != attacker.enemy or not _living(bearer):
-			continue
-		if not bearer.relic_ids.has(26):
-			continue
-		var bearer_row := _row(bearer.unit, board)
-		if bearer_row.x == row.x and absi(bearer_row.y - row.y) == 1:
+	for bearer in _neighbors(attacker, fighters, board):
+		if bearer.relic_ids.has(26):
 			bonus += rate
 	return bonus
 
@@ -472,13 +452,6 @@ static func _smaller_bearer(unit: GameUnit, chosen: GameUnit) -> bool:
 	return unit.get_instance_id() < chosen.get_instance_id()
 
 
-static func _unit_has_relic(unit: GameUnit, session: GameSession, relic_id: int) -> bool:
-	for uid in unit.equipped_relic_uids:
-		if session.relic_id_of(int(uid)) == relic_id:
-			return true
-	return false
-
-
 static func _living(fighter) -> bool:
 	return fighter != null and fighter.alive and fighter.hp > 0 and is_instance_valid(fighter.unit)
 
@@ -510,22 +483,14 @@ static func _element_bonus_from(ids: Array[int], element: String) -> float:
 	return total / 100.0
 
 
+## 属性の内部名から、効果値の名前に使う日本語名へ。日本語名はそのまま返す。
+const ELEMENT_LABELS := {
+	"fire": "炎", "water": "水", "thunder": "雷", "earth": "土", "ice": "氷", "wind": "風", "absorb": "吸収",
+}
+
+
 static func _element_label(element: String) -> String:
-	if element == "fire" or element == "炎":
-		return "炎"
-	if element == "water" or element == "水":
-		return "水"
-	if element == "thunder" or element == "雷":
-		return "雷"
-	if element == "earth" or element == "土":
-		return "土"
-	if element == "ice" or element == "氷":
-		return "氷"
-	if element == "wind" or element == "風":
-		return "風"
-	if element == "absorb" or element == "吸収":
-		return "吸収"
-	return element
+	return str(ELEMENT_LABELS.get(element, element))
 
 
 static func _apply_pulse_kit(fighter, ids: Array[int]) -> void:
@@ -575,18 +540,10 @@ static func _adjacent_mitigation(defender, fighters: Dictionary, board: BoardCon
 
 
 static func _neighbor_ally_damage(attacker, fighters: Dictionary, board: BoardController) -> float:
-	var row := _row(attacker.unit, board)
-	if row.x < 0:
-		return 0.0
+	## 281: 隣の装備者の枚数ぶん。
 	var bonus := 0.0
-	for key in fighters.keys():
-		var bearer = fighters[key]
-		if bearer == attacker or bearer.enemy != attacker.enemy or not _living(bearer):
-			continue
-		if not bearer.relic_ids.has(281):
-			continue
-		var bearer_row := _row(bearer.unit, board)
-		if bearer_row.x == row.x and absi(bearer_row.y - row.y) == 1:
+	for bearer in _neighbors(attacker, fighters, board):
+		if bearer.relic_ids.has(281):
 			bonus += _sum_one(bearer.relic_ids, 281, "与ダメージ") / 100.0
 	return bonus
 

@@ -230,6 +230,9 @@ func try_reroll() -> bool:
 		refresh_shop(false)
 		RelicEconomy.note_free_reroll_used(self)
 		return true
+	## 258 雲: ゴールドを払って更新することはできない。
+	if RelicEconomy.blocks_paid_reroll(self):
+		return false
 	var reroll_cost := RelicEconomy.paid_reroll_cost(self)
 	if coins < reroll_cost:
 		return false

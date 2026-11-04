@@ -1,26 +1,13 @@
 class_name RelicEconomy
 extends RefCounted
 
-## 056 回収: ほかのレリックを売ったときゴールドが増える。レリックを売る操作がまだ無いので未適用。
-## 075 舞台が終わる: ロックした枠だけ残す更新。枠ごとのロックが無く、ショップ全体のロックしか無いので未適用。
-## 087 達人: プレイヤー同士の戦闘が無く、対CPU戦しか無いので未適用。
-## 090 パレード: レベル21までの必要経験値が書かれていないので未適用。
-## 091 パラダイス！のプレイヤーダメージ: プレイヤー同士の敗北が無いので、出撃上限だけ適用する。
-## 101・105・107・110・113・115・116・119: 異種合成がまだ無いので未適用。
-## 103・104: キャラクターを選んで使う操作がまだ無いので未適用。
-## 109 歴史資料: キャラクターを分解する操作がまだ無いので未適用。
-## 121・122・123・128・129・131・132・134・135・136・137・138・139: プレイヤー同士の戦闘が無いので未適用。
-## 142・144・146・149・160: プレイヤー同士の戦闘が条件なので未適用。
-## 148 反例: デバフに残り時間が無いので未適用。
-## 156 ギター: 任意のタイミングで積みを換える操作が無いので未適用。
-## 167・173・177・179・180: 付け替えUI・余剰回復シールド上限・被弾スタック・分類ショップ値引き・手動消費の操作が未確定なので未適用。
-## 181-200: 盤面装置・コピー召喚・卵枠など未実装のため、195の初動弱体以外は未適用。
-## 216: 召喚物与ダメージ。召喚が出ないあいだ未適用。
-## 264: 異種合成ペナルティ。異種合成が無いので未適用。
-## 277・278・284: 時間指定の戦闘効果が未確定なので未適用。
-## 287-295・300: 合成装備級や装置回数など報酬テーブル／進捗定義の設定が残っているので未適用。
-## 303-306: レリックを選んで消費するUIが無いので未適用。
-## 309・311: 合成時追加と「効果が初めて発動」の判定が未確定なので未適用。
+## まだ効果が入らないレリック（土台の仕組みが無いもの）。ほかはすべて適用済み。
+## 056 回収: レリックを売る操作が無いので未適用。
+## 075 舞台が終わる: ショップは全体のロックだけで、枠ごとのロックが無いので未適用。
+## 101・105・107・110・113・115・119・264・293: 異種合成が無いので未適用（264 は合成上限の加算だけ synth_cost_cap に入る）。
+## 109 歴史資料: キャラクターを分解する操作が無いので未適用。
+## 179 流行: ショップにレリックが並ばないので未適用。
+## 311 ハイブリッド: 「ほかのレリックの効果が初めて発動した」をレリックごとに記録する仕組みが無いので未適用。
 
 
 static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
@@ -74,11 +61,11 @@ static func on_gained(session: GameSession, uid: int, relic_id: int) -> void:
 			item["age"] = 1
 		100:
 			item["left"] = int(_value(100, "回数"))
-		108:
-			var host_108 := session.get_parent()
-			if host_108 != null and host_108.has_method("relic_upgrade_board_costs"):
-				host_108.relic_upgrade_board_costs(int(_value(108, "コスト上昇")))
-			session.take_relic(uid)
+		279:
+			## 入手した直後のラウンドは与ダメージ側。戦闘のあと（ラウンド開始の前）に入ったときは、
+			## 次のラウンド開始の切り替えで与ダメージ側になるよう、回復側にしておく。
+			if not session.is_prep():
+				item["mode"] = 1
 		117:
 			item["left"] = int(_value(117, "回数"))
 		124:
@@ -734,6 +721,18 @@ const DAMAGE_GROWTH_IDS: Array[int] = [141, 143, 144, 145, 146, 147, 149, 150, 1
 
 static func _is_damage_growth(relic_id: int) -> bool:
 	return DAMAGE_GROWTH_IDS.has(relic_id)
+
+
+## 盤面からセッションを探す。盤面は戦闘用の SubViewport の下へ移されるので、
+## 親の親までたどって session を持つノード（game）を見つける。
+static func session_of_board(board: Node) -> GameSession:
+	var node: Node = board
+	while node != null:
+		var found = node.get("session")
+		if found is GameSession:
+			return found as GameSession
+		node = node.get_parent()
+	return null
 
 
 static func _owned_units(session: GameSession) -> Array:
@@ -1549,16 +1548,21 @@ static func _is_guard_relic(relic_id: int) -> bool:
 	return _category(relic_id) == "(プレイヤーもキャラクターも)HP、防御の増強、回復"
 
 
+## 報酬の候補は効果値の名前で選ぶ。クエスト自身（291 金魚の「ゲージ」など、進捗の数）は入れない。
+static func _is_quest_relic(relic_id: int) -> bool:
+	return _category(relic_id) == "クエスト・達成報酬"
+
+
 static func _is_crit_relic(relic_id: int) -> bool:
-	return _has_effect_key(relic_id, ["クリティカル率", "クリティカルダメージ"])
+	return not _is_quest_relic(relic_id) and _has_effect_key(relic_id, ["クリティカル率", "クリティカルダメージ"])
 
 
 static func _is_speed_relic(relic_id: int) -> bool:
-	return _has_effect_key(relic_id, ["速度"])
+	return not _is_quest_relic(relic_id) and _has_effect_key(relic_id, ["速度"])
 
 
 static func _is_gauge_relic(relic_id: int) -> bool:
-	return _has_effect_key(relic_id, ["ゲージ"])
+	return not _is_quest_relic(relic_id) and _has_effect_key(relic_id, ["ゲージ"])
 
 
 # ---------------------------------------------------------------------------
@@ -1581,6 +1585,8 @@ static func use_mode(session: GameSession, uid: int) -> String:
 	match int(item.get("id", -1)):
 		103, 104, 190, 156:
 			return USE_UNIT
+		108:
+			return USE_NOW
 		191:
 			return USE_NOW if item.has("egg") else USE_UNIT
 		180:
@@ -1608,6 +1614,8 @@ static func use_prompt(session: GameSession, uid: int) -> String:
 			return "ギターを付けるキャラクターを選んでください。付いている成長の与ダメージをゴールドに換えます"
 		180:
 			return "レジャーを1つ消費して、最大体力のレリックを2つ得ますか？"
+		108:
+			return "サークルの味方を、それぞれコストが1高いキャラクターに変えますか？"
 		303, 304, 305, 306:
 			return "消すレリックを選んでください"
 	return ""
@@ -1630,6 +1638,14 @@ static func use_now(session: GameSession, uid: int) -> bool:
 	if item.is_empty():
 		return false
 	match int(item.get("id", -1)):
+		108:
+			## 108 西通り: 使うと、サークルの味方がコスト+1のキャラクターに変わる。
+			var host_108 := session.get_parent()
+			if host_108 == null or not host_108.has_method("relic_upgrade_board_costs"):
+				return false
+			session.take_relic(uid)
+			host_108.relic_upgrade_board_costs(int(_value(108, "コスト上昇")))
+			return true
 		180:
 			if use_mode(session, uid) != USE_NOW:
 				return false
@@ -1707,6 +1723,8 @@ static func use_on_relic(session: GameSession, uid: int, target_uid: int) -> boo
 			session.free_rerolls += int(_value(305, "無料更新"))
 		306:
 			session.player_hp = mini(player_max_hp(session), session.player_hp + int(_value(306, "HP")))
+	## 船酔い(171)・レコード(260)を消したときは、プレイヤーHPが新しい最大HPを超えない。
+	session.player_hp = mini(session.player_hp, player_max_hp(session))
 	return true
 
 
@@ -1788,7 +1806,8 @@ static func check_closure(session: GameSession) -> void:
 	if _count(session, 302) > 0:
 		return
 	if _count(session, 312) > 0 and _count(session, 313) > 0 and _count(session, 314) > 0:
-		session.add_relic(302, {"from_shinan": true})
+		## 入手条件で入ったクロージャでも、指南(301)の追加は入る。
+		session.add_relic(302)
 
 
 ## 058 誤操作: ラウンド開始時に自動で入れ直す回数。

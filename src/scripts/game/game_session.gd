@@ -91,6 +91,8 @@ var tally_merges := 0
 ## そのマッチでレリックを合成した回数（001 アカシの戦闘開始時の上昇）。
 var tally_relic_synths := 0
 var tally_relics_gained := 0
+## そのラウンドに入手したレリックの数（068 ニシミノの2回目の割合）。ラウンドが進むと0に戻る。
+var round_relics_gained := 0
 var tally_peak_coins := INITIAL_COINS
 var tally_peak_level := 1
 var tally_peak_board := 0
@@ -113,6 +115,7 @@ func add_relic(relic_id: int, seed: Dictionary = {}) -> int:
 		item[key] = seed[key]
 	relics.append(item)
 	tally_relics_gained += 1
+	round_relics_gained += 1
 	RelicEconomy.on_gained(self, uid, relic_id)
 	RelicEconomy.note_duplicate_name(self, relic_id)
 	RelicEconomy.check_closure(self)
@@ -390,6 +393,7 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 		tally_max_loss_streak = maxi(tally_max_loss_streak, loss_streak)
 
 	round_number += 1
+	round_relics_gained = 0
 
 	if not won and player_hp <= 0:
 		finish_run(RunEndReason.DEFEAT)

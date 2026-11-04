@@ -16,13 +16,7 @@ static func bind(fighter, host: Node) -> void:
 		+ _sum_one(ids, 220, "与ダメージ")
 		+ _sum_one(ids, 244, "与ダメージ")
 		+ _sum_one(ids, 250, "与ダメージ")
-		+ _sum_one(ids, 256, "与ダメージ")
-		+ _sum_one(ids, 259, "与ダメージ")
-		+ _sum_one(ids, 262, "与ダメージ")
 		+ _sum_one(ids, 273, "与ダメージ")
-		+ _sum_one(ids, 279, "与ダメージ")
-		+ _sum_one(ids, 302, "与ダメージ")
-		+ _sum_one(ids, 312, "与ダメージ")
 	) / 100.0
 	fighter.relic_attack_pen = (
 		_sum_one(ids, 7, "貫通率") + _sum_one(ids, 275, "貫通率")
@@ -33,34 +27,27 @@ static func bind(fighter, host: Node) -> void:
 		_sum_one(ids, 10, "最初の与ダメージ") + _sum_one(ids, 222, "最初の与ダメージ")
 	) / 100.0
 	fighter.relic_opening = fighter.relic_opening_bonus > 0.0
+	## 010 だけが「最初の攻撃は外れない」。222 は外れても終わる。
+	fighter.relic_opening_sure = ids.has(10)
 	fighter.relic_low_bonus = _sum_one(ids, 20, "瀕死の与ダメージ") / 100.0
-	fighter.relic_taken_cut = (
+	## 継続ダメージにも入るもの（162）と、入らないもの（014・206・231）。
+	fighter.relic_taken_cut_dot = _sum_one(ids, 162, "受けるダメージ") / 100.0
+	fighter.relic_taken_cut = fighter.relic_taken_cut_dot + (
 		_sum_one(ids, 14, "受けるダメージ")
-		+ _sum_one(ids, 162, "受けるダメージ")
 		+ _sum_one(ids, 206, "受けるダメージ")
 		+ _sum_one(ids, 231, "受けるダメージ")
-		+ _sum_one(ids, 259, "受けるダメージ")
-		+ _sum_one(ids, 302, "受けるダメージ")
-		+ _sum_one(ids, 313, "受けるダメージ")
 	) / 100.0
-	fighter.relic_heal_ratio = (
-		_sum_one(ids, 9, "回復") + _sum_one(ids, 266, "吸血") + _sum_one(ids, 280, "吸血")
-	) / 100.0
+	fighter.relic_heal_ratio = _sum_one(ids, 9, "回復") / 100.0
 	fighter.relic_heal_left = int(_sum_one(ids, 9, "回復の回数"))
-	if fighter.relic_heal_left <= 0 and fighter.relic_heal_ratio > 0.0 and (
-		ids.has(266) or ids.has(280)
-	):
-		fighter.relic_heal_left = 99
+	## 266・280 吸血: 与えたダメージの割合が戻る。継続・範囲にも入る。
+	fighter.relic_lifesteal = (_sum_one(ids, 266, "吸血") + _sum_one(ids, 280, "吸血")) / 100.0
+	fighter.relic_low_shield_ready = ids.has(266)
 	fighter.relic_layers = int(_sum_one(ids, 13, "層"))
 	fighter.relic_weaken_cut = _sum_one(ids, 17, "次の与ダメージ") / 100.0
 	fighter.relic_chase_left = int(_sum_one(ids, 11, "追撃の回数"))
 	fighter.relic_neighbor = ids.has(16)
-	fighter.relic_speed_step = int(
-		_sum_one(ids, 18, "速度の上昇") + _sum_one(ids, 267, "速度")
-	)
+	fighter.relic_speed_step = int(_sum_one(ids, 18, "速度の上昇"))
 	fighter.relic_speed_cap = int(_sum_one(ids, 18, "速度の上限"))
-	if ids.has(267) and fighter.relic_speed_cap <= 0:
-		fighter.relic_speed_cap = 80
 	var flat_speed := int(
 		_sum_one(ids, 2, "速度")
 		+ _sum_one(ids, 215, "速度")
@@ -86,11 +73,8 @@ static func bind(fighter, host: Node) -> void:
 	)
 	var hp_rate := (
 		_sum_one(ids, 161, "最大体力")
-		+ _sum_one(ids, 256, "最大体力")
 		+ _sum_one(ids, 269, "最大体力")
 	) / 100.0
-	if ids.has(256):
-		hp_rate = -absf(_sum_one(ids, 256, "最大体力") / 100.0)
 	if hp_bonus != 0 or not is_zero_approx(hp_rate):
 		var before: int = int(fighter.max_hp)
 		fighter.max_hp = maxi(1, int(round(float(fighter.max_hp + hp_bonus) * (1.0 + hp_rate))))
@@ -121,14 +105,7 @@ static func bind(fighter, host: Node) -> void:
 		fighter.priority = maxi(0, fighter.priority - priority_cut)
 	if ids.has(175):
 		fighter.barrier += int(round(float(fighter.max_hp) * _sum_one(ids, 175, "シールド") / 100.0))
-	if ids.has(282):
-		fighter.barrier += int(round(float(fighter.max_hp) * _sum_one(ids, 282, "シールド") / 100.0))
-	var board: BoardController = null
-	if host != null:
-		board = host.get("board") as BoardController
-	if ids.has(262) and board != null and _row(fighter.unit, board).x == 1:
-		fighter.hp = maxi(1, int(round(float(fighter.max_hp) * _sum_one(ids, 262, "開始体力") / 100.0)))
-	var gauge_bonus := _sum_one(ids, 217, "ゲージ") + _sum_one(ids, 271, "ゲージ")
+	var gauge_bonus := _sum_one(ids, 217, "ゲージ")
 	if gauge_bonus != 0.0:
 		fighter.kit["gauge_rate"] = float(fighter.kit.get("gauge_rate", 1.0)) + gauge_bonus / 100.0
 	_apply_pulse_kit(fighter, ids)
@@ -184,7 +161,7 @@ static func begin_attack(fighter) -> bool:
 		fighter.relic_weaken_left = 0
 	else:
 		fighter.relic_weaken_now = 0.0
-	return fighter.relic_opening
+	return fighter.relic_opening and fighter.relic_opening_sure
 
 
 static func finish_attack(fighter) -> void:
@@ -266,8 +243,7 @@ static func aura_outgoing(attacker, fighters: Dictionary, board: BoardController
 	bonus += _owned_outgoing(attacker, board)
 	if _row(attacker.unit, board).x == 1 and attacker.relic_ids.has(248):
 		bonus += _sum_one(attacker.relic_ids, 248, "与ダメージ") / 100.0
-	if _row(attacker.unit, board).x == 1:
-		bonus += float(_count_side(fighters, 262, attacker.enemy)) * _value(262, "与ダメージ") / 100.0
+	bonus += float(attacker.kit.get("tuple_bonus", 0.0))
 	bonus += _neighbor_ally_damage(attacker, fighters, board)
 	return bonus
 
@@ -313,27 +289,62 @@ static func aura_resist(defender, fighters: Dictionary, _board: BoardController)
 	return _value(28, "属性耐性") / 100.0
 
 
-static func aura_taken_cut(defender, fighters: Dictionary, board: BoardController) -> float:
+## is_dot のときは、継続ダメージにも入るもの（165・174・176・270・268）だけを足す。
+static func aura_taken_cut(defender, fighters: Dictionary, board: BoardController, is_dot: bool = false) -> float:
 	var cut := 0.0
-	if _unique_living(fighters, 23, defender.enemy, board) != null:
+	if not is_dot and _unique_living(fighters, 23, defender.enemy, board) != null:
 		cut += _value(23, "受けるダメージ") / 100.0
 	cut += float(_count_side(fighters, 165, defender.enemy)) * _value(165, "受けるダメージ") / 100.0
-	if _count_side(fighters, 176, defender.enemy) >= int(_value(176, "枚数")):
+	if not defender.enemy and _owned_count(board, 176) >= int(_value(176, "枚数")):
 		cut += _value(176, "受けるダメージ") / 100.0
 	cut += _adjacent_mitigation(defender, fighters, board)
+	if float(defender.kit.get("relic_hit_stack", 0.0)) > 0.0 and float(defender.kit.get("relic_hit_stack", 0.0)) >= float(defender.kit.get("relic_hit_cap", 0.0)) and float(defender.kit.get("relic_hit_cap", 0.0)) > 0.0:
+		cut += float(defender.relic_ids.count(268)) * _value(268, "軽減") / 100.0
+	if not defender.enemy:
+		cut += _owned_taken_cut(board)
+	if is_dot:
+		if defender.relic_ids.has(270):
+			cut += _ostrich_cut(defender, fighters, board)
+		return cut
 	if defender.relic_ids.has(270):
-		var row := _row(defender.unit, board)
-		var neighbors := 0
-		for key in fighters.keys():
-			var ally = fighters[key]
-			if ally == defender or ally.enemy != defender.enemy or not _living(ally):
-				continue
-			var ally_row := _row(ally.unit, board)
-			if ally_row.x == row.x and absi(ally_row.y - row.y) == 1:
-				neighbors += 1
-		cut += float(neighbors) * _sum_one(defender.relic_ids, 270, "受けるダメージ") / 100.0
+		cut += _ostrich_cut(defender, fighters, board)
 	cut += _guard_neighbor_cut(defender, fighters, board)
 	return cut
+
+
+static func _ostrich_cut(defender, fighters: Dictionary, board: BoardController) -> float:
+	return float(_neighbors(defender, fighters, board).size()) * _sum_one(defender.relic_ids, 270, "受けるダメージ") / 100.0
+
+
+static func _neighbors(fighter, fighters: Dictionary, board: BoardController) -> Array:
+	var out: Array = []
+	var row := _row(fighter.unit, board)
+	if row.x < 0:
+		return out
+	for key in fighters.keys():
+		var ally = fighters[key]
+		if ally == fighter or ally.enemy != fighter.enemy or not _living(ally):
+			continue
+		var ally_row := _row(ally.unit, board)
+		if ally_row.x == row.x and absi(ally_row.y - row.y) == 1:
+			out.append(ally)
+	return out
+
+
+static func _session_of(board: BoardController) -> GameSession:
+	if board == null or board.get_parent() == null:
+		return null
+	return board.get_parent().get("session") as GameSession
+
+
+static func _owned_count(board: BoardController, relic_id: int) -> int:
+	var session := _session_of(board)
+	return RelicEconomy._count(session, relic_id) if session != null else 0
+
+
+static func _owned_taken_cut(board: BoardController) -> float:
+	var session := _session_of(board)
+	return RelicEconomy.owned_taken_cut(session) if session != null else 0.0
 
 
 static func aura_priority(fighter, fighters: Dictionary, board: BoardController) -> int:
@@ -363,7 +374,7 @@ static func note_front_hit(target, fighters: Dictionary, board: BoardController)
 		var ally = fighters[key]
 		if ally == target or ally.enemy != target.enemy or not _living(ally):
 			continue
-		if _row(ally.unit, board) != Vector2i(0, row.y - 1) and _row(ally.unit, board) != Vector2i(0, row.y + 1):
+		if _row(ally.unit, board).x != 0:
 			continue
 		if ally.relic_next_cut <= 0.0:
 			ally.relic_next_cut = cut
@@ -440,23 +451,12 @@ static func _unique_living(fighters: Dictionary, relic_id: int, ally_enemy: bool
 
 static func _designated_unit(fighters: Dictionary, board: BoardController, relic_id: int, ally_enemy: bool) -> GameUnit:
 	var chosen: GameUnit = null
-	var seen := {}
-	var session = null
-	if board != null and board.get_parent() != null and board.get_parent().get("session") != null:
-		session = board.get_parent().session
-	if board != null and session != null:
-		for entry in board.get_all_units():
-			var unit := entry as GameUnit
-			if unit == null or unit.is_enemy != ally_enemy or not _unit_has_relic(unit, session, relic_id):
-				continue
-			seen[unit.get_instance_id()] = true
-			if _smaller_bearer(unit, chosen):
-				chosen = unit
+	## 戦闘に出ている（出ていた）キャラクターだけから選ぶ。控えや別の面の装備者では消えない。
 	for key in fighters.keys():
 		var fighter = fighters[key]
 		if fighter.enemy != ally_enemy or not is_instance_valid(fighter.unit):
 			continue
-		if seen.has(fighter.unit.get_instance_id()) or not fighter.relic_ids.has(relic_id):
+		if not fighter.relic_ids.has(relic_id):
 			continue
 		if _smaller_bearer(fighter.unit, chosen):
 			chosen = fighter.unit
@@ -528,23 +528,26 @@ static func _element_label(element: String) -> String:
 
 
 static func _apply_pulse_kit(fighter, ids: Array[int]) -> void:
-	var heal_gap := int(_sum_one(ids, 164, "間隔") + _sum_one(ids, 269, "間隔"))
+	## 164 就職・269 接着剤: 装備者の2行動ごとに回復。割合は枚数ぶん足す。
 	var heal_ratio := (_sum_one(ids, 164, "回復") + _sum_one(ids, 269, "回復")) / 100.0
-	if heal_gap > 0 and heal_ratio > 0.0:
-		fighter.kit["relic_pulse_gap"] = heal_gap
+	if heal_ratio > 0.0:
+		var gap := int(_value(164 if ids.has(164) else 269, "間隔"))
+		fighter.kit["relic_pulse_gap"] = maxi(gap, 1)
 		fighter.kit["relic_pulse_heal"] = heal_ratio
-		fighter.kit["relic_pulse_left"] = heal_gap
-	var stack_gap := int(_sum_one(ids, 272, "間隔") + _sum_one(ids, 268, "上限"))
+		fighter.kit["relic_pulse_left"] = maxi(gap, 1)
+	## 272 近影: 時間ごとに与ダメージ。枚数ぶん足す。
 	if ids.has(272):
-		fighter.kit["relic_ramp_gap"] = int(_value(272, "間隔"))
-		fighter.kit["relic_ramp_step"] = _value(272, "与ダメージ") / 100.0
-		fighter.kit["relic_ramp_left"] = int(_value(272, "間隔"))
+		fighter.kit["relic_ramp_ap"] = int(round(_value(272, "間隔") * float(AP_PER_SECOND)))
+		fighter.kit["relic_ramp_step"] = _sum_one(ids, 272, "与ダメージ") / 100.0
+		fighter.kit["relic_ramp_clock"] = 0
+	## 268 セクション: 通常の攻撃か被弾で積む。
 	if ids.has(268):
-		fighter.kit["relic_hit_step"] = _value(268, "与ダメージ") / 100.0
+		fighter.kit["relic_hit_step"] = _sum_one(ids, 268, "与ダメージ") / 100.0
 		fighter.kit["relic_hit_cap"] = _value(268, "上限") / 100.0
 		fighter.kit["relic_hit_stack"] = 0.0
-	if stack_gap < 0:
-		pass
+	## 267 連中: 1行動ごとに速度。上限なし。
+	if ids.has(267):
+		fighter.kit["relic_speed_grow"] = int(_sum_one(ids, 267, "速度"))
 
 
 static func _count_side(fighters: Dictionary, relic_id: int, ally_enemy: bool) -> int:
@@ -557,23 +560,17 @@ static func _count_side(fighters: Dictionary, relic_id: int, ally_enemy: bool) -
 
 
 static func _adjacent_mitigation(defender, fighters: Dictionary, board: BoardController) -> float:
-	var row := _row(defender.unit, board)
-	if row.x < 0 or not defender.relic_ids.has(174):
+	## 174 マイホーム: 隣に味方がいれば1回分、隣の装備者の人数だけさらに足す。
+	if not defender.relic_ids.has(174):
 		return 0.0
-	var neighbors := 0
-	for key in fighters.keys():
-		var ally = fighters[key]
-		if ally == defender or ally.enemy != defender.enemy or not _living(ally):
-			continue
-		var ally_row := _row(ally.unit, board)
-		if ally_row.x == row.x and absi(ally_row.y - row.y) == 1:
-			neighbors += 1
-	return float(neighbors) * _sum_one(defender.relic_ids, 174, "受けるダメージ") / 100.0
-
-
-static func _front_stack_hp_aura(defender, fighters: Dictionary, board: BoardController) -> float:
-	# 168 uses max HP, applied in bind via board-wide recount; mitigation unused here.
-	return 0.0
+	var near := _neighbors(defender, fighters, board)
+	if near.is_empty():
+		return 0.0
+	var times := 1
+	for ally in near:
+		if ally.relic_ids.has(174):
+			times += 1
+	return float(times) * _value(174, "受けるダメージ") / 100.0
 
 
 static func _neighbor_ally_damage(attacker, fighters: Dictionary, board: BoardController) -> float:
@@ -590,24 +587,17 @@ static func _neighbor_ally_damage(attacker, fighters: Dictionary, board: BoardCo
 		var bearer_row := _row(bearer.unit, board)
 		if bearer_row.x == row.x and absi(bearer_row.y - row.y) == 1:
 			bonus += _sum_one(bearer.relic_ids, 281, "与ダメージ") / 100.0
-	if attacker.relic_ids.has(270):
-		var neighbors := 0
-		for key in fighters.keys():
-			var ally = fighters[key]
-			if ally == attacker or ally.enemy != attacker.enemy or not _living(ally):
-				continue
-			var ally_row := _row(ally.unit, board)
-			if ally_row.x == row.x and absi(ally_row.y - row.y) == 1:
-				neighbors += 1
-		# 270 is taken-cut; handled in aura_taken_cut via adjacent style — skip here
-		if neighbors < 0:
-			bonus += 0.0
 	return bonus
 
 
 static func apply_front_hp_aura(fighters: Dictionary, board: BoardController) -> void:
 	for side in [false, true]:
-		var stacks := _count_side(fighters, 168, side)
+		## 前衛にいる味方が装備している枚数。
+		var stacks := 0
+		for key in fighters.keys():
+			var bearer = fighters[key]
+			if bearer.enemy == side and _living(bearer) and _row(bearer.unit, board).x == 0:
+				stacks += bearer.relic_ids.count(168)
 		if stacks <= 0:
 			continue
 		var rate := float(stacks) * _value(168, "最大体力") / 100.0
@@ -622,29 +612,22 @@ static func apply_front_hp_aura(fighters: Dictionary, board: BoardController) ->
 			fighter.hp = mini(int(fighter.max_hp), int(fighter.hp) + (int(fighter.max_hp) - before))
 
 
-static func tick_pulses(fighters: Dictionary) -> void:
-	for key in fighters.keys():
-		var fighter = fighters[key]
-		if not _living(fighter):
-			continue
-		var gap := int(fighter.kit.get("relic_pulse_gap", 0))
-		if gap > 0:
-			var left := int(fighter.kit.get("relic_pulse_left", gap)) - 1
-			if left <= 0:
-				var ratio := float(fighter.kit.get("relic_pulse_heal", 0.0))
-				var heal := int(round(float(fighter.max_hp) * ratio))
-				fighter.hp = mini(fighter.max_hp, fighter.hp + heal)
-				if is_instance_valid(fighter.unit):
-					fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
-				left = gap
-			fighter.kit["relic_pulse_left"] = left
-		var ramp_gap := int(fighter.kit.get("relic_ramp_gap", 0))
-		if ramp_gap > 0:
-			var ramp_left := int(fighter.kit.get("relic_ramp_left", ramp_gap)) - 1
-			if ramp_left <= 0:
-				fighter.relic_flat_damage += float(fighter.kit.get("relic_ramp_step", 0.0))
-				ramp_left = ramp_gap
-			fighter.kit["relic_ramp_left"] = ramp_left
+## 行動した本人のレリック（164・269 の回復、267 の速度）。速度が変わったら true。
+static func tick_actor(fighter) -> bool:
+	if not _living(fighter):
+		return false
+	var gap := int(fighter.kit.get("relic_pulse_gap", 0))
+	if gap > 0:
+		var left := int(fighter.kit.get("relic_pulse_left", gap)) - 1
+		if left <= 0:
+			heal(fighter, int(round(float(fighter.max_hp) * float(fighter.kit.get("relic_pulse_heal", 0.0)))))
+			left = gap
+		fighter.kit["relic_pulse_left"] = left
+	var grow := int(fighter.kit.get("relic_speed_grow", 0))
+	if grow > 0:
+		fighter.kit["relic_speed"] = int(fighter.kit.get("relic_speed", 0)) + grow
+		return true
+	return false
 
 
 static func note_hit_stack(fighter) -> void:
@@ -675,3 +658,143 @@ static func _sum_one(ids: Array[int], relic_id: int, key: String) -> float:
 		if owned == relic_id:
 			total += value
 	return total
+
+
+# ---------------------------------------------------------------------------
+# 戦闘中の追加効果（167・173・177・185・186・189・194・196・199・216・274・276・277・278・283・284）
+# ---------------------------------------------------------------------------
+
+## 「秒」で書かれた効果の換算。速度100のキャラクター1行動ぶんの行動ポイントを1秒とする（暫定）。
+const AP_PER_SECOND := 655
+
+
+## 装備レリック由来で、bind のあとに決まる値（セッションの積みなど）。
+static func bind_extras(fighter, host: Node) -> void:
+	var ids: Array[int] = fighter.relic_ids
+	var session: GameSession = host.session if host != null and host.get("session") != null else null
+	if session != null and not fighter.enemy and is_instance_valid(fighter.unit):
+		var rate := (RelicEconomy.growth_max_hp(session, fighter.unit) + RelicEconomy.leisure_max_hp(session, fighter.unit) - RelicEconomy.owned_max_hp_cut(session)) / 100.0
+		if not is_zero_approx(rate):
+			var before: int = int(fighter.max_hp)
+			fighter.max_hp = maxi(1, int(round(float(fighter.max_hp) * (1.0 + rate))))
+			fighter.hp = clampi(int(fighter.hp) + int(fighter.max_hp) - before, 1, int(fighter.max_hp))
+	var staggers := ids.count(177)
+	fighter.relic_hit_cut = float(staggers) * _value(177, "受けるダメージ") / 100.0 if staggers >= 2 else 0.0
+	fighter.relic_survive_ready = ids.has(277)
+	fighter.relic_debuff_guard_ap = int(_value(278, "行動ポイント")) if ids.has(278) else 0
+	fighter.relic_sea_clock = 0
+
+
+## 回復の共通入口。最大体力を超えたぶんは法螺話(173)でシールドになる。実際に増えた体力を返す。
+static func heal(fighter, amount: int) -> int:
+	if fighter == null or amount <= 0 or not fighter.alive:
+		return 0
+	var gained: int = mini(amount, int(fighter.max_hp) - int(fighter.hp))
+	fighter.hp += maxi(gained, 0)
+	var over: int = amount - maxi(gained, 0)
+	var copies: int = fighter.relic_ids.count(173)
+	if over > 0 and copies > 0:
+		var cap := int(round(float(fighter.max_hp) * float(copies) * _value(173, "シールド") / 100.0))
+		var held: int = mini(int(fighter.kit.get("overheal_shield", 0)), int(fighter.barrier))
+		var add: int = mini(over, maxi(cap - held, 0))
+		if add > 0:
+			fighter.barrier += add
+			fighter.kit["overheal_shield"] = held + add
+	if is_instance_valid(fighter.unit):
+		fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
+	return maxi(gained, 0)
+
+
+## 攻撃する側と受ける側の組で決まる与ダメージ（274 カメオ、276 部屋、186 火の装置、216/189 召喚）。
+static func pair_outgoing(attacker, defender, fighters: Dictionary, board: BoardController) -> float:
+	var bonus := 0.0
+	if defender != null and int(defender.max_hp) > int(attacker.max_hp):
+		bonus += float(attacker.relic_ids.count(274)) * _value(274, "与ダメージ") / 100.0
+	if defender != null:
+		var foe_col := _row(defender.unit, board).y
+		if foe_col >= 0:
+			for key in fighters.keys():
+				var bearer = fighters[key]
+				if bearer.enemy != attacker.enemy or not _living(bearer) or not bearer.relic_ids.has(276):
+					continue
+				var col := _row(bearer.unit, board).y
+				if col >= 0 and absi(col - foe_col) == 1:
+					bonus += _value(276, "受けるダメージ") / 100.0
+	if not attacker.enemy and _row(attacker.unit, board).x == 1:
+		bonus += float(attacker.kit.get("fire_device_bonus", 0.0))
+	return bonus
+
+
+## 召喚物・コピーの与ダメージ（216 は出した本人の装備、189 は持っているだけで入る）。
+static func summon_outgoing(summoner, session: GameSession) -> float:
+	var bonus := float(summoner.relic_ids.count(216)) * _value(216, "召喚の与ダメージ") / 100.0
+	if not summoner.enemy and session != null:
+		bonus += float(RelicEconomy._count(session, 189)) * _value(189, "与ダメージ") / 100.0
+	return bonus
+
+
+## 受けるダメージの軽減（177 よろめきの積み、185 土の装置、199 地震）。
+static func extra_taken_cut(defender) -> float:
+	return float(defender.relic_hit_cut) + float(defender.kit.get("device_taken_cut", 0.0))
+
+
+## 177: 攻撃を受けるたびに積む。継続ダメージの被弾でも積む。
+static func note_hit_taken(defender) -> void:
+	if defender == null or not defender.relic_ids.has(177):
+		return
+	defender.relic_hit_cut += _value(177, "受けるダメージ") / 100.0
+
+
+## 277 完結: 倒れるダメージを1戦闘に1回だけ体力1で耐える。耐えたら true。
+static func try_survive(target, incoming: int) -> bool:
+	if not target.relic_survive_ready or incoming < int(target.hp) or int(target.hp) <= 0:
+		return false
+	target.relic_survive_ready = false
+	target.relic_untargetable_ap = int(round(_value(277, "時間") * float(AP_PER_SECOND)))
+	return true
+
+
+## 278 執念: まだデバフを受けない時間か。
+static func blocks_debuff(target) -> bool:
+	return int(target.relic_debuff_guard_ap) > 0
+
+
+## 行動ポイントが減るたびに呼ぶ。lost はその味方の減ったぶん、spent は経過ぶん。
+static func tick_time(fighter, lost: int, spent: int) -> void:
+	if int(fighter.relic_untargetable_ap) > 0:
+		fighter.relic_untargetable_ap = maxi(0, int(fighter.relic_untargetable_ap) - spent)
+	if int(fighter.relic_debuff_guard_ap) > 0:
+		fighter.relic_debuff_guard_ap = maxi(0, int(fighter.relic_debuff_guard_ap) - lost)
+	if fighter.relic_ids.has(284):
+		fighter.relic_sea_clock += spent
+	var ramp_ap := int(fighter.kit.get("relic_ramp_ap", 0))
+	if ramp_ap > 0:
+		var clock := int(fighter.kit.get("relic_ramp_clock", 0)) + spent
+		while clock >= ramp_ap:
+			clock -= ramp_ap
+			fighter.relic_flat_damage += float(fighter.kit.get("relic_ramp_step", 0.0))
+		fighter.kit["relic_ramp_clock"] = clock
+
+
+## 284 海: 間隔ぶん経ったら true を返し、時計を戻す。
+static func take_sea_pulse(fighter) -> bool:
+	if not fighter.relic_ids.has(284):
+		return false
+	var gap := int(round(_value(284, "間隔") * float(AP_PER_SECOND)))
+	if gap <= 0 or int(fighter.relic_sea_clock) < gap:
+		return false
+	fighter.relic_sea_clock -= gap
+	return true
+
+
+## 283 違反: 返すダメージ。
+static func reflect_amount(target, dealt: int) -> int:
+	var copies: int = target.relic_ids.count(283)
+	if copies <= 0 or dealt <= 0:
+		return 0
+	return int(round(float(dealt) * float(copies) * _value(283, "反射") / 100.0))
+
+
+## 037 ドローン: 範囲シナジーで攻撃する味方の範囲の体数が1多い（1つだけ入る）。
+static func drone_extra(actor, fighters: Dictionary, board: BoardController) -> int:
+	return 1 if _unique_living(fighters, 37, actor.enemy, board) != null else 0

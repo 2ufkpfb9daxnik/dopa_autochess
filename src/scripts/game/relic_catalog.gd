@@ -52,7 +52,11 @@ static func synthesize_id(left_id: int, right_id: int) -> int:
 	if ids.is_empty():
 		return 1
 	var mixed := absi(left_id + right_id + left_id * right_id)
-	return int(ids[mixed % ids.size()])
+	var result := int(ids[mixed % ids.size()])
+	## クロージャは合成でも出ない。出たら次のIDにずらす。
+	if result == CLOSURE_ID:
+		result = int(ids[(mixed + 1) % ids.size()])
+	return result
 
 
 static func get_relic(relic_id: int) -> Dictionary:

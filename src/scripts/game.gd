@@ -50,6 +50,9 @@ var _relic_pick: RelicPick
 var _relic_pick_active := false
 var _relic_tray: RelicTray
 var _relic_synth: RelicSynth
+## レリックを使う途中で、対象（キャラクターまたはレリック）を待っているレリックの uid。
+var _relic_use_uid := -1
+var _relic_use_mode := ""
 var _last_reroll_button_text := ""
 var _hp_exp_button: Button
 var _flushing_relic_units := false
@@ -1033,6 +1036,7 @@ func _start_battle() -> void:
 	RelicEconomy.on_round_end(session, bench_count, board.bench_units.size())
 	session.finish_battle(battle_won, remaining_enemies)
 	RelicEconomy.note_battle_finished(session, battle_won)
+	RelicEconomy.note_battle_outcome(session, battle_won, outcome.get("relic_stats", {}))
 	session.player_hp = mini(session.player_hp, RelicEconomy.player_max_hp(session))
 	_note_deploy_cap_change(cap_before_battle)
 	session.toba_round_xp = _toba_round_xp_bonus()
@@ -1040,9 +1044,7 @@ func _start_battle() -> void:
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
 	else:
-		var fought_round := session.round_number - 1
-		var damage := PlayerHp.calc_loss_damage(fought_round, remaining_enemies)
-		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
+		_log("戦闘敗北 (HP -%d, 残り %d)" % [session.last_loss_damage, session.player_hp])
 	battle_overlay.visible = false
 	board.set_battle_mode(false)
 	_battle.reroll()
@@ -1575,6 +1577,7 @@ func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
 	session.add_relic(result_id)
 	if synth_gold > 0:
 		session.add_coins(synth_gold)
+	RelicEconomy.note_relic_synthesized(session)
 	var data := RelicCatalog.get_relic(result_id)
 	_log("レリックを合成した: %s" % str(data.get("name", "")))
 	_note_synth_kit_charges()
@@ -2228,6 +2231,7 @@ func _setup_formation_ui() -> void:
 	_relic_tray.hovered.connect(_on_relic_tray_hovered)
 	_relic_tray.hover_cleared.connect(_on_relic_tray_hover_cleared)
 	_relic_tray.drag_finished.connect(_on_relic_drag_finished)
+	_relic_tray.clicked.connect(_on_relic_tray_clicked)
 	ui.add_child(_relic_tray)
 	_relic_synth = RelicSynth.new()
 	_relic_synth.name = "RelicSynth"
@@ -2806,7 +2810,106 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _relic_use_uid >= 0 and _handle_relic_use_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	_formation.handle_mouse_motion(event)
+
+
+## 手元のレリックをクリックしたとき。使えるレリックなら確認を出す。
+func _on_relic_tray_clicked(uid: int) -> void:
+	if session == null or not session.is_prep() or _relic_synth == null:
+		return
+	var mode := RelicEconomy.use_mode(session, uid)
+	if mode == RelicEconomy.USE_NONE:
+		return
+	var relic_id := session.relic_id_of(uid)
+	_relic_synth.open_confirm("使う", relic_id, RelicEconomy.use_prompt(session, uid), func() -> void:
+		_begin_relic_use(uid, mode)
+	)
+
+
+func _begin_relic_use(uid: int, mode: String) -> void:
+	var name := str(RelicCatalog.get_relic(session.relic_id_of(uid)).get("name", ""))
+	if mode == RelicEconomy.USE_NOW:
+		if RelicEconomy.use_now(session, uid):
+			_log("%s を使った" % name)
+		_after_relic_use()
+		return
+	_relic_use_uid = uid
+	_relic_use_mode = mode
+	var prompt := RelicEconomy.use_prompt(session, uid) + "（右クリックで取りやめ）"
+	_show_board_notice(prompt, true)
+	_log(prompt)
+
+
+## 対象を選ぶあいだの入力。処理したら true。
+func _handle_relic_use_input(event: InputEvent) -> bool:
+	var cancel := false
+	if event is InputEventKey and event.is_pressed() and (event as InputEventKey).keycode == KEY_ESCAPE:
+		cancel = true
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		var button := (event as InputEventMouseButton).button_index
+		if button == MOUSE_BUTTON_RIGHT:
+			cancel = true
+		elif button == MOUSE_BUTTON_LEFT:
+			_pick_relic_use_target((event as InputEventMouseButton).global_position)
+			return true
+	if cancel:
+		_end_relic_use()
+		_log("レリックを使うのをやめた")
+		return true
+	return false
+
+
+func _pick_relic_use_target(at: Vector2) -> void:
+	var uid := _relic_use_uid
+	var relic_id := session.relic_id_of(uid)
+	var name := str(RelicCatalog.get_relic(relic_id).get("name", ""))
+	var used := false
+	if _relic_use_mode == RelicEconomy.USE_UNIT:
+		var unit := _unit_under_point(at)
+		if unit == null:
+			return
+		used = RelicEconomy.use_on_unit(session, uid, unit)
+		if used and relic_id == 191:
+			_put_unit_in_egg(unit)
+		if used:
+			_log("%s を %s に使った" % [name, unit.get_display_name()])
+		else:
+			_log("%s は %s には使えない" % [name, unit.get_display_name()])
+	elif _relic_use_mode == RelicEconomy.USE_RELIC:
+		var target := _relic_tray.uid_at(at) if _relic_tray != null else -1
+		if target < 0:
+			return
+		var target_name := str(RelicCatalog.get_relic(session.relic_id_of(target)).get("name", ""))
+		used = RelicEconomy.use_on_relic(session, uid, target)
+		if used:
+			_log("%s で %s を消した" % [name, target_name])
+		else:
+			_log("%s は消せない" % target_name)
+	_end_relic_use()
+	_after_relic_use()
+
+
+## 見学(191): 卵に入れたキャラクターは盤面から外す。装備は手元に戻る。
+func _put_unit_in_egg(unit: GameUnit) -> void:
+	unit.equipped_relic_uids.clear()
+	board.remove_unit(unit)
+	unit.queue_free()
+
+
+func _end_relic_use() -> void:
+	_relic_use_uid = -1
+	_relic_use_mode = ""
+	if _board_notice != null and _board_notice.is_persistent():
+		_board_notice.clear_persistent()
+	_refresh_overflow_notice()
+
+
+func _after_relic_use() -> void:
+	_formation.refresh_widgets()
+	_update_ui()
 
 
 func relic_rewrite_bottom_bench(times: int) -> void:
@@ -2942,8 +3045,9 @@ func _update_ui() -> void:
 	else:
 		streak_badge.visible = streak_visible
 	var level := session.get_level()
-	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience)
-	var xp_need := PlayerLevel.get_xp_needed_for_next_level(level)
+	var level_cap := RelicEconomy.level_cap(session)
+	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience, level_cap)
+	var xp_need := PlayerLevel.get_xp_needed_for_next_level(level, level_cap)
 	if xp_need > 0:
 		exp_status_label.text = "Lv.%d\n%d/%d" % [level, xp_into, xp_need]
 		exp_progress_bar.visible = true

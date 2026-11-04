@@ -37,7 +37,16 @@ var _relic_actions := 0
 var _relic36_done := false
 var _relic32_done := false
 var _relic31_left := 0
+var _relic30_left := 0
+var _relic167_left := 0
+var _relic183_left := 0
 var _growth_killer: Fighter = null
+## レリック用の戦闘記録。play() の戻り値 "relic_stats" で渡す。
+var _stats: Dictionary = {}
+## 戦闘中に置いた装置（185・186・194・181・182・198）。{"id", "slot", "attackable"}
+var _relic_devices: Array[Dictionary] = []
+## 戦闘のあいだだけ出したコピー・装置のユニット。戦闘後に消す。
+var _temp_units: Array[GameUnit] = []
 
 
 class Fighter:
@@ -70,6 +79,10 @@ class Fighter:
 	var relic_flat_damage := 0.0
 	var relic_opening_bonus := 0.0
 	var relic_opening := false
+	var relic_opening_sure := false
+	var relic_taken_cut_dot := 0.0
+	var relic_lifesteal := 0.0
+	var relic_low_shield_ready := false
 	var relic_low_bonus := 0.0
 	var relic_taken_cut := 0.0
 	var relic_heal_ratio := 0.0
@@ -90,6 +103,17 @@ class Fighter:
 	var relic_fallen_bonus := 0.0
 	var relic_slay_bonus := 0.0
 	var relic_start_row := -1
+	var relic_hit_cut := 0.0
+	var relic_survive_ready := false
+	var relic_untargetable_ap := 0
+	var relic_debuff_guard_ap := 0
+	var relic_sea_clock := 0
+	var relic_dealt_total := 0
+	var relic_dipped := false
+	## コピー(187・188・190)・装置(181・182・198)。シナジーやレリックの結果には数えない。
+	var relic_temp := false
+	var relic_device := false
+	var relic_counter_left := 0
 	var priority := 100
 	var weight_attack := 5
 	var weight_buff := 3
@@ -117,6 +141,12 @@ func play() -> Dictionary:
 	_relic36_done = false
 	_relic32_done = false
 	_relic31_left = 0
+	_relic30_left = 0
+	_relic167_left = int(RelicCombat._value(167, "回数"))
+	_relic183_left = int(RelicCombat._value(183, "上限"))
+	_relic_devices.clear()
+	_temp_units.clear()
+	_stats = {"team_dealt": 0, "team_taken": 0, "crits": 0, "hits": 0, "gauge_spent": 0, "devices_broken": 0, "team_max": 0}
 	var opening_done := false
 	var won := false
 	while _host != null and _host.is_inside_tree():
@@ -156,6 +186,10 @@ func play() -> Dictionary:
 			_refresh_bar()
 			await _wait(0.05)
 			continue
+		if actor.enemy and bool(_stats.get("taboo_armed", false)):
+			_stats["taboo_armed"] = false
+			actor.relic_weaken_cut = maxf(actor.relic_weaken_cut, RelicCombat._value(195, "与ダメージ") / 100.0)
+			actor.relic_weaken_left = 1
 		var was_buff: bool = await _act(actor)
 		_relic_after_action(actor)
 		if _host == null or not _host.is_inside_tree():
@@ -165,11 +199,14 @@ func play() -> Dictionary:
 			actor.ap = actor.base_ap
 			actor.unit.action_value = actor.ap
 		await _kits_after_turn(actor, was_buff)
+		_note_gauge_spent()
 		_refresh_bar()
 	var remaining := _alive_count(true)
 	_relic_on_battle_end()
+	var relic_stats := _collect_relic_stats()
 	finish()
-	return {"won": won, "remaining": remaining}
+	_clear_temp_units()
+	return {"won": won, "remaining": remaining, "relic_stats": relic_stats}
 
 
 func cleanse_debuff(unit: GameUnit) -> void:
@@ -346,6 +383,7 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	if actor.sheet_id == 61 and bool(actor.kit.get("extra_earth_armed", false)):
 		await _torahime_extra_strike(actor)
 	var opening := RelicCombat.begin_attack(actor)
+	RelicCombat.note_hit_stack(actor)
 	var speed_before := actor.relic_speed_stack
 	var packets := _attack_packets(actor, primary)
 	actor.kit["continuity_done"] = false
@@ -427,6 +465,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var broke := false
 	if direct:
 		broke = _reduce_break_gauge(actor, target)
+		## 012 物語はこれでおしまい: 自分の属性の撃破ゲージがさらに1回分減る。外れても減る。
+		if not broke and actor.relic_ids.has(12):
+			broke = _step_break_gauge(actor, target, actor.element)
 		_era4_note_break(actor, target, broke)
 		if broke and actor.sheet_id == 67 and actor.element == "wind" and int(actor.kit.get("aoe_charges_left", 0)) > 0:
 			actor.kit["nawate_full_aoe"] = true
@@ -482,6 +523,12 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	_play_attack_sounds(actor, crit)
 	_play_hit_fx(actor, target)
 	var absorbed := _apply_damage(target, dealt)
+	_note_actor_dealt(actor, absorbed)
+	if not actor.enemy:
+		if crit:
+			_stats["crits"] = int(_stats.get("crits", 0)) + 1
+		if direct:
+			_stats["hits"] = int(_stats.get("hits", 0)) + 1
 	var attack_ko := not target.alive
 	if guarded:
 		target.unit.popup_battle_text("ガード", Color(0.62, 0.84, 1.0))
@@ -510,7 +557,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		var before_layers := int(target.layers.get(actor.element, 0))
 		RelicCombat.on_direct_hit(actor, target, _fighters)
 		relic_layered = int(target.layers.get(actor.element, 0)) > before_layers
-		RelicCombat.note_front_hit(target, _fighters, _host.board)
+		_relic_thumbtack(actor, target)
 		if direct_crit:
 			var layer_bearer = RelicCombat.crit_layer_bearer(actor, _fighters, _relic31_left, _host.board)
 			if layer_bearer != null:
@@ -520,6 +567,13 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 					await _apply_dot(layer_bearer, target)
 	if connected and target.relic_next_cut > 0.0:
 		target.relic_next_cut = 0.0
+	if connected:
+		RelicCombat.note_front_hit(target, _fighters, _host.board)
+		if dealt > 0:
+			RelicCombat.note_hit_stack(target)
+	if direct and connected:
+		_relic_on_connect(actor)
+	await _relic_counter_hits(actor, target, dealt, direct)
 	if target.guarding and target.alive and is_instance_valid(target.unit):
 		target.unit.play_guard_hit_shake()
 		await _wait(0.32)
@@ -541,6 +595,8 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		RelicCombat.note_kill(actor)
 		if attack_ko:
 			_relic_on_slay(actor)
+		if actor.relic_temp:
+			_relic_summon_kill(actor)
 		await _ko(target)
 		return
 	if dealt > 0 and not target.guarding:
@@ -783,6 +839,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 		fighter.ap = maxi(0, fighter.ap - spent)
 		var lost := before - fighter.ap
 		_shed_dot_layers(fighter, lost)
+		RelicCombat.tick_time(fighter, lost, spent)
 		if fighter != actor and lost > 0:
 			await _arita_on_ap_loss(fighter, was_buff)
 			_fukusaki_on_ap_loss(fighter)
@@ -792,6 +849,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 	if actor.alive and is_instance_valid(actor.unit):
 		actor.ap = actor.base_ap
 		actor.unit.action_value = actor.ap
+	await _relic_sea_pulses()
 
 
 func _shed_dot_layers(fighter: Fighter, lost: int) -> void:
@@ -822,9 +880,11 @@ func _fighter(unit: GameUnit, slot_hint: int) -> Fighter:
 	_assign_placeholder(fighter, slot_hint)
 	_apply_synergy_stats(fighter)
 	RelicCombat.bind(fighter, _host)
+	RelicCombat.bind_extras(fighter, _host)
 	_init_break_gauges(fighter)
 	if int(fighter.kit.get("relic_speed", 0)) != 0:
 		_recompute_speed(fighter, true)
+	_apply_temp_profile(fighter)
 	if is_instance_valid(fighter.unit):
 		fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
 	_fighters[key] = fighter
@@ -1048,6 +1108,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	var defense_coef := 1000.0 / (1000.0 + defense * (1.0 - penetration))
 	var dealt_coef := 1.0 + bonus_extra + RelicCombat.flat_outgoing(attacker) + attacker.relic_fallen_bonus + attacker.relic_slay_bonus
 	dealt_coef += RelicCombat.aura_outgoing(attacker, _fighters, board)
+	dealt_coef += RelicCombat.pair_outgoing(attacker, defender, _fighters, board)
+	dealt_coef -= float(attacker.kit.get("copy_outgoing_cut", 0.0))
 	if not attacker.enemy and _host != null:
 		dealt_coef += RelicEconomy.growth_outgoing(_host.session, attacker.unit)
 	if use_general_bonus:
@@ -1107,7 +1169,12 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		taken_cut += float(defender.kit.get("next_taken_cut_active", 0.0))
 		taken_cut += float(defender.kit.get("received_taken_cut", 0.0))
 		taken_cut += float(defender.kit.get("nabari_first_cut", 0.0))
+		taken_cut += RelicCombat.extra_taken_cut(defender)
 		amount *= maxf(0.0, 1.0 - taken_cut)
+	else:
+		## 継続ダメージにも入る受けるダメージの軽減。
+		var dot_cut := defender.relic_taken_cut_dot + RelicCombat.aura_taken_cut(defender, _fighters, board, true)
+		amount *= maxf(0.0, 1.0 - dot_cut)
 	if not defender.enemy and _host != null:
 		amount *= maxf(0.0, 1.0 - RelicEconomy.growth_taken(_host.session, defender.unit))
 	if amount < 0.0:
@@ -1125,7 +1192,7 @@ func _pick_target(actor: Fighter) -> Fighter:
 		var fighter: Fighter = _fighters[key]
 		if not fighter.in_queue or not fighter.alive or fighter.enemy == actor.enemy:
 			continue
-		if not is_instance_valid(fighter.unit):
+		if not is_instance_valid(fighter.unit) or fighter.relic_untargetable_ap > 0:
 			continue
 		pool.append(fighter)
 		best = maxi(best, _threat(fighter))
@@ -1162,7 +1229,7 @@ func _next_actor() -> Fighter:
 	var chosen: Fighter = null
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if not fighter.in_queue or not fighter.alive:
+		if not fighter.in_queue or not fighter.alive or fighter.relic_device:
 			continue
 		if chosen == null or _acts_before(fighter, chosen):
 			chosen = fighter
@@ -1250,7 +1317,7 @@ func _alive_count(enemy: bool) -> int:
 	var count := 0
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if fighter.in_queue and fighter.alive and fighter.enemy == enemy:
+		if fighter.in_queue and fighter.alive and fighter.enemy == enemy and not fighter.relic_device:
 			count += 1
 	return count
 
@@ -1297,7 +1364,7 @@ func _refresh_bar() -> void:
 func _apply_synergy_stats(fighter: Fighter) -> void:
 	if not fighter.kit.has("base_speed"):
 		fighter.kit["base_speed"] = fighter.speed
-	var bonus := SynergyTracker.bonuses_for(fighter.unit, _host.board.get_circle_units(), _host.session)
+	var bonus := SynergyTracker.bonuses_for(fighter.unit, _synergy_circle_units(), _host.session)
 	var hp_rate := float(bonus["hp"])
 	if hp_rate != 0.0:
 		fighter.max_hp = maxi(1, int(round(float(fighter.max_hp) * (1.0 + hp_rate))))
@@ -1510,14 +1577,19 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 		target.kit["next_taken_cut_active"] = float(target.kit.get("redirect_taken_cut", 0.0))
 		left = target.hp - 1
 		_host._log("%s は体力1で耐えた" % target.unit.get_display_name())
+	if left > 0 and RelicCombat.try_survive(target, left):
+		left = target.hp - 1
+		_host._log("%s は完結で体力1で耐えた" % target.unit.get_display_name())
 	if float(target.kit.get("next_taken_cut_active", 0.0)) > 0.0 and left > 0 and target.hp - left > 0:
 		pass
 	elif float(target.kit.get("next_taken_cut_active", 0.0)) > 0.0 and left > 0:
 		target.kit["next_taken_cut_active"] = 0.0
 	if left > 0:
+		var lost_hp := mini(left, target.hp)
 		target.hp = maxi(0, target.hp - left)
 		if float(target.kit.get("redirect_taken_cut_active", 0.0)) > 0.0:
 			target.kit["redirect_taken_cut_active"] = 0.0
+		_note_relic_damage(target, lost_hp)
 	target.unit.set_battle_hp(target.hp, target.max_hp)
 	_show_gauge(target)
 	if target.hp <= 0:
@@ -1637,6 +1709,9 @@ func _neighbor_bonus(attacker: Fighter) -> float:
 
 
 func _pick_attack_target(actor: Fighter) -> Fighter:
+	var decoy := _relic_decoy_target(actor)
+	if decoy != null:
+		return decoy
 	if actor.sheet_id == 4:
 		var forced := _layered_target(actor)
 		if forced != null:
@@ -1828,8 +1903,7 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 		actor.kit["heal_used"] = true
 		var heal := int(round(float(actor.max_hp) * float(actor.kit.get("heal_ratio", 0.0))))
 		if heal > 0 and is_instance_valid(actor.unit):
-			actor.hp = mini(actor.max_hp, actor.hp + heal)
-			actor.unit.set_battle_hp(actor.hp, actor.max_hp)
+			RelicCombat.heal(actor, heal)
 			actor.unit.popup_battle_text("+%d" % heal, Color(0.55, 0.95, 0.62))
 			_host._log("%s が %d 回復した" % [actor.unit.get_display_name(), heal])
 		if target.alive and is_instance_valid(target.unit):
@@ -1920,9 +1994,13 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var taken := float(target.kit.get("received_dot_taken", 0.0))
 	if cut != 0.0 or taken != 0.0:
 		raw = maxi(0, int(round(float(raw) * (1.0 - cut + taken))))
+	var device_cut := float(target.kit.get("device_taken_cut", 0.0))
+	if device_cut > 0.0:
+		raw = maxi(0, int(round(float(raw) * (1.0 - device_cut))))
 	var guarded := target.guarding and raw > 0
 	var dealt := _mitigate(target, raw)
 	var absorbed := _apply_damage(target, dealt)
+	_note_actor_dealt(actor, absorbed)
 	if dealt > 0 and is_instance_valid(target.unit):
 		target.unit.popup_battle_text("継続-%d" % dealt, Color(0.75, 0.45, 0.9))
 	if is_instance_valid(actor.unit) and is_instance_valid(target.unit):
@@ -1977,7 +2055,8 @@ func _relic_on_battle_start() -> void:
 				continue
 			foe.relic_weaken_cut = cut
 			foe.relic_weaken_left = 1
-			foe.relic_weaken_source = bearer29.unit.get_instance_id()
+			## 開始時の1回きりのデバフなので、装備者が倒れても消さない。
+			foe.relic_weaken_source = 0
 	if RelicCombat._unique_living(_fighters, 38, false, _host.board) != null:
 		_relic_blocks = int(RelicCombat._value(38, "無効の回数"))
 	if RelicCombat._unique_living(_fighters, 31, false, _host.board) != null:
@@ -1987,22 +2066,21 @@ func _relic_on_battle_start() -> void:
 		if fighter.enemy or not is_instance_valid(fighter.unit):
 			continue
 		fighter.relic_start_row = RelicCombat._row(fighter.unit, _host.board).x
+	if RelicCombat._unique_living(_fighters, 30, false, _host.board) != null:
+		_relic30_left = int(RelicCombat._value(30, "撃破の回数"))
 	RelicEconomy.note_battle_started(_host.session)
 	RelicCombat.apply_front_hp_aura(_fighters, _host.board)
 	_relic_opening_cut()
+	_relic_start_rows()
+	_relic_place_devices()
+	_stats["team_max"] = _team_max_hp(false)
 
 
 func _relic_opening_cut() -> void:
-	## 195 タブー: 敵の最初の行動の与ダメージを下げる。
-	if RelicCombat._unique_living(_fighters, 195, false, _host.board) == null:
+	## 195 タブー（持っているだけ）: 最初に行動する敵の、その攻撃の与ダメージを下げる。
+	if RelicEconomy._count(_host.session, 195) <= 0:
 		return
-	var cut := RelicCombat._value(195, "与ダメージ") / 100.0
-	for key in _fighters.keys():
-		var foe: Fighter = _fighters[key]
-		if not foe.enemy or not foe.alive:
-			continue
-		foe.relic_weaken_cut = maxf(foe.relic_weaken_cut, cut)
-		foe.relic_weaken_left = maxi(foe.relic_weaken_left, 1)
+	_stats["taboo_armed"] = true
 
 
 func _deployed_allies() -> Array:
@@ -2034,9 +2112,8 @@ func _relic_on_battle_end() -> void:
 
 
 func _relic_after_action(actor: Fighter) -> void:
-	RelicCombat.tick_pulses(_fighters)
-	if actor != null and not actor.enemy:
-		RelicCombat.note_hit_stack(actor)
+	if actor != null and RelicCombat.tick_actor(actor):
+		_recompute_speed(actor, true)
 	if actor == null or actor.enemy:
 		return
 	_relic_actions += 1
@@ -2058,8 +2135,7 @@ func _relic_after_action(actor: Fighter) -> void:
 	if chosen == null:
 		return
 	var heal := int(round(float(chosen.max_hp) * RelicCombat._value(36, "回復") / 100.0))
-	chosen.hp = mini(chosen.max_hp, chosen.hp + heal)
-	chosen.unit.set_battle_hp(chosen.hp, chosen.max_hp)
+	RelicCombat.heal(chosen, heal)
 
 
 func _relic_on_slay(actor: Fighter) -> void:
@@ -2099,6 +2175,7 @@ func _refresh_relic_speeds() -> void:
 func _on_fighter_down(dead: Fighter) -> void:
 	RelicCombat.clear_touching(dead, _fighters)
 	_relic_on_ally_down(dead)
+	await _relic_on_bearer_down(dead)
 	if dead.enemy:
 		RelicEconomy.note_growth_kill(_host.session, _growth_killer.unit if _growth_killer != null and is_instance_valid(_growth_killer.unit) else null, _deployed_allies())
 	if dead.sheet_id == 17:
@@ -2308,6 +2385,9 @@ func _add_debuff(actor: Fighter, target: Fighter, kind: String, amount: float) -
 	if actor.enemy and not target.enemy and _relic_blocks > 0:
 		_relic_blocks -= 1
 		_host._log("%s へのデバフはレリックで無効" % target.unit.get_display_name())
+		return
+	if actor.enemy != target.enemy and RelicCombat.blocks_debuff(target):
+		_host._log("%s は執念でデバフを受けない" % target.unit.get_display_name())
 		return
 	var previous: Array = actor.kit.get("debuffs", [])
 	for entry in previous:
@@ -2779,9 +2859,13 @@ func _break_damage_bonus(actor: Fighter) -> float:
 func _reduce_break_gauge(actor: Fighter, target: Fighter) -> bool:
 	if actor == null or target == null or not _can_break(actor):
 		return false
-	if not is_instance_valid(target.unit):
+	return _step_break_gauge(actor, target, actor.element)
+
+
+## 撃破ゲージを1回分減らす。撃破シナジーの判定はしない。0にしたら true。
+func _step_break_gauge(actor: Fighter, target: Fighter, element: String) -> bool:
+	if actor == null or target == null or not is_instance_valid(target.unit):
 		return false
-	var element := actor.element
 	if element.is_empty():
 		return false
 	var left := int(target.break_left.get(element, BREAK_MAX))
@@ -2877,9 +2961,8 @@ func _awaji_break_damage(actor: Fighter, target: Fighter) -> void:
 	if dealt > 0:
 		await _note_hit_received(actor, target, false)
 	if not target.alive:
+		## 撃破ダメージは通常の攻撃ではないので、011・040 の撃破には数えない。
 		_growth_killer = actor
-		RelicCombat.note_kill(actor)
-		_relic_on_slay(actor)
 		await _ko(target)
 	elif dealt > 0 and not target.guarding:
 		await _flinch(target)
@@ -2897,7 +2980,7 @@ func _synergy_member_count(enemy: bool, synergy_name: String) -> int:
 	var count := 0
 	for entry in _side(enemy):
 		var ally: Fighter = entry
-		if ally.alive and ally.hp > 0 and _has_synergy(ally, synergy_name):
+		if ally.alive and ally.hp > 0 and not ally.relic_temp and _has_synergy(ally, synergy_name):
 			count += 1
 	return count
 
@@ -3324,8 +3407,6 @@ func _ikuno_opening(actor: Fighter) -> void:
 	else:
 		actor.kit["follow_left"] = 0
 		_growth_killer = actor
-		RelicCombat.note_kill(actor)
-		_relic_on_slay(actor)
 		await _ko(target)
 	if broke and target.alive and target.hp > 0:
 		pass
@@ -3538,9 +3619,9 @@ func _goshodan_splash_count(actor: Fighter) -> int:
 		return 1
 	var count := _synergy_member_count(actor.enemy, "世界はゴ冗談")
 	if count >= 6:
-		return 3
+		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	if count >= 2:
-		return 2
+		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	return 1
 
 
@@ -4215,7 +4296,7 @@ func _sakurai_summon(acted: Fighter) -> void:
 	var saved_crit := sakurai.crit_damage
 	sakurai.element = "water"
 	sakurai.crit_damage += float(sakurai.kit.get("summon_crit_damage", 0.0)) / 100.0
-	var bonus := _kit_bonus(sakurai, target, false)
+	var bonus := _kit_bonus(sakurai, target, false) + RelicCombat.summon_outgoing(sakurai, _host.session)
 	var rolled := _roll_damage(sakurai, target, true, bonus, power)
 	var dealt := _mitigate(target, int(rolled["amount"]))
 	_apply_damage(target, dealt)
@@ -4226,6 +4307,10 @@ func _sakurai_summon(acted: Fighter) -> void:
 	if is_instance_valid(target.unit) and dealt > 0:
 		target.unit.popup_battle_text("-%d" % dealt, Color(0.45, 0.85, 1.0))
 		_host._log("%s の召喚が %s に %d" % [sakurai.unit.get_display_name(), target.unit.get_display_name(), dealt])
+	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+		_relic_summon_kill(sakurai)
+		_growth_killer = sakurai
+		await _ko(target)
 
 
 func _refresh_sakai_aura() -> void:
@@ -4381,9 +4466,9 @@ func _lagosu_splash_count(actor: Fighter) -> int:
 		return 1
 	var count := _synergy_member_count(actor.enemy, "旅のラゴス")
 	if count >= 6:
-		return 3
+		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	if count >= 2:
-		return 2
+		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	return 1
 
 
@@ -4392,9 +4477,9 @@ func _signal_noise_splash_count(actor: Fighter) -> int:
 		return 1
 	var count := _synergy_member_count(actor.enemy, "シグナル・ノイズ")
 	if count >= 6:
-		return 3
+		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	if count >= 2:
-		return 2
+		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	return 1
 
 
@@ -4555,6 +4640,12 @@ func _takatsuki_aoe_debuff(actor: Fighter, kind: String) -> void:
 	for entry in _opponents(actor):
 		var foe: Fighter = entry
 		if not foe.alive or foe.hp <= 0:
+			continue
+		if actor.enemy and not foe.enemy and _relic_blocks > 0:
+			_relic_blocks -= 1
+			_host._log("%s へのデバフはレリックで無効" % foe.unit.get_display_name())
+			continue
+		if RelicCombat.blocks_debuff(foe):
 			continue
 		await _play_status_transfer(actor.unit, foe.unit, false)
 		_apply_buff_value(foe, kind, amount)
@@ -5418,9 +5509,9 @@ func _noukyo_splash_count(actor: Fighter) -> int:
 		return 1
 	var count := _synergy_member_count(actor.enemy, "農協月へ行く")
 	if count >= 6:
-		return 3
+		return 3 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	if count >= 2:
-		return 2
+		return 2 + RelicCombat.drone_extra(actor, _fighters, _host.board)
 	return 1
 
 
@@ -5526,3 +5617,467 @@ func _era5_finish_attack(actor: Fighter, primary: Fighter) -> void:
 	actor.kit["nishimino_second"] = true
 	await _resolve_packet(actor, foe, true, false, false)
 	actor.kit["nishimino_second"] = false
+
+
+# ---------------------------------------------------------------------------
+# レリック: 戦闘記録・装置・コピー・被弾/撃破時の効果
+# ---------------------------------------------------------------------------
+
+func _synergy_circle_units() -> Array[GameUnit]:
+	var out: Array[GameUnit] = []
+	for unit in _host.board.get_circle_units():
+		if unit != null and not unit.kit_flags.has("relic_temp"):
+			out.append(unit)
+	return out
+
+
+func _team_max_hp(enemy: bool) -> int:
+	var total := 0
+	for entry in _side(enemy):
+		var fighter: Fighter = entry
+		if not fighter.relic_device:
+			total += fighter.max_hp
+	return total
+
+
+func _note_relic_damage(target: Fighter, lost_hp: int) -> void:
+	if lost_hp <= 0:
+		return
+	if target.relic_low_shield_ready and target.hp > 0 and float(target.hp) <= float(target.max_hp) * RelicCombat._value(266, "閾値") / 100.0:
+		target.relic_low_shield_ready = false
+		target.barrier += int(round(float(target.max_hp) * RelicCombat._value(266, "シールド") / 100.0))
+		_host._log("%s が解説でシールドを得た" % target.unit.get_display_name())
+	if target.enemy:
+		_stats["team_dealt"] = int(_stats.get("team_dealt", 0)) + lost_hp
+		return
+	if target.relic_device:
+		return
+	_stats["team_taken"] = int(_stats.get("team_taken", 0)) + lost_hp
+	RelicCombat.note_hit_taken(target)
+	if target.hp * 2 <= target.max_hp:
+		target.relic_dipped = true
+
+
+func _note_actor_dealt(actor: Fighter, amount: int) -> void:
+	if actor == null or amount <= 0:
+		return
+	if not actor.enemy:
+		actor.relic_dealt_total += amount
+	## 266 解説・280 地下鉄: 与えたダメージの割合が戻る。
+	if actor.relic_lifesteal > 0.0 and actor.alive:
+		RelicCombat.heal(actor, int(round(float(amount) * actor.relic_lifesteal)))
+
+
+## 291 金魚: ゲージが減ったら効果を出したとみなし、1回100として数える（暫定）。
+func _note_gauge_spent() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy or not fighter.kit.has("gauge"):
+			continue
+		var now := int(fighter.kit.get("gauge", 0))
+		var last := int(fighter.kit.get("relic_last_gauge", now))
+		if now < last:
+			_stats["gauge_spent"] = int(_stats.get("gauge_spent", 0)) + 100
+		fighter.kit["relic_last_gauge"] = now
+
+
+func _collect_relic_stats() -> Dictionary:
+	var units: Array = []
+	var alive := 0
+	var remembered: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy or not is_instance_valid(fighter.unit):
+			continue
+		var living := fighter.alive and fighter.hp > 0
+		if fighter.relic_temp:
+			if living and not fighter.relic_device:
+				remembered.append(fighter.unit.kit_flags.get("relic_temp", {}))
+			continue
+		if living:
+			alive += 1
+		units.append({
+			"unit": fighter.unit,
+			"dealt": fighter.relic_dealt_total,
+			"dipped": fighter.relic_dipped,
+			"died": not living,
+			"survived": living,
+		})
+	## 193 特効薬: 残っていたコピーを覚えて、次の戦闘でもう1回出す。
+	if _host.session != null and RelicEconomy._count(_host.session, 193) > 0:
+		_host.session.set_meta("relic_193_copies", remembered)
+	var out := _stats.duplicate()
+	out["alive_allies"] = alive
+	out["units"] = units
+	return out
+
+
+func _clear_temp_units() -> void:
+	for unit in _temp_units:
+		if unit == null or not is_instance_valid(unit):
+			continue
+		_fighters.erase(unit.get_instance_id())
+		_host.board.remove_unit(unit)
+		unit.queue_free()
+	_temp_units.clear()
+	if _host != null and _host.board != null:
+		_host.board.refresh_presentation()
+
+
+## 戦闘開始時に置く装置とコピー。
+func _relic_place_devices() -> void:
+	var session: GameSession = _host.session
+	if session == null:
+		return
+	var board: BoardController = _host.board
+	var face := board.active_face
+	var team_max := _team_max_hp(false)
+	## 攻撃されない装置（185 土・186 火・194 対面）。枠は空いていてもいなくても数だけ持つ。
+	var free_front := _empty_slots(face, 0, BoardController.FRONT_COUNT)
+	var free_back := _empty_slots(face, BoardController.FRONT_COUNT, BoardController.SLOTS_PER_FACE)
+	for _i in RelicEconomy._count(session, 185):
+		if free_front.is_empty():
+			break
+		var slot: int = free_front.pop_front()
+		_relic_devices.append({"id": 185, "slot": slot, "attackable": false})
+		var cut := RelicCombat._value(185, "受けるダメージ") / 100.0
+		for entry in _side(false):
+			var ally: Fighter = entry
+			var col := RelicCombat._row(ally.unit, board)
+			if col.x == 0 and absi(col.y - slot) <= 1:
+				ally.kit["device_taken_cut"] = float(ally.kit.get("device_taken_cut", 0.0)) + cut
+	for _i in RelicEconomy._count(session, 186):
+		if free_back.is_empty():
+			break
+		_relic_devices.append({"id": 186, "slot": free_back.pop_front(), "attackable": false})
+		for entry in _side(false):
+			var ally: Fighter = entry
+			ally.kit["fire_device_bonus"] = float(ally.kit.get("fire_device_bonus", 0.0)) + RelicCombat._value(186, "与ダメージ") / 100.0
+	for _i in RelicEconomy._count(session, 194):
+		## 前衛の枠を1つ選ぶ。最大体力が最も高い前衛を選ぶ。
+		var best: Fighter = null
+		for entry in _side(false):
+			var ally: Fighter = entry
+			if RelicCombat._row(ally.unit, board).x == 0 and (best == null or ally.max_hp > best.max_hp):
+				best = ally
+		if best == null:
+			break
+		_relic_devices.append({"id": 194, "slot": RelicCombat._row(best.unit, board).y, "attackable": false})
+		var before := best.max_hp
+		best.max_hp = int(round(float(best.max_hp) * (1.0 + RelicCombat._value(194, "最大体力") / 100.0)))
+		best.hp += best.max_hp - before
+		best.unit.set_battle_hp(best.hp, best.max_hp)
+	## 攻撃を受ける装置（181 論争・182 肋骨・198 年賀状）。出撃上限に入る。
+	var plans: Array = []
+	for _i in RelicEconomy._count(session, 181):
+		plans.append({"id": 181, "rate": RelicCombat._value(181, "受け皿")})
+	for _i in RelicEconomy._count(session, 182):
+		for _j in 2:
+			plans.append({"id": 182, "rate": RelicCombat._value(182, "受け皿")})
+	if plans.is_empty() and RelicEconomy._count(session, 198) > 0:
+		plans.append({"id": 198, "rate": RelicCombat._value(198, "受け皿")})
+	for plan in plans:
+		if free_front.is_empty() or not _deploy_room():
+			break
+		var pool := maxi(1, int(round(float(team_max) * float(plan["rate"]) / 100.0)))
+		var unit := _spawn_temp_unit(-1, 1, face, free_front.pop_front(), {"kind": "device", "pool": pool, "relic": int(plan["id"])})
+		if unit != null:
+			_relic_devices.append({"id": int(plan["id"]), "slot": unit.circle_slot, "attackable": true})
+	## コピー（187 アップルパイ・188 ピアノ・190 破壊・193 特効薬）。出撃上限に入る。
+	var copies: Array = []
+	for _i in RelicEconomy._count(session, 187):
+		var benched: Array = []
+		for entry in board.bench_units:
+			if entry != null:
+				benched.append(entry)
+		if not benched.is_empty():
+			var pick: GameUnit = benched[randi() % benched.size()]
+			copies.append({"id": pick.unit_id, "stars": pick.stars, "cut": RelicCombat._value(187, "与ダメージ")})
+	for entry in _side(false):
+		var ally: Fighter = entry
+		for _i in ally.relic_ids.count(188):
+			copies.append({"id": ally.unit.unit_id, "stars": ally.unit.stars, "cut": RelicCombat._value(188, "与ダメージ")})
+	for instance_id in RelicEconomy.take_destruction_targets(session):
+		var chosen := instance_from_id(instance_id) as GameUnit
+		if chosen != null and is_instance_valid(chosen) and chosen.is_on_board():
+			copies.append({"id": chosen.unit_id, "stars": chosen.stars, "cut": RelicCombat._value(190, "与ダメージ")})
+	if session.has_meta("relic_193_copies"):
+		for entry in session.get_meta("relic_193_copies"):
+			if entry is Dictionary and int((entry as Dictionary).get("id", -1)) > 0:
+				copies.append(entry)
+		session.remove_meta("relic_193_copies")
+	for plan in copies:
+		var slot := board.find_empty_circle_slot(face)
+		if slot < 0 or not _deploy_room():
+			break
+		_spawn_temp_unit(int(plan["id"]), int(plan.get("stars", 1)), face, slot, {"kind": "copy", "id": int(plan["id"]), "stars": int(plan.get("stars", 1)), "cut": float(plan.get("cut", 50.0))})
+	## 199 地震: 置いた装置1つにつき、味方全員が受けるダメージが下がる。
+	var quake := float(RelicEconomy._count(session, 199)) * float(_relic_devices.size()) * RelicCombat._value(199, "受けるダメージ") / 100.0
+	if quake > 0.0:
+		for entry in _side(false):
+			var ally: Fighter = entry
+			ally.kit["device_taken_cut"] = float(ally.kit.get("device_taken_cut", 0.0)) + quake
+	if not _temp_units.is_empty():
+		board.refresh_presentation()
+		_sync_queue()
+
+
+func _empty_slots(face: int, from: int, to: int) -> Array:
+	var out: Array = []
+	for slot_index in range(from, to):
+		if _host.board.get_placed_unit(face, slot_index) == null:
+			out.append(slot_index)
+	return out
+
+
+func _deploy_room() -> bool:
+	return _host.board.get_board_unit_count() < _host.session.get_board_unit_cap()
+
+
+func _spawn_temp_unit(unit_id: int, stars: int, face: int, slot: int, profile: Dictionary) -> GameUnit:
+	var unit := GameUnit.create(unit_id, stars)
+	unit.kit_flags["relic_temp"] = profile
+	if str(profile.get("kind", "")) == "device":
+		unit.display_override = "装置"
+	_host.units_root.add_child(unit)
+	if not _host.board.place_on_circle(unit, face, slot, false):
+		unit.queue_free()
+		return null
+	unit.visible = true
+	_temp_units.append(unit)
+	return unit
+
+
+## コピーと装置の能力。_fighter() で作った直後に呼ぶ。
+func _apply_temp_profile(fighter: Fighter) -> void:
+	if not is_instance_valid(fighter.unit) or not fighter.unit.kit_flags.has("relic_temp"):
+		return
+	var profile: Dictionary = fighter.unit.kit_flags["relic_temp"]
+	fighter.relic_temp = true
+	var session: GameSession = _host.session
+	var guests := RelicEconomy._count(session, 189) if session != null else 0
+	if str(profile.get("kind", "")) == "device":
+		fighter.relic_device = true
+		fighter.max_hp = int(profile.get("pool", 1))
+		fighter.hp = fighter.max_hp
+		fighter.attack = 0.0
+		fighter.defense = 0.0
+		fighter.attribute_resist = 0.0
+		fighter.element_resist = {}
+		fighter.barrier = 0
+		fighter.kit["gauge"] = null
+		fighter.kit.erase("gauge")
+		fighter.relic_counter_left = 1 if session != null and RelicEconomy._count(session, 197) > 0 else 0
+		return
+	fighter.kit["copy_outgoing_cut"] = float(profile.get("cut", 50.0)) / 100.0 - float(guests) * RelicCombat._value(189, "与ダメージ") / 100.0
+	if guests > 0:
+		fighter.max_hp = int(round(float(fighter.max_hp) * (1.0 + float(guests) * RelicCombat._value(189, "最大体力") / 100.0)))
+		fighter.hp = fighter.max_hp
+
+
+## 182 肋骨: 敵の最初の攻撃1回は装置が受ける。
+func _relic_decoy_target(actor: Fighter) -> Fighter:
+	if not actor.enemy or _host.session == null or RelicEconomy._count(_host.session, 182) <= 0:
+		return null
+	if bool(_stats.get("decoy_used", false)):
+		return null
+	for entry in _side(false):
+		var device: Fighter = entry
+		if device.relic_device and device.alive and device.in_queue:
+			_stats["decoy_used"] = true
+			return device
+	return null
+
+
+## 030 画鋲: 味方の通常の攻撃が命中したら、装備者の属性の撃破ゲージを1回分減らす（1戦闘3回まで）。
+func _relic_thumbtack(actor: Fighter, target: Fighter) -> void:
+	if actor.enemy or _relic30_left <= 0:
+		return
+	var bearer = RelicCombat._unique_living(_fighters, 30, false, _host.board)
+	if bearer == null:
+		return
+	if int(target.break_left.get(bearer.element, BREAK_MAX)) <= 0:
+		return
+	_relic30_left -= 1
+	_step_break_gauge(bearer, target, bearer.element)
+
+
+## 被弾後のレリック反撃（283 違反、197 ガン）。
+func _relic_counter_hits(actor: Fighter, target: Fighter, dealt: int, direct: bool) -> void:
+	if actor == null or not actor.alive or not is_instance_valid(actor.unit):
+		return
+	if dealt > 0 and target.alive:
+		var back := RelicCombat.reflect_amount(target, dealt)
+		if back > 0:
+			_apply_damage(actor, back)
+			actor.unit.popup_battle_text("-%d" % back, Color(1.0, 0.7, 0.5))
+			_host._log("%s が違反で %s に %d 返した" % [target.unit.get_display_name(), actor.unit.get_display_name(), back])
+			if not actor.alive:
+				await _ko(actor)
+				return
+	if direct and target.relic_device and target.relic_counter_left > 0:
+		target.relic_counter_left = 0
+		var source := _strongest_real_ally(target.enemy)
+		if source == null:
+			return
+		var saved := source.element
+		var rolled := _roll_damage(source, actor, false, -RelicCombat._value(197, "与ダメージ") / 100.0, -1.0)
+		source.element = saved
+		var hit := _mitigate(actor, int(rolled["amount"]))
+		_apply_damage(actor, hit)
+		actor.unit.popup_battle_text("-%d" % hit, Color(1.0, 0.7, 0.5))
+		_host._log("装置の反撃が %s に %d" % [actor.unit.get_display_name(), hit])
+		if not actor.alive:
+			_relic_summon_kill(source)
+			await _ko(actor)
+
+
+func _strongest_real_ally(enemy: bool) -> Fighter:
+	var best: Fighter = null
+	for entry in _side(enemy):
+		var ally: Fighter = entry
+		if ally.relic_device or not ally.alive:
+			continue
+		if best == null or ally.attack > best.attack:
+			best = ally
+	return best
+
+
+## 284 海: 時間ごとに、左右の隣の敵へ炎の攻撃。
+func _relic_sea_pulses() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if not fighter.alive or not fighter.in_queue or not RelicCombat.take_sea_pulse(fighter):
+			continue
+		var col := RelicCombat._row(fighter.unit, _host.board).y
+		for entry in _opponents(fighter):
+			var foe: Fighter = entry
+			if not foe.alive or not is_instance_valid(foe.unit):
+				continue
+			var foe_col := RelicCombat._row(foe.unit, _host.board).y
+			if foe_col < 0 or absi(foe_col - col) != 1:
+				continue
+			var saved := fighter.element
+			fighter.element = "fire"
+			var rolled := _roll_damage(fighter, foe, true, -RelicCombat._value(284, "与ダメージ") / 100.0, -1.0)
+			fighter.element = saved
+			var hit := _mitigate(foe, int(rolled["amount"]))
+			var lost := _apply_damage(foe, hit)
+			_note_actor_dealt(fighter, lost)
+			if hit > 0:
+				foe.unit.popup_battle_text("-%d" % hit, Color(1.0, 0.55, 0.3))
+				_host._log("%s の海が %s に %d" % [fighter.unit.get_display_name(), foe.unit.get_display_name(), hit])
+			if not foe.alive:
+				_growth_killer = fighter
+				await _ko(foe)
+
+
+## 倒れた装備者のレリック（196 凶暴・167 西部劇）と、装置が壊れたとき（183 横車）。
+func _relic_on_bearer_down(dead: Fighter) -> void:
+	if dead.relic_device:
+		_stats["devices_broken"] = int(_stats.get("devices_broken", 0)) + 1
+		if _relic183_left > 0 and _host.session != null:
+			var gold := RelicEconomy.device_break_gold(_host.session)
+			if gold > 0:
+				_relic183_left -= 1
+				_host.session.add_coins(gold)
+		return
+	for _i in dead.relic_ids.count(196):
+		var foe := _growth_killer if _growth_killer != null and _growth_killer.enemy != dead.enemy and _growth_killer.alive else null
+		if foe == null:
+			for entry in _opponents(dead):
+				var other: Fighter = entry
+				if other.alive and is_instance_valid(other.unit) and RelicCombat._row(other.unit, _host.board).x == 0:
+					if foe == null or other.unit.unit_id < foe.unit.unit_id:
+						foe = other
+		if foe == null:
+			break
+		var rolled := _roll_damage(dead, foe, true, RelicCombat._value(196, "与ダメージ") / 100.0, -1.0)
+		var hit := _mitigate(foe, int(rolled["amount"]))
+		var lost := _apply_damage(foe, hit)
+		_note_actor_dealt(dead, lost)
+		if is_instance_valid(foe.unit):
+			foe.unit.popup_battle_text("-%d" % hit, Color(1.0, 0.5, 0.45))
+			_host._log("%s の凶暴が %s に %d" % [dead.unit.get_display_name(), foe.unit.get_display_name(), hit])
+		if not foe.alive and is_instance_valid(foe.unit) and not foe.unit.battle_ko:
+			await _ko(foe)
+	if dead.enemy or not dead.relic_ids.has(167) or _relic167_left <= 0 or _host.session == null:
+		return
+	_relic_pass_western(dead)
+
+
+## 167 西部劇: 倒れた装備者から、生きている味方へ乗り移る（前衛を優先）。
+func _relic_pass_western(dead: Fighter) -> void:
+	var session: GameSession = _host.session
+	var uid := -1
+	for owned in dead.unit.equipped_relic_uids:
+		if session.relic_id_of(owned) == 167:
+			uid = owned
+			break
+	if uid < 0:
+		return
+	var front: Array = []
+	var back: Array = []
+	for entry in _side(dead.enemy):
+		var ally: Fighter = entry
+		if ally == dead or not ally.alive or ally.hp <= 0 or ally.relic_temp:
+			continue
+		if RelicCombat._row(ally.unit, _host.board).x == 0:
+			front.append(ally)
+		else:
+			back.append(ally)
+	var pool := front if not front.is_empty() else back
+	_relic167_left -= 1
+	dead.unit.equipped_relic_uids.erase(uid)
+	dead.relic_ids.erase(167)
+	if pool.is_empty():
+		_host._log("西部劇は手元に戻った")
+		return
+	var heir: Fighter = pool[randi() % pool.size()]
+	if heir.unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
+		_host._log("西部劇は手元に戻った")
+		return
+	heir.unit.equipped_relic_uids.append(uid)
+	heir.relic_ids.append(167)
+	_host._log("西部劇が %s に乗り移った" % heir.unit.get_display_name())
+
+
+## 命中した通常の攻撃のレリック（271 座敷のゲージ、279 遊牧の回復側）。
+func _relic_on_connect(actor: Fighter) -> void:
+	var seats := actor.relic_ids.count(271)
+	if seats > 0 and actor.kit.has("gauge"):
+		actor.kit["gauge"] = mini(100, int(actor.kit.get("gauge", 0)) + seats * int(RelicCombat._value(271, "ゲージ")))
+		_show_gauge(actor)
+	if not actor.enemy and actor.relic_ids.has(279):
+		var ratio := RelicEconomy.nomad_heal_ratio(_host.session, actor.unit)
+		if ratio > 0.0:
+			RelicCombat.heal(actor, int(round(float(actor.max_hp) * ratio)))
+
+
+## 戦闘開始時の位置で決まるレリック（262 タプル・282 到着）。
+func _relic_start_rows() -> void:
+	var session: GameSession = _host.session
+	var tuples := RelicEconomy._count(session, 262) if session != null else 0
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy or not fighter.alive:
+			continue
+		if tuples > 0 and fighter.relic_start_row == 1:
+			fighter.kit["tuple_bonus"] = float(tuples) * RelicCombat._value(262, "与ダメージ") / 100.0
+			fighter.hp = maxi(1, int(round(float(fighter.max_hp) * RelicCombat._value(262, "開始体力") / 100.0)))
+			fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
+		var arrivals := fighter.relic_ids.count(282)
+		if arrivals > 0:
+			for ally in RelicCombat._neighbors(fighter, _fighters, _host.board):
+				ally.barrier += int(round(float(ally.max_hp) * float(arrivals) * RelicCombat._value(282, "シールド") / 100.0))
+
+
+## 200 コンピューター: 召喚物・コピー・装置の反撃が敵を倒したとき。
+func _relic_summon_kill(killer: Fighter) -> void:
+	if killer == null or killer.enemy:
+		return
+	for entry in _side(false):
+		var ally: Fighter = entry
+		var count := ally.relic_ids.count(200)
+		if count > 0 and ally.alive:
+			ally.relic_fallen_bonus += float(count) * RelicCombat._value(200, "与ダメージ") / 100.0

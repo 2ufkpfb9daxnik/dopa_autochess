@@ -1490,10 +1490,11 @@ func _otsu_on_relic_equipped(unit: GameUnit) -> void:
 	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
 
 
-func _nabari_round_xp_bonus() -> int:
+## 059 トバ / 066 ナバリ: 盤上で星が最も高い1体の「ラウンドの経験値」を返す（いなければ0）。
+func _round_xp_bonus(unit_id: int) -> int:
 	var best: GameUnit = null
 	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 66 or unit.is_enemy:
+		if unit == null or unit.unit_id != unit_id or unit.is_enemy:
 			continue
 		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
 			best = unit
@@ -1501,19 +1502,14 @@ func _nabari_round_xp_bonus() -> int:
 		return 0
 	var sheet := CharacterSheet.make(best.unit_id, best.stars)
 	return maxi(1, int(sheet.get("round_xp", 1)))
+
+
+func _nabari_round_xp_bonus() -> int:
+	return _round_xp_bonus(66)
 
 
 func _toba_round_xp_bonus() -> int:
-	var best: GameUnit = null
-	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 59 or unit.is_enemy:
-			continue
-		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
-			best = unit
-	if best == null:
-		return 0
-	var sheet := CharacterSheet.make(best.unit_id, best.stars)
-	return maxi(1, int(sheet.get("round_xp", 1)))
+	return _round_xp_bonus(59)
 
 
 func _senboku_on_relic_equipped(unit: GameUnit) -> void:
@@ -1534,7 +1530,8 @@ func _senboku_on_relic_equipped(unit: GameUnit) -> void:
 	var swing_used := int(unit.kit_flags.get("swing_thunder_used", 0))
 	if swing_used < swing_cap:
 		var base := float(sheet.get("swing_thunder", 0.06))
-		var bonus := base * _swing_mult()
+		## 整数の%にならないときは、半分以上の端数を切り上げる。
+		var bonus := roundf(base * 100.0 * _swing_mult()) / 100.0
 		if bonus > 0.0:
 			unit.kit_flags["swing_thunder_used"] = swing_used + 1
 			unit.kit_flags["swing_thunder_bonus"] = float(unit.kit_flags.get("swing_thunder_bonus", 0.0)) + bonus

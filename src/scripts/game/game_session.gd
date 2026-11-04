@@ -88,6 +88,8 @@ var tally_hp_spent_on_exp := 0
 var tally_units_bought := 0
 var tally_units_sold := 0
 var tally_merges := 0
+## そのマッチでレリックを合成した回数（001 アカシの戦闘開始時の上昇）。
+var tally_relic_synths := 0
 var tally_relics_gained := 0
 var tally_peak_coins := INITIAL_COINS
 var tally_peak_level := 1

@@ -513,6 +513,63 @@ static func _binds_for(unit_id: int) -> Array:
 				["風の被ダメージ", "wind_taken", true],
 				["デバフの属性耐性", "buff_amount", true],
 			]
+		37:
+			return [
+				["倒されたときの与ダメージ", "death_bonus", true],
+				["吸収耐性の低下", "death_absorb_cut", true],
+				["味方の受けるダメージの低下", "death_ally_cut", true],
+				["デバフの吸収耐性", "buff_amount", true],
+			]
+		38:
+			return [
+				["召喚物の体力", "summon_hp", true],
+				["召喚物の攻撃力", "summon_attack", true],
+				["召喚物のターゲット優先度", "summon_priority", false],
+				["召喚物の受けるダメージ", "summon_taken_cut", true],
+				["与ダメージ", "killer_dealt_cut", true],
+				["行動の遅れ", "ap_delay", false],
+				["氷のダメージ耐性", "buff_amount", true],
+			]
+		39:
+			return [
+				["受けるダメージ", "layered_taken_cut", true],
+				["開始時の層", "start_layers", false],
+				["開始時の速度", "start_speed", false],
+				["攻撃後の速度", "after_speed", false],
+				["炎の与ダメージ", "fire_empower", true],
+				["炎のダメージ耐性", "buff_amount", true],
+			]
+		40:
+			return [
+				["覚えたあとの与ダメージ", "mark_bonus", true],
+				["敵の優先度", "mark_priority", false],
+				["防御力の低下", "mark_defense_cut", false],
+				["デバフの土耐性", "buff_amount", true],
+			]
+		41:
+			return [
+				["入れ替わる回数", "swap_count", false],
+				["バフの吸収ダメージ", "buff_amount", true],
+			]
+		43:
+			return [
+				["回転の回数", "rotate_count", false],
+				["入ったときの行動ポイント", "enter_ap_ratio", true],
+			]
+		44:
+			return [
+				["死亡の回数", "death_count", false],
+				["1回の減少", "death_break_cap", false],
+				["層のときの減少", "layer_break_count", false],
+				["バフの炎ダメージ", "buff_amount", true],
+			]
+		45:
+			return [
+				["消す回数", "erase_count", false],
+				["撃破の減少", "break_extra", false],
+				["予約", "reserve_cap", false],
+				["バフの風ダメージ", "buff_amount", true],
+			]
 		6:
 			return [
 				["最初の与ダメージ", "first_bonus", true],
@@ -715,6 +772,29 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 		69:
 			sheet["buff_kind"] = "attr_resist_cut"
 			sheet["uses_buff"] = false
+		37:
+			sheet["buff_kind"] = "absorb_resist"
+			sheet["uses_buff"] = false
+		38:
+			sheet["buff_kind"] = "ice_resist"
+			sheet["uses_buff"] = false
+		39:
+			sheet["buff_kind"] = "fire_resist"
+			sheet["uses_buff"] = false
+		40:
+			sheet["buff_kind"] = "earth_resist"
+			sheet["uses_buff"] = false
+		41:
+			sheet["buff_kind"] = "shimagawa_absorb"
+		43:
+			## スサミのデバフは数値を変えず、氷の通常の攻撃の狙いだけを決める。
+			sheet["buff_kind"] = "susami_mark"
+			sheet["uses_buff"] = false
+			sheet["buff_amount"] = 0.0
+		44:
+			sheet["buff_kind"] = "suzuka_fire"
+		45:
+			sheet["buff_kind"] = "suma_wind"
 		6:
 			sheet["buff_kind"] = "highest_attack_bonus"
 		22:

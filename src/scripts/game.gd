@@ -1034,13 +1034,14 @@ func _start_battle() -> void:
 		if slot != null:
 			bench_count += 1
 	RelicEconomy.on_round_end(session, bench_count, board.bench_units.size())
+	## トバ（059）・ナバリ（066）のラウンドの経験値は finish_battle が使うので、その前に決める。
+	session.toba_round_xp = _round_xp_bonus(59)
+	session.nabari_round_xp = _round_xp_bonus(66)
 	session.finish_battle(battle_won, remaining_enemies)
 	RelicEconomy.note_battle_finished(session, battle_won)
 	RelicEconomy.note_battle_outcome(session, battle_won, outcome.get("relic_stats", {}))
 	session.player_hp = mini(session.player_hp, RelicEconomy.player_max_hp(session))
 	_note_deploy_cap_change(cap_before_battle)
-	session.toba_round_xp = _toba_round_xp_bonus()
-	session.nabari_round_xp = _nabari_round_xp_bonus()
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
 	else:
@@ -1490,25 +1491,13 @@ func _otsu_on_relic_equipped(unit: GameUnit) -> void:
 	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
 
 
-func _nabari_round_xp_bonus() -> int:
+## サークルにいる味方のうち、星が最も高い unit_id の1体の「ラウンドの経験値」。いなければ0。
+func _round_xp_bonus(unit_id: int) -> int:
 	var best: GameUnit = null
 	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 66 or unit.is_enemy:
+		if unit == null or unit.unit_id != unit_id or unit.is_enemy:
 			continue
-		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
-			best = unit
-	if best == null:
-		return 0
-	var sheet := CharacterSheet.make(best.unit_id, best.stars)
-	return maxi(1, int(sheet.get("round_xp", 1)))
-
-
-func _toba_round_xp_bonus() -> int:
-	var best: GameUnit = null
-	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 59 or unit.is_enemy:
-			continue
-		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
+		if best == null or unit.stars > best.stars:
 			best = unit
 	if best == null:
 		return 0

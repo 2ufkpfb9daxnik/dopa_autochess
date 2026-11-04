@@ -1,11 +1,9 @@
 class_name RelicCombat
 extends RefCounted
 
-## 012 物語はこれでおしまい、030 画鋲: 撃破ゲージの減少量と上限は「ここでは決めない」。戦闘に撃破ゲージが無いので未適用。
-## 037 ドローン: 範囲ダメージの追加体数は、範囲シナジーの選び方を書き写さない前提で、その体数選択が戦闘にまだ無いので未適用。
-## 181-200 召喚物・盤面装置: 装置枠・コピー召喚・卵枠など盤面システムの設定が残っているので未適用（189の数値バフと195の初動弱体だけ一部適用）。
-## 216 召喚の与ダメージ: 召喚物が出ないあいだは未適用。
-## 277・278・284: 無敵時間・デバフ免疫時間・近接DoTのタイミング設定が未確定なので未適用。
+## まだ効果が入らないレリック（土台の仕組みが無いもの）。戦闘のレリックはほかはすべて適用済み。
+## 148 反例: デバフに残り時間が無いので未適用。
+## 経済側の未適用は relic_economy.gd の先頭を参照。
 
 
 static func bind(fighter, host: Node) -> void:
@@ -43,7 +41,8 @@ static func bind(fighter, host: Node) -> void:
 	fighter.relic_lifesteal = (_sum_one(ids, 266, "吸血") + _sum_one(ids, 280, "吸血")) / 100.0
 	fighter.relic_low_shield_ready = ids.has(266)
 	fighter.relic_layers = int(_sum_one(ids, 13, "層"))
-	fighter.relic_weaken_cut = _sum_one(ids, 17, "次の与ダメージ") / 100.0
+	## relic_weaken_cut は「受けた弱体」。017 の付ける値は on_direct_hit で装備から取る。
+	fighter.relic_weaken_cut = 0.0
 	fighter.relic_chase_left = int(_sum_one(ids, 11, "追撃の回数"))
 	fighter.relic_neighbor = ids.has(16)
 	fighter.relic_speed_step = int(_sum_one(ids, 18, "速度の上昇"))
@@ -179,22 +178,24 @@ static func finish_attack(fighter) -> void:
 
 static func on_direct_hit(actor, target, fighters: Dictionary) -> void:
 	if actor.relic_heal_left > 0 and actor.relic_heal_ratio > 0.0 and actor.alive:
-		var heal := int(round(float(actor.max_hp) * actor.relic_heal_ratio))
-		if heal > 0:
-			actor.hp = mini(actor.max_hp, actor.hp + heal)
+		var amount := int(round(float(actor.max_hp) * actor.relic_heal_ratio))
+		if amount > 0:
+			## 法螺話(173)の余剰シールドも入るよう、回復の共通入口を通す。
+			heal(actor, amount)
 			actor.relic_heal_left -= 1
-			if is_instance_valid(actor.unit):
-				actor.unit.set_battle_hp(actor.hp, actor.max_hp)
 	if actor.relic_layers > 0 and target != null:
 		target.layers[actor.element] = int(target.layers.get(actor.element, 0)) + actor.relic_layers
-	if actor.relic_weaken_cut <= 0.0 or target == null or not is_instance_valid(target.unit):
+	## 017 異邦人: 付ける値は装備者のレリックから取る。relic_weaken_cut は「受けた弱体」にも使うので、
+	## 029・195 で弱体を受けた敵が、命中した味方へ弱体を移さないようにする。
+	var cut := _sum_one(actor.relic_ids, 17, "次の与ダメージ") / 100.0
+	if cut <= 0.0 or target == null or not is_instance_valid(target.unit):
 		return
 	if not target.alive:
 		_release_mark(actor, fighters)
 		return
 	_release_mark(actor, fighters)
 	actor.relic_mark_id = target.unit.get_instance_id()
-	target.relic_weaken_cut = actor.relic_weaken_cut
+	target.relic_weaken_cut = cut
 	target.relic_weaken_left = 1
 	target.relic_weaken_source = actor.unit.get_instance_id()
 
@@ -249,9 +250,9 @@ static func aura_outgoing(attacker, fighters: Dictionary, board: BoardController
 
 
 static func _owned_outgoing(attacker, board: BoardController) -> float:
-	if attacker.enemy or board == null or board.get_parent() == null:
+	if attacker.enemy:
 		return 0.0
-	var session = board.get_parent().get("session")
+	var session := _session_of(board)
 	if session == null:
 		return 0.0
 	return RelicEconomy.owned_outgoing(session)
@@ -305,6 +306,8 @@ static func aura_taken_cut(defender, fighters: Dictionary, board: BoardControlle
 	if is_dot:
 		if defender.relic_ids.has(270):
 			cut += _ostrich_cut(defender, fighters, board)
+		## 177 よろめき・185 土の装置・199 地震も継続ダメージに入る（攻撃側は _roll_damage で足す）。
+		cut += extra_taken_cut(defender)
 		return cut
 	if defender.relic_ids.has(270):
 		cut += _ostrich_cut(defender, fighters, board)
@@ -332,9 +335,7 @@ static func _neighbors(fighter, fighters: Dictionary, board: BoardController) ->
 
 
 static func _session_of(board: BoardController) -> GameSession:
-	if board == null or board.get_parent() == null:
-		return null
-	return board.get_parent().get("session") as GameSession
+	return RelicEconomy.session_of_board(board)
 
 
 static func _owned_count(board: BoardController, relic_id: int) -> int:

@@ -959,7 +959,7 @@ func _on_action(action: GameAction) -> void:
 		GameAction.Type.BUY_EXP_HP:
 			var cap_before_hp := session.get_board_unit_cap()
 			if session.try_buy_exp_with_hp():
-				_log("経験値を購入した (+%d, HP-%d)" % [GameSession.EXP_GAIN, RelicEconomy.hp_exp_cost(session)])
+				_log("経験値を購入した (+%d, HP-%d)" % [RelicEconomy.hp_exp_gain(session), RelicEconomy.hp_exp_cost(session)])
 				_note_deploy_cap_change(cap_before_hp)
 		GameAction.Type.SELL_UNDER_CURSOR:
 			if not session.is_prep() or _formation.is_dragging():
@@ -2239,6 +2239,8 @@ func _setup_formation_ui() -> void:
 	ui.add_child(_relic_synth)
 	_circle_wheel.relic_hovered.connect(_on_circle_relic_hovered)
 	_circle_wheel.relic_drag_started.connect(_on_circle_relic_drag_started)
+	_circle_wheel.relic_clicked.connect(_on_circle_relic_clicked)
+	_bench_board.relic_clicked.connect(_on_bench_relic_clicked)
 	_bench_board.relic_hovered.connect(_on_bench_relic_hovered)
 	_bench_board.hover_cleared.connect(_formation.on_inspect_hover_cleared)
 	_bench_board.unit_hovered.connect(_formation.on_bench_unit_hovered)
@@ -2829,6 +2831,53 @@ func _on_relic_tray_clicked(uid: int) -> void:
 	)
 
 
+## キャラクターに付いているレリックをクリックしたとき。手元と同じく、使えるレリックなら確認を出す。
+func _on_circle_relic_clicked(slot_index: int, relic_index: int) -> void:
+	_on_equipped_relic_clicked(board.get_placed_unit(board.active_face, slot_index), relic_index)
+
+
+func _on_bench_relic_clicked(slot_index: int, relic_index: int) -> void:
+	if slot_index < 0 or slot_index >= board.bench_units.size():
+		return
+	_on_equipped_relic_clicked(board.bench_units[slot_index], relic_index)
+
+
+func _on_equipped_relic_clicked(unit: GameUnit, relic_index: int) -> void:
+	if unit == null or session == null or not session.is_prep() or _relic_synth == null:
+		return
+	if relic_index < 0 or relic_index >= unit.equipped_relic_uids.size():
+		return
+	var uid := unit.equipped_relic_uids[relic_index]
+	## 156 ギター: 付いているキャラクターがそのまま対象。対象を選ばずに換える。
+	if session.relic_id_of(uid) == 156:
+		var gold := RelicEconomy.guitar_gold(session, unit)
+		var body := "%s に付いている成長の与ダメージを、%d ゴールドに換えますか？" % [unit.get_display_name(), gold]
+		_relic_synth.open_confirm("使う", 156, body, func() -> void:
+			if RelicEconomy.use_on_unit(session, uid, unit):
+				_log("ギターで %d ゴールドに換えた" % gold)
+			_after_relic_use()
+		)
+		return
+	_on_relic_tray_clicked(uid)
+
+
+## 盤面のキャラクターに付いているレリックのうち、その位置にあるもの。無ければ -1。
+func _equipped_relic_uid_at(at: Vector2) -> int:
+	if _bench_board != null:
+		var hit: Vector2i = _bench_board._relic_hit(_bench_board._to_local(at))
+		if hit.x >= 0 and hit.x < board.bench_units.size():
+			var benched := board.bench_units[hit.x] as GameUnit
+			if benched != null and hit.y >= 0 and hit.y < benched.equipped_relic_uids.size():
+				return benched.equipped_relic_uids[hit.y]
+	if _circle_wheel != null:
+		var hit_c: Vector2i = _circle_wheel._relic_hit(_circle_wheel._to_local(at))
+		if hit_c.x >= 0:
+			var placed := board.get_placed_unit(board.active_face, hit_c.x)
+			if placed != null and hit_c.y >= 0 and hit_c.y < placed.equipped_relic_uids.size():
+				return placed.equipped_relic_uids[hit_c.y]
+	return -1
+
+
 func _begin_relic_use(uid: int, mode: String) -> void:
 	var name := str(RelicCatalog.get_relic(session.relic_id_of(uid)).get("name", ""))
 	if mode == RelicEconomy.USE_NOW:
@@ -2880,6 +2929,9 @@ func _pick_relic_use_target(at: Vector2) -> void:
 			_log("%s は %s には使えない" % [name, unit.get_display_name()])
 	elif _relic_use_mode == RelicEconomy.USE_RELIC:
 		var target := _relic_tray.uid_at(at) if _relic_tray != null else -1
+		## キャラクターに付いているレリックも、消す対象に選べる。
+		if target < 0:
+			target = _equipped_relic_uid_at(at)
 		if target < 0:
 			return
 		var target_name := str(RelicCatalog.get_relic(session.relic_id_of(target)).get("name", ""))
@@ -3079,7 +3131,9 @@ func _update_ui() -> void:
 		_bench_board.set_count(bench_count, board.bench_units.size())
 	bench_badge.visible = false
 	var paid_reroll := RelicEconomy.paid_reroll_cost(session)
-	reroll_button.text = "(%d)" % paid_reroll
+	## 258 雲: ゴールドを払って更新できない。
+	var paid_reroll_blocked := RelicEconomy.blocks_paid_reroll(session)
+	reroll_button.text = "(不可)" if paid_reroll_blocked else "(%d)" % paid_reroll
 	if session.free_rerolls > 0:
 		reroll_button.text = "無料×%d" % session.free_rerolls
 	var reroll_text := reroll_button.text
@@ -3088,16 +3142,21 @@ func _update_ui() -> void:
 		_last_reroll_button_text = reroll_text
 	var economy_open := session.is_prep() or session.phase == GameSession.Phase.BATTLE
 	reroll_button.disabled = not economy_open or session.shop_locked or (
-		session.free_rerolls <= 0 and session.coins < paid_reroll
+		session.free_rerolls <= 0 and (paid_reroll_blocked or session.coins < paid_reroll)
 	)
 	var exp_cost := RelicEconomy.exp_cost(session)
-	exp_button.text = "+%d\n(%d)" % [GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session), exp_cost]
+	## 254 二重: ゴールドで経験値を買えない。
+	var gold_exp_blocked := RelicEconomy.blocks_gold_exp(session)
+	if gold_exp_blocked:
+		exp_button.text = "+%d\n(不可)" % (GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session))
+	else:
+		exp_button.text = "+%d\n(%d)" % [GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session), exp_cost]
 	var hp_cost := RelicEconomy.hp_exp_cost(session)
 	if _hp_exp_button != null:
 		_hp_exp_button.visible = hp_cost > 0
-		_hp_exp_button.text = "HP-%d\n+%d" % [hp_cost, GameSession.EXP_GAIN]
+		_hp_exp_button.text = "HP-%d\n+%d" % [hp_cost, RelicEconomy.hp_exp_gain(session)]
 		_hp_exp_button.disabled = not economy_open or session.player_hp < hp_cost
-	exp_button.disabled = not economy_open or session.coins < exp_cost
+	exp_button.disabled = not economy_open or gold_exp_blocked or session.coins < exp_cost
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()

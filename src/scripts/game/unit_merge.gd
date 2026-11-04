@@ -147,6 +147,5 @@ static func _stars_text(stars: int) -> String:
 
 
 static func _session_of(board: BoardController) -> GameSession:
-	if board == null or board.get_parent() == null:
-		return null
-	return board.get_parent().get("session") as GameSession
+	## 盤面は戦闘用の SubViewport の下へ移されるので、親だけでなく上までたどる。
+	return RelicEconomy.session_of_board(board)

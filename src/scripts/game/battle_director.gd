@@ -2152,7 +2152,7 @@ func _relic_after_action(actor: Fighter) -> void:
 	var best := 2.0
 	for key in _fighters.keys():
 		var ally: Fighter = _fighters[key]
-		if ally.enemy or not ally.alive or ally.hp <= 0 or not is_instance_valid(ally.unit) or ally.max_hp <= 0:
+		if ally.enemy or ally.relic_device or not ally.alive or ally.hp <= 0 or not is_instance_valid(ally.unit) or ally.max_hp <= 0:
 			continue
 		var ratio := float(ally.hp) / float(ally.max_hp)
 		if chosen == null or ratio < best or (is_equal_approx(ratio, best) and ally.unit.unit_id < chosen.unit.unit_id):
@@ -2177,9 +2177,12 @@ func _relic_on_slay(actor: Fighter) -> void:
 
 
 func _relic_on_ally_down(dead: Fighter) -> void:
-	if dead.enemy:
+	## 装置はキャラクターではないので、味方が倒れたことにしない。
+	if dead.enemy or dead.relic_device:
 		return
-	RelicEconomy.note_ally_down(_host.session)
+	## 286 水族館: 召喚物・コピーの破壊では進捗は増えない。
+	if not dead.relic_temp:
+		RelicEconomy.note_ally_down(_host.session)
 	if _relic32_done or not RelicCombat.bearer_deployed(_fighters, _host.board, 32, false):
 		return
 	_relic32_done = true
@@ -5667,9 +5670,22 @@ func _synergy_circle_units() -> Array[GameUnit]:
 	return out
 
 
+## レリック用: いまサークル（前衛・後衛）にいる生きた味方。_side は行動順にいる前衛だけなので、
+## 後衛の装備者や「味方全員」の数え方に使うと後衛が抜ける。敵は前衛だけを返す。
+func _relic_side(enemy: bool) -> Array:
+	var found: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy != enemy or not fighter.alive or not is_instance_valid(fighter.unit):
+			continue
+		if fighter.in_queue or RelicCombat._row(fighter.unit, _host.board).x >= 0:
+			found.append(fighter)
+	return found
+
+
 func _team_max_hp(enemy: bool) -> int:
 	var total := 0
-	for entry in _side(enemy):
+	for entry in _relic_side(enemy):
 		var fighter: Fighter = entry
 		if not fighter.relic_device:
 			total += fighter.max_hp
@@ -5777,7 +5793,7 @@ func _relic_place_devices() -> void:
 		var slot: int = free_front.pop_front()
 		_relic_devices.append({"id": 185, "slot": slot, "attackable": false})
 		var cut := RelicCombat._value(185, "受けるダメージ") / 100.0
-		for entry in _side(false):
+		for entry in _relic_side(false):
 			var ally: Fighter = entry
 			var col := RelicCombat._row(ally.unit, board)
 			if col.x == 0 and absi(col.y - slot) <= 1:
@@ -5786,13 +5802,13 @@ func _relic_place_devices() -> void:
 		if free_back.is_empty():
 			break
 		_relic_devices.append({"id": 186, "slot": free_back.pop_front(), "attackable": false})
-		for entry in _side(false):
+		for entry in _relic_side(false):
 			var ally: Fighter = entry
 			ally.kit["fire_device_bonus"] = float(ally.kit.get("fire_device_bonus", 0.0)) + RelicCombat._value(186, "与ダメージ") / 100.0
 	for _i in RelicEconomy._count(session, 194):
 		## 前衛の枠を1つ選ぶ。最大体力が最も高い前衛を選ぶ。
 		var best: Fighter = null
-		for entry in _side(false):
+		for entry in _relic_side(false):
 			var ally: Fighter = entry
 			if RelicCombat._row(ally.unit, board).x == 0 and (best == null or ally.max_hp > best.max_hp):
 				best = ally
@@ -5829,7 +5845,7 @@ func _relic_place_devices() -> void:
 		if not benched.is_empty():
 			var pick: GameUnit = benched[randi() % benched.size()]
 			copies.append({"id": pick.unit_id, "stars": pick.stars, "cut": RelicCombat._value(187, "与ダメージ")})
-	for entry in _side(false):
+	for entry in _relic_side(false):
 		var ally: Fighter = entry
 		for _i in ally.relic_ids.count(188):
 			copies.append({"id": ally.unit.unit_id, "stars": ally.unit.stars, "cut": RelicCombat._value(188, "与ダメージ")})
@@ -5850,7 +5866,7 @@ func _relic_place_devices() -> void:
 	## 199 地震: 置いた装置1つにつき、味方全員が受けるダメージが下がる。
 	var quake := float(RelicEconomy._count(session, 199)) * float(_relic_devices.size()) * RelicCombat._value(199, "受けるダメージ") / 100.0
 	if quake > 0.0:
-		for entry in _side(false):
+		for entry in _relic_side(false):
 			var ally: Fighter = entry
 			ally.kit["device_taken_cut"] = float(ally.kit.get("device_taken_cut", 0.0)) + quake
 	if not _temp_units.is_empty():
@@ -5917,7 +5933,7 @@ func _relic_decoy_target(actor: Fighter) -> Fighter:
 		return null
 	if bool(_stats.get("decoy_used", false)):
 		return null
-	for entry in _side(false):
+	for entry in _relic_side(false):
 		var device: Fighter = entry
 		if device.relic_device and device.alive and device.in_queue:
 			_stats["decoy_used"] = true
@@ -5970,7 +5986,7 @@ func _relic_counter_hits(actor: Fighter, target: Fighter, dealt: int, direct: bo
 
 func _strongest_real_ally(enemy: bool) -> Fighter:
 	var best: Fighter = null
-	for entry in _side(enemy):
+	for entry in _relic_side(enemy):
 		var ally: Fighter = entry
 		if ally.relic_device or not ally.alive:
 			continue
@@ -6054,7 +6070,7 @@ func _relic_pass_western(dead: Fighter) -> void:
 		return
 	var front: Array = []
 	var back: Array = []
-	for entry in _side(dead.enemy):
+	for entry in _relic_side(dead.enemy):
 		var ally: Fighter = entry
 		if ally == dead or not ally.alive or ally.hp <= 0 or ally.relic_temp:
 			continue
@@ -6112,7 +6128,7 @@ func _relic_start_rows() -> void:
 func _relic_summon_kill(killer: Fighter) -> void:
 	if killer == null or killer.enemy:
 		return
-	for entry in _side(false):
+	for entry in _relic_side(false):
 		var ally: Fighter = entry
 		var count := ally.relic_ids.count(200)
 		if count > 0 and ally.alive:

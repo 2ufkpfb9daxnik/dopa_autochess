@@ -1,5 +1,6 @@
 class_name RelicSynth
 extends Control
+## レリックの〇×確認パネル。合成（open_pair）と、レリックを使う確認（open_confirm）で使う。
 
 signal confirmed(left_uid: int, right_uid: int)
 
@@ -7,6 +8,9 @@ const TEXT_WIDTH := 440.0
 
 var _left_uid := -1
 var _right_uid := -1
+## open_confirm で渡した〇の処理。空なら合成として confirmed を出す。
+var _on_accept := Callable()
+var _title: Label
 var _icon: TextureRect
 var _name: Label
 var _body: Label
@@ -41,11 +45,11 @@ func _ready() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	_panel.add_child(box)
-	var title := Label.new()
-	title.text = "合成"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 36)
-	box.add_child(title)
+	_title = Label.new()
+	_title.text = "合成"
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title.add_theme_font_size_override("font_size", 36)
+	box.add_child(_title)
 	var holder := CenterContainer.new()
 	_icon = TextureRect.new()
 	_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -78,14 +82,29 @@ func _ready() -> void:
 func open_pair(left_uid: int, right_uid: int, left_id: int, right_id: int) -> void:
 	_left_uid = left_uid
 	_right_uid = right_uid
+	_on_accept = Callable()
 	var result_id := RelicCatalog.synthesize_id(left_id, right_id)
 	var data := RelicCatalog.get_relic(result_id)
-	_icon.texture = RelicCatalog.get_icon(result_id)
-	_name.text = str(data.get("name", "レリック"))
 	var brief := str(data.get("brief", "")).strip_edges()
 	if brief.is_empty():
 		brief = str(data.get("detail", "")).strip_edges()
-	_body.text = brief
+	_show("合成", result_id, brief)
+
+
+## 〇で on_accept を呼ぶ確認パネル。
+func open_confirm(title: String, relic_id: int, body: String, on_accept: Callable) -> void:
+	_left_uid = -1
+	_right_uid = -1
+	_on_accept = on_accept
+	_show(title, relic_id, body)
+
+
+func _show(title: String, relic_id: int, body: String) -> void:
+	var data := RelicCatalog.get_relic(relic_id)
+	_title.text = title
+	_icon.texture = RelicCatalog.get_icon(relic_id)
+	_name.text = str(data.get("name", "レリック"))
+	_body.text = body
 	visible = true
 	move_to_front()
 	_layout_panel()
@@ -95,6 +114,7 @@ func close_synth() -> void:
 	visible = false
 	_left_uid = -1
 	_right_uid = -1
+	_on_accept = Callable()
 
 
 func _mark_button(text: String, accept: bool) -> Button:
@@ -103,9 +123,16 @@ func _mark_button(text: String, accept: bool) -> Button:
 	button.custom_minimum_size = Vector2(120, 88)
 	button.add_theme_font_size_override("font_size", 48)
 	button.pressed.connect(func() -> void:
-		if accept and _left_uid >= 0:
-			confirmed.emit(_left_uid, _right_uid)
+		var accept_call := _on_accept
+		var left := _left_uid
+		var right := _right_uid
 		close_synth()
+		if not accept:
+			return
+		if accept_call.is_valid():
+			accept_call.call()
+		elif left >= 0:
+			confirmed.emit(left, right)
 	)
 	return button
 

@@ -58,6 +58,8 @@ var debuff_home_slot := -1
 var equipped_relic_uids: Array[int] = []
 ## イズミなど、戦闘をまたぐキャラ固有の残数。
 var kit_flags: Dictionary = {}
+## レリックの装置など、カタログに無いユニットの表示名。
+var display_override := ""
 
 @onready var model_root: Node3D = $ModelRoot
 @onready var label: Label3D = $Label3D
@@ -731,11 +733,13 @@ func _mesh_aabb_in_node_space(node: Node3D, parent_xf: Transform3D) -> AABB:
 
 
 func get_cost() -> int:
-	return UnitCatalog.get_unit(unit_id)["cost"]
+	return int(UnitCatalog.get_unit(unit_id).get("cost", 0))
 
 
 func get_display_name() -> String:
-	return UnitCatalog.get_unit(unit_id)["name"]
+	if not display_override.is_empty():
+		return display_override
+	return str(UnitCatalog.get_unit(unit_id).get("name", "？"))
 
 
 func get_star_text() -> String:

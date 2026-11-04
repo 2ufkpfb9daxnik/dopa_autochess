@@ -53,12 +53,21 @@ static func _merge_trio(board: BoardController, units: Array[GameUnit], pair: bo
 	var anchor_slot := anchor.circle_slot
 	var anchor_bench := anchor.bench_index
 	var was_on_board := anchor.is_on_board()
+	## 016 オウミ: 場に出しているオウミが素材側になったときは、残っている回数を星が上がるオウミへ移す。
+	var carried_pair_left := -1
+	if oumi_pair:
+		var deployed_before := _deployed_oumi(board)
+		if deployed_before != null and deployed_before != anchor and units.has(deployed_before):
+			_oumi_ensure_charges(deployed_before)
+			carried_pair_left = int(deployed_before.kit_flags.get("pair_merge_left", 0))
 	for i in range(1, units.size()):
 		var unit: GameUnit = units[i]
 		unit.equipped_relic_uids.clear()
 		board.remove_unit(unit)
 		unit.queue_free()
 	board.remove_unit(anchor)
+	if carried_pair_left >= 0:
+		anchor.kit_flags["pair_merge_left"] = carried_pair_left
 	anchor.stars = new_stars
 	anchor.clear_location()
 	anchor.refresh_visuals()
@@ -147,6 +156,5 @@ static func _stars_text(stars: int) -> String:
 
 
 static func _session_of(board: BoardController) -> GameSession:
-	if board == null or board.get_parent() == null:
-		return null
-	return board.get_parent().get("session") as GameSession
+	## 盤面は戦闘用の SubViewport の下へ移されるので、親だけでなく上までたどる。
+	return RelicEconomy.session_of_board(board)

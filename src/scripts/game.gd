@@ -50,6 +50,9 @@ var _relic_pick: RelicPick
 var _relic_pick_active := false
 var _relic_tray: RelicTray
 var _relic_synth: RelicSynth
+## レリックを使う途中で、対象（キャラクターまたはレリック）を待っているレリックの uid。
+var _relic_use_uid := -1
+var _relic_use_mode := ""
 var _last_reroll_button_text := ""
 var _hp_exp_button: Button
 var _flushing_relic_units := false
@@ -956,7 +959,7 @@ func _on_action(action: GameAction) -> void:
 		GameAction.Type.BUY_EXP_HP:
 			var cap_before_hp := session.get_board_unit_cap()
 			if session.try_buy_exp_with_hp():
-				_log("経験値を購入した (+%d, HP-%d)" % [GameSession.EXP_GAIN, RelicEconomy.hp_exp_cost(session)])
+				_log("経験値を購入した (+%d, HP-%d)" % [RelicEconomy.hp_exp_gain(session), RelicEconomy.hp_exp_cost(session)])
 				_note_deploy_cap_change(cap_before_hp)
 		GameAction.Type.SELL_UNDER_CURSOR:
 			if not session.is_prep() or _formation.is_dragging():
@@ -1031,18 +1034,18 @@ func _start_battle() -> void:
 		if slot != null:
 			bench_count += 1
 	RelicEconomy.on_round_end(session, bench_count, board.bench_units.size())
+	## トバ（059）・ナバリ（066）のラウンドの経験値は finish_battle が使うので、その前に決める。
+	session.toba_round_xp = _round_xp_bonus(59)
+	session.nabari_round_xp = _round_xp_bonus(66)
 	session.finish_battle(battle_won, remaining_enemies)
 	RelicEconomy.note_battle_finished(session, battle_won)
+	RelicEconomy.note_battle_outcome(session, battle_won, outcome.get("relic_stats", {}))
 	session.player_hp = mini(session.player_hp, RelicEconomy.player_max_hp(session))
 	_note_deploy_cap_change(cap_before_battle)
-	session.toba_round_xp = _toba_round_xp_bonus()
-	session.nabari_round_xp = _nabari_round_xp_bonus()
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
 	else:
-		var fought_round := session.round_number - 1
-		var damage := PlayerHp.calc_loss_damage(fought_round, remaining_enemies)
-		_log("戦闘敗北 (HP -%d, 残り %d)" % [damage, session.player_hp])
+		_log("戦闘敗北 (HP -%d, 残り %d)" % [session.last_loss_damage, session.player_hp])
 	battle_overlay.visible = false
 	board.set_battle_mode(false)
 	_battle.reroll()
@@ -1369,46 +1372,59 @@ func _izumi_on_relic_equipped(unit: GameUnit, uid: int) -> void:
 	if unit == null or uid <= 0:
 		return
 	var flags: Dictionary = unit.kit_flags
-	_izumi_try_swing_hp(unit)
+	## 増えたレリックを装備し直したときは、スウィングも増やす1回も起きない。
+	if uid == int(flags.get("copied_uid", -1)):
+		return
+	var hp_gain := _swing_on_relic_equipped(unit, "swing_hp", "swing_used", "swing_hp_bonus", false)
+	if hp_gain > 0.0:
+		_log("%s の最大体力が %d 上がった（スウィング）" % [unit.get_display_name(), int(hp_gain)])
 	var copy_left := int(flags.get("copy_left", 1))
 	if copy_left <= 0:
 		return
-	flags["copy_left"] = copy_left - 1
-	unit.kit_flags = flags
+	## 増えたレリックを装備できないときは増えず、1回も残る。
+	if unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
+		return
 	var relic_id := session.relic_id_of(uid)
 	if relic_id <= 0:
 		return
 	var copied_uid := session.add_relic(relic_id)
 	if copied_uid <= 0:
 		return
+	flags["copy_left"] = copy_left - 1
 	flags["copied_uid"] = copied_uid
 	unit.kit_flags = flags
 	_log("%s が増えたレリックを得た" % unit.get_display_name())
-	if unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
-		return
 	for owner in board.get_all_units():
 		owner.equipped_relic_uids.erase(copied_uid)
 	unit.equipped_relic_uids.append(copied_uid)
 	_log("%s が増えたレリックを装備した" % unit.get_display_name())
 
 
-func _izumi_try_swing_hp(unit: GameUnit) -> void:
-	if unit == null or unit.unit_id != 10:
-		return
+## スウィング: レリックを装備したとき、数える装備が上限より少なければ上昇が残る。
+## 量は装備した時点の星の欄の値に、装備した時点のスウィング人数の倍率を掛け、
+## 半分以上の端数を切り上げた整数（percent のときは整数の%）である。増えた量を返す。
+func _swing_on_relic_equipped(unit: GameUnit, base_key: String, used_key: String, bonus_key: String, percent: bool) -> float:
+	if unit == null:
+		return 0.0
 	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
 	if sheet.is_empty():
-		return
+		return 0.0
 	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_used", 0))
+	var used := int(unit.kit_flags.get(used_key, 0))
 	if used >= cap:
-		return
-	var base := int(sheet.get("swing_hp", 15))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_used"] = used + 1
-	unit.kit_flags["swing_hp_bonus"] = int(unit.kit_flags.get("swing_hp_bonus", 0)) + bonus
-	_log("%s の最大体力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+		return 0.0
+	var base := float(sheet.get(base_key, 0.0))
+	if percent:
+		base *= 100.0
+	var bonus := floorf(base * _swing_mult() + 0.5)
+	if bonus <= 0.0:
+		return 0.0
+	unit.kit_flags[used_key] = used + 1
+	if percent:
+		unit.kit_flags[bonus_key] = float(unit.kit_flags.get(bonus_key, 0.0)) + bonus / 100.0
+	else:
+		unit.kit_flags[bonus_key] = int(unit.kit_flags.get(bonus_key, 0)) + int(bonus)
+	return bonus
 
 
 func _swing_synergy_count() -> int:
@@ -1438,39 +1454,17 @@ func _swing_mult() -> float:
 func _ibaraki_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 14:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_def_used", 0))
-	if used >= cap:
-		return
-	var base := int(sheet.get("swing_defense", 10))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_def_used"] = used + 1
-	unit.kit_flags["swing_defense_bonus"] = int(unit.kit_flags.get("swing_defense_bonus", 0)) + bonus
-	_log("%s の防御力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+	var bonus := _swing_on_relic_equipped(unit, "swing_defense", "swing_def_used", "swing_defense_bonus", false)
+	if bonus > 0.0:
+		_log("%s の防御力が %d 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _oumi_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 16:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_water_used", 0))
-	if used >= cap:
-		return
-	var base := float(sheet.get("swing_water", 0.08))
-	var bonus := base * _swing_mult()
-	if bonus <= 0.0:
-		return
-	unit.kit_flags["swing_water_used"] = used + 1
-	unit.kit_flags["swing_water_bonus"] = float(unit.kit_flags.get("swing_water_bonus", 0.0)) + bonus
-	_log("%s の水与ダメージが上がった（スウィング）" % unit.get_display_name())
+	var bonus := _swing_on_relic_equipped(unit, "swing_water", "swing_water_used", "swing_water_bonus", true)
+	if bonus > 0.0:
+		_log("%s の水与ダメージが %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _otsu_on_relic_equipped(unit: GameUnit) -> void:
@@ -1479,34 +1473,22 @@ func _otsu_on_relic_equipped(unit: GameUnit) -> void:
 	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
 	if sheet.is_empty():
 		return
+	## 数えるのは受け取った時点の星の上限まで。戦闘開始時に層を付けると数は消える（battle_director 側で0に戻す）。
 	var cap := int(sheet.get("relic_count_cap", 1))
-	var used := int(unit.kit_flags.get("otsu_relic_counted", 0))
-	if used >= cap:
+	var pending := int(unit.kit_flags.get("otsu_pending", 0))
+	if pending >= cap:
 		return
-	unit.kit_flags["otsu_relic_counted"] = used + 1
-	unit.kit_flags["otsu_pending"] = int(unit.kit_flags.get("otsu_pending", 0)) + 1
+	unit.kit_flags["otsu_pending"] = pending + 1
 	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
 
 
-func _nabari_round_xp_bonus() -> int:
+## サークルにいる味方のうち、星が最も高い unit_id の1体の「ラウンドの経験値」。いなければ0。
+func _round_xp_bonus(unit_id: int) -> int:
 	var best: GameUnit = null
 	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 66 or unit.is_enemy:
+		if unit == null or unit.unit_id != unit_id or unit.is_enemy:
 			continue
-		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
-			best = unit
-	if best == null:
-		return 0
-	var sheet := CharacterSheet.make(best.unit_id, best.stars)
-	return maxi(1, int(sheet.get("round_xp", 1)))
-
-
-func _toba_round_xp_bonus() -> int:
-	var best: GameUnit = null
-	for unit in board.get_circle_units():
-		if unit == null or unit.unit_id != 59 or unit.is_enemy:
-			continue
-		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
+		if best == null or unit.stars > best.stars:
 			best = unit
 	if best == null:
 		return 0
@@ -1528,15 +1510,9 @@ func _senboku_on_relic_equipped(unit: GameUnit) -> void:
 			unit.kit_flags["senboku_equip_used"] = equip_used + 1
 			unit.kit_flags["senboku_equip_hp"] = int(unit.kit_flags.get("senboku_equip_hp", 0)) + hp_gain
 			_log("%s の最大体力が %d 上がった（装備）" % [unit.get_display_name(), hp_gain])
-	var swing_cap := int(sheet.get("swing_cap", 1))
-	var swing_used := int(unit.kit_flags.get("swing_thunder_used", 0))
-	if swing_used < swing_cap:
-		var base := float(sheet.get("swing_thunder", 0.06))
-		var bonus := base * _swing_mult()
-		if bonus > 0.0:
-			unit.kit_flags["swing_thunder_used"] = swing_used + 1
-			unit.kit_flags["swing_thunder_bonus"] = float(unit.kit_flags.get("swing_thunder_bonus", 0.0)) + bonus
-			_log("%s の雷与ダメージが上がった（スウィング）" % unit.get_display_name())
+	var bonus := _swing_on_relic_equipped(unit, "swing_thunder", "swing_thunder_used", "swing_thunder_bonus", true)
+	if bonus > 0.0:
+		_log("%s の雷与ダメージが %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _ono_free_rerolls_on_board() -> int:
@@ -1573,8 +1549,10 @@ func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
 		owner.equipped_relic_uids.erase(right_uid)
 	var result_id := RelicCatalog.synthesize_id(left_id, right_id)
 	session.add_relic(result_id)
+	session.tally_relic_synths += 1
 	if synth_gold > 0:
 		session.add_coins(synth_gold)
+	RelicEconomy.note_relic_synthesized(session)
 	var data := RelicCatalog.get_relic(result_id)
 	_log("レリックを合成した: %s" % str(data.get("name", "")))
 	_note_synth_kit_charges()
@@ -1603,20 +1581,9 @@ func _note_synth_kit_charges() -> void:
 func _sakai_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 35:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_speed_used", 0))
-	if used >= cap:
-		return
-	var base := int(sheet.get("swing_speed", 8))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_speed_used"] = used + 1
-	unit.kit_flags["swing_speed_bonus"] = int(unit.kit_flags.get("swing_speed_bonus", 0)) + bonus
-	_log("%s の左右速度が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+	var bonus := _swing_on_relic_equipped(unit, "swing_speed", "swing_speed_used", "swing_speed_bonus", false)
+	if bonus > 0.0:
+		_log("%s の左右速度が %d 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _on_relic_chosen(relic_id: int) -> void:
@@ -2228,6 +2195,7 @@ func _setup_formation_ui() -> void:
 	_relic_tray.hovered.connect(_on_relic_tray_hovered)
 	_relic_tray.hover_cleared.connect(_on_relic_tray_hover_cleared)
 	_relic_tray.drag_finished.connect(_on_relic_drag_finished)
+	_relic_tray.clicked.connect(_on_relic_tray_clicked)
 	ui.add_child(_relic_tray)
 	_relic_synth = RelicSynth.new()
 	_relic_synth.name = "RelicSynth"
@@ -2235,6 +2203,8 @@ func _setup_formation_ui() -> void:
 	ui.add_child(_relic_synth)
 	_circle_wheel.relic_hovered.connect(_on_circle_relic_hovered)
 	_circle_wheel.relic_drag_started.connect(_on_circle_relic_drag_started)
+	_circle_wheel.relic_clicked.connect(_on_circle_relic_clicked)
+	_bench_board.relic_clicked.connect(_on_bench_relic_clicked)
 	_bench_board.relic_hovered.connect(_on_bench_relic_hovered)
 	_bench_board.hover_cleared.connect(_formation.on_inspect_hover_cleared)
 	_bench_board.unit_hovered.connect(_formation.on_bench_unit_hovered)
@@ -2806,7 +2776,156 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _relic_use_uid >= 0 and _handle_relic_use_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	_formation.handle_mouse_motion(event)
+
+
+## 手元のレリックをクリックしたとき。使えるレリックなら確認を出す。
+func _on_relic_tray_clicked(uid: int) -> void:
+	if session == null or not session.is_prep() or _relic_synth == null:
+		return
+	var mode := RelicEconomy.use_mode(session, uid)
+	if mode == RelicEconomy.USE_NONE:
+		return
+	var relic_id := session.relic_id_of(uid)
+	_relic_synth.open_confirm("使う", relic_id, RelicEconomy.use_prompt(session, uid), func() -> void:
+		_begin_relic_use(uid, mode)
+	)
+
+
+## キャラクターに付いているレリックをクリックしたとき。手元と同じく、使えるレリックなら確認を出す。
+func _on_circle_relic_clicked(slot_index: int, relic_index: int) -> void:
+	_on_equipped_relic_clicked(board.get_placed_unit(board.active_face, slot_index), relic_index)
+
+
+func _on_bench_relic_clicked(slot_index: int, relic_index: int) -> void:
+	if slot_index < 0 or slot_index >= board.bench_units.size():
+		return
+	_on_equipped_relic_clicked(board.bench_units[slot_index], relic_index)
+
+
+func _on_equipped_relic_clicked(unit: GameUnit, relic_index: int) -> void:
+	if unit == null or session == null or not session.is_prep() or _relic_synth == null:
+		return
+	if relic_index < 0 or relic_index >= unit.equipped_relic_uids.size():
+		return
+	var uid := unit.equipped_relic_uids[relic_index]
+	## 156 ギター: 付いているキャラクターがそのまま対象。対象を選ばずに換える。
+	if session.relic_id_of(uid) == 156:
+		var gold := RelicEconomy.guitar_gold(session, unit)
+		var body := "%s に付いている成長の与ダメージを、%d ゴールドに換えますか？" % [unit.get_display_name(), gold]
+		_relic_synth.open_confirm("使う", 156, body, func() -> void:
+			if RelicEconomy.use_on_unit(session, uid, unit):
+				_log("ギターで %d ゴールドに換えた" % gold)
+			_after_relic_use()
+		)
+		return
+	_on_relic_tray_clicked(uid)
+
+
+## 盤面のキャラクターに付いているレリックのうち、その位置にあるもの。無ければ -1。
+func _equipped_relic_uid_at(at: Vector2) -> int:
+	if _bench_board != null:
+		var hit: Vector2i = _bench_board._relic_hit(_bench_board._to_local(at))
+		if hit.x >= 0 and hit.x < board.bench_units.size():
+			var benched := board.bench_units[hit.x] as GameUnit
+			if benched != null and hit.y >= 0 and hit.y < benched.equipped_relic_uids.size():
+				return benched.equipped_relic_uids[hit.y]
+	if _circle_wheel != null:
+		var hit_c: Vector2i = _circle_wheel._relic_hit(_circle_wheel._to_local(at))
+		if hit_c.x >= 0:
+			var placed := board.get_placed_unit(board.active_face, hit_c.x)
+			if placed != null and hit_c.y >= 0 and hit_c.y < placed.equipped_relic_uids.size():
+				return placed.equipped_relic_uids[hit_c.y]
+	return -1
+
+
+func _begin_relic_use(uid: int, mode: String) -> void:
+	var name := str(RelicCatalog.get_relic(session.relic_id_of(uid)).get("name", ""))
+	if mode == RelicEconomy.USE_NOW:
+		if RelicEconomy.use_now(session, uid):
+			_log("%s を使った" % name)
+		_after_relic_use()
+		return
+	_relic_use_uid = uid
+	_relic_use_mode = mode
+	var prompt := RelicEconomy.use_prompt(session, uid) + "（右クリックで取りやめ）"
+	_show_board_notice(prompt, true)
+	_log(prompt)
+
+
+## 対象を選ぶあいだの入力。処理したら true。
+func _handle_relic_use_input(event: InputEvent) -> bool:
+	var cancel := false
+	if event is InputEventKey and event.is_pressed() and (event as InputEventKey).keycode == KEY_ESCAPE:
+		cancel = true
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		var button := (event as InputEventMouseButton).button_index
+		if button == MOUSE_BUTTON_RIGHT:
+			cancel = true
+		elif button == MOUSE_BUTTON_LEFT:
+			_pick_relic_use_target((event as InputEventMouseButton).global_position)
+			return true
+	if cancel:
+		_end_relic_use()
+		_log("レリックを使うのをやめた")
+		return true
+	return false
+
+
+func _pick_relic_use_target(at: Vector2) -> void:
+	var uid := _relic_use_uid
+	var relic_id := session.relic_id_of(uid)
+	var name := str(RelicCatalog.get_relic(relic_id).get("name", ""))
+	var used := false
+	if _relic_use_mode == RelicEconomy.USE_UNIT:
+		var unit := _unit_under_point(at)
+		if unit == null:
+			return
+		used = RelicEconomy.use_on_unit(session, uid, unit)
+		if used and relic_id == 191:
+			_put_unit_in_egg(unit)
+		if used:
+			_log("%s を %s に使った" % [name, unit.get_display_name()])
+		else:
+			_log("%s は %s には使えない" % [name, unit.get_display_name()])
+	elif _relic_use_mode == RelicEconomy.USE_RELIC:
+		var target := _relic_tray.uid_at(at) if _relic_tray != null else -1
+		## キャラクターに付いているレリックも、消す対象に選べる。
+		if target < 0:
+			target = _equipped_relic_uid_at(at)
+		if target < 0:
+			return
+		var target_name := str(RelicCatalog.get_relic(session.relic_id_of(target)).get("name", ""))
+		used = RelicEconomy.use_on_relic(session, uid, target)
+		if used:
+			_log("%s で %s を消した" % [name, target_name])
+		else:
+			_log("%s は消せない" % target_name)
+	_end_relic_use()
+	_after_relic_use()
+
+
+## 見学(191): 卵に入れたキャラクターは盤面から外す。装備は手元に戻る。
+func _put_unit_in_egg(unit: GameUnit) -> void:
+	unit.equipped_relic_uids.clear()
+	board.remove_unit(unit)
+	unit.queue_free()
+
+
+func _end_relic_use() -> void:
+	_relic_use_uid = -1
+	_relic_use_mode = ""
+	if _board_notice != null and _board_notice.is_persistent():
+		_board_notice.clear_persistent()
+	_refresh_overflow_notice()
+
+
+func _after_relic_use() -> void:
+	_formation.refresh_widgets()
+	_update_ui()
 
 
 func relic_rewrite_bottom_bench(times: int) -> void:
@@ -2942,8 +3061,9 @@ func _update_ui() -> void:
 	else:
 		streak_badge.visible = streak_visible
 	var level := session.get_level()
-	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience)
-	var xp_need := PlayerLevel.get_xp_needed_for_next_level(level)
+	var level_cap := RelicEconomy.level_cap(session)
+	var xp_into := PlayerLevel.get_xp_into_current_level(session.experience, level_cap)
+	var xp_need := PlayerLevel.get_xp_needed_for_next_level(level, level_cap)
 	if xp_need > 0:
 		exp_status_label.text = "Lv.%d\n%d/%d" % [level, xp_into, xp_need]
 		exp_progress_bar.visible = true
@@ -2975,7 +3095,9 @@ func _update_ui() -> void:
 		_bench_board.set_count(bench_count, board.bench_units.size())
 	bench_badge.visible = false
 	var paid_reroll := RelicEconomy.paid_reroll_cost(session)
-	reroll_button.text = "(%d)" % paid_reroll
+	## 258 雲: ゴールドを払って更新できない。
+	var paid_reroll_blocked := RelicEconomy.blocks_paid_reroll(session)
+	reroll_button.text = "(不可)" if paid_reroll_blocked else "(%d)" % paid_reroll
 	if session.free_rerolls > 0:
 		reroll_button.text = "無料×%d" % session.free_rerolls
 	var reroll_text := reroll_button.text
@@ -2984,16 +3106,21 @@ func _update_ui() -> void:
 		_last_reroll_button_text = reroll_text
 	var economy_open := session.is_prep() or session.phase == GameSession.Phase.BATTLE
 	reroll_button.disabled = not economy_open or session.shop_locked or (
-		session.free_rerolls <= 0 and session.coins < paid_reroll
+		session.free_rerolls <= 0 and (paid_reroll_blocked or session.coins < paid_reroll)
 	)
 	var exp_cost := RelicEconomy.exp_cost(session)
-	exp_button.text = "+%d\n(%d)" % [GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session), exp_cost]
+	## 254 二重: ゴールドで経験値を買えない。
+	var gold_exp_blocked := RelicEconomy.blocks_gold_exp(session)
+	if gold_exp_blocked:
+		exp_button.text = "+%d\n(不可)" % (GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session))
+	else:
+		exp_button.text = "+%d\n(%d)" % [GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session), exp_cost]
 	var hp_cost := RelicEconomy.hp_exp_cost(session)
 	if _hp_exp_button != null:
 		_hp_exp_button.visible = hp_cost > 0
-		_hp_exp_button.text = "HP-%d\n+%d" % [hp_cost, GameSession.EXP_GAIN]
+		_hp_exp_button.text = "HP-%d\n+%d" % [hp_cost, RelicEconomy.hp_exp_gain(session)]
 		_hp_exp_button.disabled = not economy_open or session.player_hp < hp_cost
-	exp_button.disabled = not economy_open or session.coins < exp_cost
+	exp_button.disabled = not economy_open or gold_exp_blocked or session.coins < exp_cost
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()

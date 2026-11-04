@@ -60,6 +60,15 @@ var relic_end_xp: int = 0
 var next_interest_bonus: float = 0.0
 var toba_round_xp: int = 0
 var nabari_round_xp: int = 0
+## シナモン(139): 次に並ぶショップの値引き（予約分と、いまの並びに効いている分）。
+var relic_139_pending: int = 0
+var relic_139_live: int = 0
+## 蒸発(166): 味方が受けたダメージの合計（閾値ぶん引いた残り）。
+var relic_166_bank: int = 0
+## レジャー(180): マッチ中に消費した回数。
+var relic_180_used: int = 0
+## 直前の敗北で受けたプレイヤーダメージ（ログ表示用）。
+var last_loss_damage: int = 0
 
 ## ラン終了画面用の累計。
 var tally_battles_won := 0
@@ -79,7 +88,11 @@ var tally_hp_spent_on_exp := 0
 var tally_units_bought := 0
 var tally_units_sold := 0
 var tally_merges := 0
+## そのマッチでレリックを合成した回数（001 アカシの戦闘開始時の上昇）。
+var tally_relic_synths := 0
 var tally_relics_gained := 0
+## そのラウンドに入手したレリックの数（068 ニシミノの2回目の割合）。ラウンドが進むと0に戻る。
+var round_relics_gained := 0
 var tally_peak_coins := INITIAL_COINS
 var tally_peak_level := 1
 var tally_peak_board := 0
@@ -102,8 +115,10 @@ func add_relic(relic_id: int, seed: Dictionary = {}) -> int:
 		item[key] = seed[key]
 	relics.append(item)
 	tally_relics_gained += 1
+	round_relics_gained += 1
 	RelicEconomy.on_gained(self, uid, relic_id)
 	RelicEconomy.note_duplicate_name(self, relic_id)
+	RelicEconomy.check_closure(self)
 	if not bool(seed.get("from_shinan", false)):
 		RelicEconomy.trigger_shinan(self)
 	state_changed.emit()
@@ -146,7 +161,7 @@ func is_route_choice() -> bool:
 
 
 func get_level() -> int:
-	return PlayerLevel.get_level(experience)
+	return PlayerLevel.get_level(experience, RelicEconomy.level_cap(self))
 
 
 func get_board_unit_cap() -> int:
@@ -174,17 +189,14 @@ func refresh_shop(paid_gold: bool = false) -> void:
 
 
 func apply_round_start_shop() -> void:
-	var force_refresh := false
-	for item in relics:
-		if int(item.get("id", -1)) == 58:
-			force_refresh = true
-			break
-	if shop_locked and not force_refresh:
+	if shop_locked:
 		shop_locked = false
 		state_changed.emit()
-		return
-	shop_locked = false
-	refresh_shop()
+	else:
+		refresh_shop()
+	## 058 誤操作: ロックとは別に、ラウンド開始時に自動で入れ直す。
+	for _i in RelicEconomy.auto_refresh_count(self):
+		refresh_shop()
 
 
 func toggle_shop_lock() -> void:
@@ -221,7 +233,11 @@ func try_reroll() -> bool:
 		free_rerolls -= 1
 		tally_rerolls_free += 1
 		refresh_shop(false)
+		RelicEconomy.note_free_reroll_used(self)
 		return true
+	## 258 雲: ゴールドを払って更新することはできない。
+	if RelicEconomy.blocks_paid_reroll(self):
+		return false
 	var reroll_cost := RelicEconomy.paid_reroll_cost(self)
 	if coins < reroll_cost:
 		return false
@@ -235,6 +251,8 @@ func try_reroll() -> bool:
 
 
 func try_buy_exp() -> bool:
+	if RelicEconomy.blocks_gold_exp(self):
+		return false
 	var exp_cost := RelicEconomy.exp_cost(self)
 	if not _economy_open() or coins < exp_cost:
 		return false
@@ -243,6 +261,7 @@ func try_buy_exp() -> bool:
 	RelicEconomy.note_gold_spent(self, exp_cost)
 	gain_experience(EXP_GAIN + RelicEconomy.exp_bonus(self))
 	RelicEconomy.note_exp_bought(self)
+	RelicEconomy.note_exp_purchase(self)
 	tally_exp_buys += 1
 	state_changed.emit()
 	return true
@@ -256,7 +275,8 @@ func try_buy_exp_with_hp() -> bool:
 	tally_hp_exp_buys += 1
 	tally_hp_spent_on_exp += hp_cost
 	tally_damage_taken += hp_cost
-	gain_experience(EXP_GAIN)
+	gain_experience(RelicEconomy.hp_exp_gain(self))
+	RelicEconomy.note_exp_purchase(self)
 	if player_hp <= 0:
 		finish_run(RunEndReason.DEFEAT)
 		return true
@@ -351,25 +371,29 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 	toba_round_xp = 0
 	nabari_round_xp = 0
 
+	var streak_step := RelicEconomy.streak_step(self)
+	last_loss_damage = 0
 	if won:
 		if loss_streak > 0:
 			RelicEconomy.note_streak_broken(self)
-		win_streak += 1
+		win_streak += streak_step
 		loss_streak = 0
 		tally_battles_won += 1
 		tally_max_win_streak = maxi(tally_max_win_streak, win_streak)
 	else:
 		if win_streak > 0:
 			RelicEconomy.note_streak_broken(self)
-		loss_streak += 1
+		loss_streak += streak_step
 		win_streak = 0
-		var damage := PlayerHp.calc_loss_damage(round_number, remaining_enemy_units)
+		var damage := RelicEconomy.loss_damage(self, PlayerHp.calc_loss_damage(round_number, remaining_enemy_units))
+		last_loss_damage = damage
 		player_hp = maxi(0, player_hp - damage)
 		tally_battles_lost += 1
 		tally_damage_taken += damage
 		tally_max_loss_streak = maxi(tally_max_loss_streak, loss_streak)
 
 	round_number += 1
+	round_relics_gained = 0
 
 	if not won and player_hp <= 0:
 		finish_run(RunEndReason.DEFEAT)
@@ -456,6 +480,7 @@ func _apply_round_start_income() -> void:
 	var income_total := int(last_income_breakdown["total"])
 	tally_income_gold += income_total
 	add_coins(income_total)
+	RelicEconomy.refill_after_income(self)
 	state_changed.emit()
 
 

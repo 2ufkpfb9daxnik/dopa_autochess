@@ -225,6 +225,33 @@ func formation_stack_count(slot_index: int, element_key: String) -> int:
 	return count
 
 
+## 表示用。日本語属性ラベルと英語キーの両方で、横・縦の最大規模を返す。
+func formation_element_size(jp_label: String, element_key: String) -> int:
+	var best := 0
+	var front: Array[String] = []
+	front.resize(FRONT_COUNT)
+	front.fill("")
+	for slot_index in FRONT_COUNT:
+		var unit := get_resolved_unit(active_face, slot_index)
+		if unit == null or unit.battle_ko:
+			continue
+		front[slot_index] = _attack_element(unit)
+	var index := 0
+	while index < FRONT_COUNT:
+		var label := front[index]
+		if label.is_empty() or label != jp_label:
+			index += 1
+			continue
+		var end := index
+		while end + 1 < FRONT_COUNT and front[end + 1] == jp_label:
+			end += 1
+		best = maxi(best, end - index + 1)
+		index = end + 1
+	for slot_index in SLOTS_PER_FACE:
+		best = maxi(best, formation_stack_count(slot_index, element_key))
+	return best
+
+
 func get_active_formation_elements() -> PackedStringArray:
 	var elements: Array[String] = []
 	for slot_index in FRONT_COUNT:
@@ -423,6 +450,20 @@ func get_board_unit_count() -> int:
 			if unit != null:
 				count += 1
 	return count
+
+
+func get_board_star_average() -> float:
+	var total := 0
+	var count := 0
+	for face in _faces:
+		for unit in face:
+			if unit == null or not is_instance_valid(unit):
+				continue
+			total += unit.stars
+			count += 1
+	if count <= 0:
+		return 1.0
+	return float(total) / float(count)
 
 
 func get_enemy_unit_count() -> int:

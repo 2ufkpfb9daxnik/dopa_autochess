@@ -32,8 +32,33 @@ static func interest_flat(session: GameSession) -> int:
 	return _owned_value(session, 64, "利息") + _owned_value(session, 137, "利息")
 
 
+## 255 フィックス: 利息そのものを消す（変換もしない）。
+static func hard_blocks_interest(session: GameSession) -> bool:
+	return _count(session, 255) > 0
+
+
+## 利息ゴールドが入らない（093 変換・255 封鎖）。
 static func blocks_interest(session: GameSession) -> bool:
-	return _count(session, 93) > 0 or _count(session, 255) > 0
+	return _count(session, 93) > 0 or hard_blocks_interest(session)
+
+
+## 093 馬蹄: 利息を同量の経験値に変える。255があると利息自体が無いので無効。
+static func converts_interest_to_xp(session: GameSession) -> bool:
+	return _count(session, 93) > 0 and not hard_blocks_interest(session)
+
+
+## 基本利息にフラット・046・ダイトー倍率を載せる。consume で046と倍率を消費する。
+static func decorate_interest(session: GameSession, base_holding: int, consume: bool) -> int:
+	var holding := maxi(0, base_holding) + interest_flat(session)
+	if consume:
+		holding += interest_extra(session)
+	else:
+		holding += interest_extra_preview(session)
+	if session.next_interest_bonus > 0.0:
+		holding = int(round(float(holding) * (1.0 + session.next_interest_bonus)))
+		if consume:
+			session.next_interest_bonus = 0.0
+	return holding
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +75,6 @@ static func round_start_gold(session: GameSession) -> int:
 
 static func round_start_experience(session: GameSession) -> int:
 	var xp := _tick_down(session, 85) * int(_value(85, "経験値"))
-	xp += _owned_value(session, 93, "経験値")
 	xp += _owned_value(session, 254, "毎ラウンド")
 	xp += _owned_value(session, 302, "経験値")
 	xp += _advance_pilot(session)

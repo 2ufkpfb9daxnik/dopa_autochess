@@ -6,6 +6,9 @@ const ODDS_LABEL_FONT_SIZE := 13
 const ODDS_LABEL_OUTLINE_SIZE := 3
 const MAX_COST := 7
 const TABLE_LEVELS := 20
+const BAND_BORDER := Color(0.35, 0.72, 1.0, 1.0)
+const BAND_FILL := Color(0.22, 0.48, 0.92, 0.14)
+const BAND_BORDER_WIDTH := 2
 
 ## Lv1〜10 の 1〜5 コスト（公式表）
 const BASE_ODDS: Array[Array] = [
@@ -122,56 +125,53 @@ static func populate_odds_grid(grid: GridContainer, highlight_level: int) -> voi
 	const COST_WIDTH := 28
 	const CELL_WIDTH := 32
 	grid.columns = TABLE_LEVELS + 1
-	_add_grid_label(grid, "Lv", true, false, COST_WIDTH, 0)
+	grid.add_theme_constant_override("v_separation", 0)
+	_add_grid_cell(grid, "Lv", true, false, COST_WIDTH, 0, false, false)
 	for level in range(1, TABLE_LEVELS + 1):
-		_add_grid_label(grid, str(level), true, level == highlight_level, CELL_WIDTH, 0)
+		var in_band := level == highlight_level
+		_add_grid_cell(grid, str(level), true, in_band, CELL_WIDTH, 0, in_band, false)
 	for cost in range(1, MAX_COST + 1):
-		_add_grid_label(grid, str(cost), true, false, COST_WIDTH, cost)
+		_add_grid_cell(grid, str(cost), true, false, COST_WIDTH, cost, false, false)
 		for level in range(1, TABLE_LEVELS + 1):
 			var odds := get_odds(level)
 			var pct := int(round(float(odds[cost - 1])))
-			var cell_text := str(pct)
-			_add_grid_label(
+			var in_band := level == highlight_level
+			_add_grid_cell(
 				grid,
-				cell_text,
+				str(pct),
 				false,
-				level == highlight_level,
+				in_band,
 				CELL_WIDTH,
-				cost
+				cost,
+				false,
+				in_band and cost == MAX_COST
 			)
 
 
-static func _add_grid_label(
+static func _add_grid_cell(
 	grid: GridContainer,
 	text: String,
 	is_header: bool,
-	is_highlight: bool,
+	in_band: bool,
 	min_width: int,
-	cost: int = 0
+	cost: int,
+	band_top: bool,
+	band_bottom: bool
 ) -> void:
 	var label := Label.new()
 	label.text = text
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.custom_minimum_size = Vector2(min_width, 0)
-	label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if is_header:
 		label.add_theme_font_size_override("font_size", 14)
-		if is_highlight:
-			label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
-		elif cost > 0:
+		if cost > 0:
 			label.add_theme_color_override("font_color", Color.WHITE)
 			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
 			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
 		else:
 			label.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
-	elif is_highlight:
-		label.add_theme_font_size_override("font_size", 14)
-		if cost > 0 and text != "-":
-			label.add_theme_color_override("font_color", Color.WHITE)
-			label.add_theme_color_override("font_outline_color", CostColors.get_color(cost))
-			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE + 1)
-		else:
-			label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.45))
 	else:
 		label.add_theme_font_size_override("font_size", 13)
 		if cost > 0 and text != "-":
@@ -180,7 +180,29 @@ static func _add_grid_label(
 			label.add_theme_constant_override("outline_size", ODDS_LABEL_OUTLINE_SIZE)
 		else:
 			label.add_theme_color_override("font_color", Color(0.82, 0.84, 0.88))
-	grid.add_child(label)
+	if not in_band:
+		label.custom_minimum_size = Vector2(min_width, 0)
+		label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		grid.add_child(label)
+		return
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(min_width, 0)
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := StyleBoxFlat.new()
+	box.bg_color = BAND_FILL
+	box.border_color = BAND_BORDER
+	box.border_width_left = BAND_BORDER_WIDTH
+	box.border_width_right = BAND_BORDER_WIDTH
+	box.border_width_top = BAND_BORDER_WIDTH if band_top else 0
+	box.border_width_bottom = BAND_BORDER_WIDTH if band_bottom else 0
+	box.content_margin_left = 1
+	box.content_margin_right = 1
+	box.content_margin_top = 1 if band_top else 0
+	box.content_margin_bottom = 1 if band_bottom else 0
+	panel.add_theme_stylebox_override("panel", box)
+	panel.add_child(label)
+	grid.add_child(panel)
 
 
 static func _normalize(odds: Array) -> Array:

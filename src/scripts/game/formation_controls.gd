@@ -13,6 +13,10 @@ func is_dragging() -> bool:
 	return _dragging_unit != null
 
 
+func dragging_unit() -> GameUnit:
+	return _dragging_unit
+
+
 func refresh_widgets() -> void:
 	if _host._circle_wheel == null:
 		return

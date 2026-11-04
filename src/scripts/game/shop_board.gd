@@ -125,7 +125,12 @@ func set_modal_blocked(blocked: bool) -> void:
 func update_hover() -> void:
 	if _modal_blocked or _hover_suspended or _host.shop_slots == null or _host.shop_panel == null or not _host.shop_panel.visible or _rest_size.x < 2.0:
 		return
-	var mouse: Vector2 = _host.get_viewport().get_mouse_position()
+	if _host == null or not _host.is_inside_tree():
+		return
+	var viewport := _host.get_viewport()
+	if viewport == null:
+		return
+	var mouse: Vector2 = viewport.get_mouse_position()
 	var inside_rest: bool = _scaled_rect(1.0).grow(8.0).has_point(mouse)
 	var inside_zoom: bool = _scaled_rect(HOVER_SCALE).grow(16.0).has_point(mouse)
 	var zoom: bool = inside_zoom if _zoomed else inside_rest
@@ -170,11 +175,16 @@ func _fit_tooltip_size() -> void:
 
 
 func _position_tooltip() -> void:
+	if _host == null or not _host.is_inside_tree():
+		return
+	var viewport := _host.get_viewport()
+	if viewport == null:
+		return
 	var anchor_rect: Rect2 = _host.shop_odds_badge.get_global_rect()
 	var tooltip_size: Vector2 = _host.shop_odds_tooltip.size
 	var x: float = anchor_rect.position.x - tooltip_size.x - 6.0
 	var y: float = anchor_rect.get_center().y - tooltip_size.y * 0.5
-	var viewport_size: Vector2 = _host.get_viewport().get_visible_rect().size
+	var viewport_size: Vector2 = viewport.get_visible_rect().size
 	var max_x := maxf(8.0, viewport_size.x - tooltip_size.x - 8.0)
 	var max_y := maxf(8.0, viewport_size.y - tooltip_size.y - 8.0)
 	x = clampf(x, 8.0, max_x)

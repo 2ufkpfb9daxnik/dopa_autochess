@@ -72,6 +72,10 @@ var _armature_rest := Transform3D.IDENTITY
 var _battle_walking := false
 var _clip_lock := false
 var defeat_playing := false
+## 戦闘クリップ再生中、ランダムに数フレーム飛ばして見た目を詰める。
+var _frame_skip_active := false
+var _frame_skip_chance := 0.0
+var _frame_skip_amount := 0.0
 var _guard_shake_time := 0.0
 var _guard_shake_left := 0.0
 var _hp_root: Node3D
@@ -156,6 +160,7 @@ func stop_guard_hit_shake() -> void:
 
 
 func _process(delta: float) -> void:
+	_process_frame_skips(delta)
 	_process_guard_shake(delta)
 	_process_hp_lag(delta)
 	_process_status_aura(delta)
@@ -335,6 +340,7 @@ func set_battle_walking(active: bool) -> void:
 func play_battle_role(role: String) -> float:
 	_clip_lock = role != "idle"
 	defeat_playing = role == "defeat"
+	_frame_skip_active = false
 	if _animation_player == null:
 		return 0.0
 	var fragment := "idle"
@@ -359,28 +365,75 @@ func play_battle_role(role: String) -> float:
 		_animation_player.play(anim_name)
 		return 0.0
 	anim.loop_mode = Animation.LOOP_NONE
-	var speed := 1.35
-	var from := anim.length * 0.08
+	## speed_scale にハード上限は無い。さらに速くし、長いクリップはフレーム飛ばしも併用。
+	var speed := 2.2
+	var from := anim.length * 0.12
+	_frame_skip_chance = 0.18
+	_frame_skip_amount = 1.0 / 24.0
 	if _named_battle_clips():
-		speed = 1.0
+		speed = 1.9
 		from = 0.0
+		if role == "attack":
+			speed = 3.4
+			from = anim.length * 0.38
+			_frame_skip_chance = 0.32
+			_frame_skip_amount = 1.0 / 18.0
 	else:
 		match role:
 			"guard":
-				speed = 1.0
+				speed = 1.7
 				from = anim.length * 0.55
-			"hit", "defeat":
-				speed = 1.0
+				_frame_skip_chance = 0.1
+			"hit":
+				speed = 2.6
 				from = 0.0
+				_frame_skip_chance = 0.22
+			"defeat":
+				speed = 2.3
+				from = 0.0
+				_frame_skip_chance = 0.2
+			"buff":
+				speed = 2.5
+				from = anim.length * 0.2
+				_frame_skip_chance = 0.24
+			"attack":
+				## 予備〜余韻を飛ばし、当たり付近だけスパッと見せる。
+				speed = 3.6
+				from = anim.length * 0.45
+				_frame_skip_chance = 0.35
+				_frame_skip_amount = 1.0 / 16.0
 	_animation_player.speed_scale = speed
-	_animation_player.play(anim_name)
+	var blend := 0.02 if role == "attack" else 0.05
+	_animation_player.play(anim_name, blend)
 	_animation_player.seek(from, true)
-	return maxf(0.05, (anim.length - from) / speed)
+	_frame_skip_active = role == "attack" or role == "buff" or role == "hit" or role == "defeat"
+	## スキップ込みの実効時間は少し短く見積もる。
+	var skip_boost := 1.0 + _frame_skip_chance * 0.45 if _frame_skip_active else 1.0
+	return maxf(0.04, (anim.length - from) / (speed * skip_boost))
+
+
+func _process_frame_skips(_delta: float) -> void:
+	if not _frame_skip_active or _animation_player == null:
+		return
+	if not _animation_player.is_playing():
+		_frame_skip_active = false
+		return
+	if randf() >= _frame_skip_chance:
+		return
+	var pos := _animation_player.current_animation_position
+	var length := _animation_player.current_animation_length
+	if length <= 0.0 or pos >= length - 0.01:
+		_frame_skip_active = false
+		return
+	## ランダムに1〜数フレーム相当を飛ばす（速度上限ではなく間引き）。
+	var jump := _frame_skip_amount * float(1 + randi() % 3)
+	_animation_player.seek(minf(pos + jump, length - 0.001), true)
 
 
 func release_battle_clip() -> void:
 	_clip_lock = false
 	defeat_playing = false
+	_frame_skip_active = false
 	if _animation_player != null:
 		_animation_player.speed_scale = 1.0
 		_animation_player.stop()

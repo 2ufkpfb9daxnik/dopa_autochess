@@ -5,16 +5,26 @@ extends RefCounted
 # Hit chance is still a stand-in: battle.md does not give the curve.
 
 const AP_NUMERATOR := 65535
-const FORMATION_PAIR := 0.2
-const FORMATION_LINE := 0.4
-const STEP_TIME := 0.28
-const ATTACK_HIT_TIME := 1.05
-const ATTACK_AFTER_TIME := 0.28
-const GUARD_TIME := 1.15
-const BUFF_TIME := 0.35
-const STATUS_RISE_TIME := 0.28
-const STATUS_FLY_TIME := 0.38
-const STATUS_FALL_TIME := 0.32
+const FORMATION_PAIR := 0.35
+const FORMATION_LINE := 0.6
+## 陣形オーラ（属性ごと）。2体 / 3体以上。
+const FORMATION_AURA := {
+	"fire": {"stat": "hp", "pair": 0.12, "line": 0.20, "label": "最大HP"},
+	"water": {"stat": "gauge_rate", "pair": 0.15, "line": 0.25, "label": "ゲージ増加"},
+	"thunder": {"stat": "crit_rate", "pair": 0.08, "line": 0.14, "label": "クリティカル率"},
+	"earth": {"stat": "defense", "pair": 0.15, "line": 0.25, "label": "防御"},
+	"ice": {"stat": "attribute_resist", "pair": 0.08, "line": 0.14, "label": "属性耐性"},
+	"wind": {"stat": "speed", "pair": 0.12, "line": 0.20, "label": "速度"},
+	"absorb": {"stat": "lifesteal", "pair": 0.08, "line": 0.14, "label": "吸血"},
+}
+const STEP_TIME := 0.1
+const ATTACK_HIT_TIME := 0.2
+const ATTACK_AFTER_TIME := 0.08
+const GUARD_TIME := 0.65
+const BUFF_TIME := 0.22
+const STATUS_RISE_TIME := 0.16
+const STATUS_FLY_TIME := 0.22
+const STATUS_FALL_TIME := 0.18
 ## 撃破ゲージの最大と1回分。設計書が「ここでは決めない」のため暫定。
 const BREAK_MAX := 3
 const BREAK_STEP := 1
@@ -131,6 +141,7 @@ const BUFF_NO_DOT_SHEETS: Array[int] = [5, 16, 23, 25, 34, 61]
 const SAME_ELEMENT_BUFF_SHEETS := {21: "earth", 26: "wind", 29: "absorb"}
 
 var _host: Node
+var _abort_requested := false
 var _fighters: Dictionary = {}
 var _motion: Tween
 var _relic_started := false
@@ -245,7 +256,33 @@ func setup(host: Node) -> void:
 	_host = host
 
 
+func request_abort() -> void:
+	_abort_requested = true
+	if _motion != null:
+		_motion.kill()
+		_motion = null
+
+
+func is_abort_requested() -> bool:
+	return _abort_requested
+
+
+## kill された Tween の finished は来ないので、フレーム待ちで打ち切る。
+func _await_tween(tween: Tween) -> void:
+	if tween == null:
+		return
+	while is_instance_valid(tween) and tween.is_running():
+		if _abort_requested:
+			tween.kill()
+			return
+		if _host == null or not _host.is_inside_tree():
+			tween.kill()
+			return
+		await _host.get_tree().process_frame
+
+
 func play() -> Dictionary:
+	_abort_requested = false
 	_fighters.clear()
 	_relic_started = false
 	_battle_start_done = false
@@ -262,11 +299,17 @@ func play() -> Dictionary:
 	_stats = {"team_dealt": 0, "team_taken": 0, "crits": 0, "hits": 0, "gauge_spent": 0, "devices_broken": 0, "team_max": 0}
 	var opening_done := false
 	var won := false
-	while _host != null and _host.is_inside_tree():
+	var formation_aura_done := false
+	while _host != null and _host.is_inside_tree() and not _abort_requested:
 		_sync_queue()
+		if not formation_aura_done:
+			formation_aura_done = true
+			_apply_formation_auras()
 		if not opening_done:
 			opening_done = true
 			await _opening_kits()
+			if _abort_requested:
+				break
 		var allies := _alive_count(false)
 		var enemies := _alive_count(true)
 		if enemies <= 0:
@@ -274,6 +317,8 @@ func play() -> Dictionary:
 			break
 		if allies <= 0:
 			var reinforced: bool = await _reinforce_allies()
+			if _abort_requested:
+				break
 			if reinforced:
 				continue
 			won = false
@@ -290,6 +335,8 @@ func play() -> Dictionary:
 			if is_instance_valid(actor.unit):
 				actor.unit.play_battle_role("idle")
 			await _spend_action_points(spent, actor, false)
+			if _abort_requested:
+				break
 			if actor.alive and is_instance_valid(actor.unit):
 				actor.ap = actor.base_ap
 				actor.unit.action_value = actor.ap
@@ -306,22 +353,34 @@ func play() -> Dictionary:
 			actor.relic_weaken_cut = maxf(actor.relic_weaken_cut, RelicCombat._value(195, "与ダメージ") / 100.0)
 			actor.relic_weaken_left = 1
 		var was_buff: bool = await _act(actor)
+		if _abort_requested:
+			break
 		_relic_after_action(actor)
 		if _host == null or not _host.is_inside_tree():
 			break
 		await _spend_action_points(spent, actor, was_buff)
+		if _abort_requested:
+			break
 		if actor.alive and is_instance_valid(actor.unit):
 			actor.ap = actor.base_ap
 			actor.unit.action_value = actor.ap
 		await _kits_after_turn(actor, was_buff)
 		_note_gauge_spent()
+		if _abort_requested:
+			break
 		_refresh_bar()
+	if _abort_requested:
+		finish()
+		_clear_temp_units()
+		if _host != null and _host.board != null:
+			_host.board.refresh_presentation()
+		return {"aborted": true, "won": false, "remaining": 0}
 	var remaining := _alive_count(true)
 	_relic_on_battle_end()
 	var relic_stats := _collect_relic_stats()
 	finish()
 	_clear_temp_units()
-	return {"won": won, "remaining": remaining, "relic_stats": relic_stats}
+	return {"won": won, "remaining": remaining, "relic_stats": relic_stats, "aborted": false}
 
 
 func cleanse_debuff(unit: GameUnit) -> void:
@@ -422,18 +481,18 @@ func _act(actor: Fighter) -> bool:
 	if bool(actor.kit.get("force_attack", false)):
 		actor.kit["force_attack"] = false
 		actor.kit["did_force_attack"] = true
-		if is_instance_valid(actor.unit):
-			actor.unit.play_battle_role("attack")
+		## 攻撃モーションは接近後に短く流す（_attack 内）。
 		await _attack(actor)
 		if actor.alive and is_instance_valid(actor.unit) and not actor.unit.battle_ko and not actor.guarding:
 			actor.unit.play_battle_role("idle")
-		await _wait(0.08)
+		await _wait(0.04)
 		return false
 	var action := _roll_action(actor)
 	if not is_instance_valid(actor.unit):
 		return false
 	var tamba_redirect := _tamba_maybe_redirect(actor, action)
-	if action != "guard":
+	## 攻撃は予備動作を長く見せず、ヒット直前に再生する。
+	if action != "guard" and action != "attack":
 		actor.unit.play_battle_role(action)
 	match action:
 		"attack":
@@ -515,7 +574,12 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	var home := board.stand_position_for(actor.unit)
 	var dest := _approach(actor.unit.global_position, primary.unit.global_position, home.y)
 	await _move(actor.unit, dest, STEP_TIME)
-	await _wait(ATTACK_HIT_TIME)
+	## 接近後に攻撃クリップを一瞬だけ流してから判定。
+	if is_instance_valid(actor.unit):
+		var windup := actor.unit.play_battle_role("attack")
+		await _wait(minf(ATTACK_HIT_TIME, maxf(0.08, windup * 0.35)))
+	else:
+		await _wait(ATTACK_HIT_TIME)
 	for packet in packets:
 		var target: Fighter = packet["target"]
 		if target == null or not target.alive or not is_instance_valid(target.unit):
@@ -711,7 +775,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	await _relic_counter_hits(actor, target, dealt, direct)
 	if target.guarding and target.alive and is_instance_valid(target.unit):
 		target.unit.play_guard_hit_shake()
-		await _wait(0.32)
+		await _wait(0.16)
 	if actor.sheet_id == 4 and direct:
 		await _absorb_followup(actor, target)
 		await _ise_on_absorb_layers(actor, target)
@@ -820,16 +884,28 @@ func _ko(fighter: Fighter) -> void:
 	await _on_fighter_down(fighter)
 	_growth_killer = null
 	_refresh_bar()
+	## 撃破クリップは待たず並列再生。複数同時KOでも1体ずつ待たない。
 	var duration := unit.play_battle_role("defeat")
+	_play_defeat_visual(fighter, unit, duration)
+
+
+func _play_defeat_visual(fighter: Fighter, unit: GameUnit, duration: float) -> void:
+	if _abort_requested:
+		return
+	if not is_instance_valid(unit):
+		await _era6_after_ko(fighter)
+		return
 	if duration > 0.0:
 		await _wait(duration)
 	else:
 		var drop := unit.global_position
 		drop.y -= 0.5
 		var tween := _host.create_tween()
-		tween.tween_property(unit, "global_position", drop, 0.3)
-		tween.parallel().tween_property(unit, "rotation:x", 1.1, 0.3)
-		await tween.finished
+		tween.tween_property(unit, "global_position", drop, 0.18)
+		tween.parallel().tween_property(unit, "rotation:x", 1.1, 0.18)
+		await _await_tween(tween)
+	if _abort_requested:
+		return
 	if is_instance_valid(unit):
 		unit.defeat_playing = false
 		unit.visible = false
@@ -837,7 +913,7 @@ func _ko(fighter: Fighter) -> void:
 
 
 func _flinch(target: Fighter) -> void:
-	if not is_instance_valid(target.unit):
+	if not is_instance_valid(target.unit) or _abort_requested:
 		return
 	var duration := target.unit.play_battle_role("hit")
 	if duration <= 0.0:
@@ -846,11 +922,12 @@ func _flinch(target: Fighter) -> void:
 		var kicked := stand
 		kicked.z += 0.1 if target.enemy else -0.1
 		var tween := _host.create_tween()
-		tween.tween_property(target.unit, "global_position", kicked, 0.07)
-		tween.tween_property(target.unit, "global_position", stand, 0.1)
-		await tween.finished
+		tween.tween_property(target.unit, "global_position", kicked, 0.05)
+		tween.tween_property(target.unit, "global_position", stand, 0.07)
+		await _await_tween(tween)
 		return
-	await _wait(duration)
+	## ヒット後の待機は短く切って、次モーションへ早く渡す。
+	await _wait(minf(duration, 0.22))
 	if target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
 		target.unit.play_battle_role("idle")
 
@@ -1476,19 +1553,27 @@ func _approach(from: Vector3, to: Vector3, height: float) -> Vector3:
 
 
 func _move(unit: GameUnit, dest: Vector3, duration: float) -> void:
-	if not is_instance_valid(unit) or _host == null:
+	if not is_instance_valid(unit) or _host == null or _abort_requested:
 		return
 	if _motion != null:
 		_motion.kill()
+		_motion = null
 	_motion = _host.create_tween()
 	_motion.tween_property(unit, "global_position", dest, duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	await _motion.finished
+	var tween := _motion
+	await _await_tween(tween)
+	if _motion == tween:
+		_motion = null
 
 
 func _wait(seconds: float) -> void:
-	if _host == null or not _host.is_inside_tree():
+	if _host == null or not _host.is_inside_tree() or _abort_requested:
 		return
-	await _host.get_tree().create_timer(seconds).timeout
+	var left := maxf(0.0, seconds)
+	while left > 0.0 and not _abort_requested and _host != null and _host.is_inside_tree():
+		var step := minf(left, 0.05)
+		await _host.get_tree().create_timer(step).timeout
+		left -= step
 
 
 func _refresh_bar() -> void:
@@ -1594,6 +1679,7 @@ func _recompute_speed(fighter: Fighter, keep_ap: bool) -> void:
 		speed += int(fighter.kit.get("barrier_speed", 0))
 	speed -= int(fighter.kit.get("ayakawa_slow", 0))
 	speed += int(fighter.kit.get("synergy_speed", 0))
+	speed += int(fighter.kit.get("formation_speed", 0))
 	speed += int(fighter.kit.get("relic_speed", 0))
 	speed += RelicCombat.aura_speed(fighter, _fighters, _host.board if _host != null else null)
 	speed = maxi(1, speed)
@@ -1850,34 +1936,208 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 
 
 func _formation_bonus(attacker: Fighter) -> float:
-	if attacker.enemy or attacker.stand_slot < 0 or attacker.stand_slot >= BoardController.FRONT_COUNT:
+	if attacker.enemy or attacker.stand_slot < 0 or attacker.element.is_empty():
 		return 0.0
-	if attacker.element.is_empty():
-		return 0.0
-	var elements: Array[String] = ["", "", ""]
-	for entry in _side_all(attacker.enemy):
-		var ally: Fighter = entry
-		if ally.stand_slot < 0 or ally.stand_slot >= BoardController.FRONT_COUNT:
-			continue
-		elements[ally.stand_slot] = ally.element
-	var horizontal := 0
-	var index := attacker.stand_slot
-	while index >= 0 and elements[index] == attacker.element:
-		horizontal += 1
-		index -= 1
-	index = attacker.stand_slot + 1
-	while index < BoardController.FRONT_COUNT and elements[index] == attacker.element:
-		horizontal += 1
-		index += 1
-	var vertical := 0
-	if _host != null and _host.board != null:
-		vertical = _host.board.formation_stack_count(attacker.stand_slot, attacker.element)
-	var count := maxi(horizontal, vertical)
+	var count := _formation_size_for_member(attacker)
 	if count >= 3:
 		return FORMATION_LINE
 	if count == 2:
 		return FORMATION_PAIR
 	return 0.0
+
+
+## 陣形メンバーとしての規模。2未満なら陣形に入っていない。
+func _formation_size_for_member(fighter: Fighter) -> int:
+	if fighter == null or fighter.stand_slot < 0 or fighter.element.is_empty():
+		return 0
+	var horizontal := 0
+	if not _is_backline(fighter):
+		var elements: Array[String] = ["", "", ""]
+		for entry in _side_all(fighter.enemy):
+			var ally: Fighter = entry
+			if ally.stand_slot < 0 or ally.stand_slot >= BoardController.FRONT_COUNT:
+				continue
+			elements[ally.stand_slot] = ally.element
+		var index := fighter.stand_slot
+		while index >= 0 and elements[index] == fighter.element:
+			horizontal += 1
+			index -= 1
+		index = fighter.stand_slot + 1
+		while index < BoardController.FRONT_COUNT and elements[index] == fighter.element:
+			horizontal += 1
+			index += 1
+	var vertical := 0
+	if _host != null and _host.board != null:
+		vertical = _host.board.formation_stack_count(fighter.stand_slot, fighter.element)
+	return maxi(horizontal, vertical)
+
+
+func _formation_aura_amount(element: String, size: int) -> Dictionary:
+	var empty := {"stat": "", "amount": 0.0, "label": ""}
+	if size < 2 or not FORMATION_AURA.has(element):
+		return empty
+	var row: Dictionary = FORMATION_AURA[element]
+	var amount := float(row["line"] if size >= 3 else row["pair"])
+	return {"stat": str(row["stat"]), "amount": amount, "label": str(row["label"])}
+
+
+## 味方の成立陣形一覧。[{element, size, member_ids}]
+func _ally_formations() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	var seen_elements: Dictionary = {}
+	## 前衛の横並び。
+	var front: Array = ["", "", ""]
+	var front_ids: Array = [-1, -1, -1]
+	for entry in _side_all(false):
+		var ally: Fighter = entry
+		if ally.stand_slot < 0 or ally.stand_slot >= BoardController.FRONT_COUNT:
+			continue
+		if not ally.alive or ally.hp <= 0:
+			continue
+		front[ally.stand_slot] = ally.element
+		front_ids[ally.stand_slot] = ally.unit.get_instance_id() if is_instance_valid(ally.unit) else -1
+	var index := 0
+	while index < BoardController.FRONT_COUNT:
+		var element: String = str(front[index])
+		if element.is_empty():
+			index += 1
+			continue
+		var end := index
+		while end + 1 < BoardController.FRONT_COUNT and str(front[end + 1]) == element:
+			end += 1
+		var size := end - index + 1
+		if size >= 2 and not seen_elements.has(element):
+			seen_elements[element] = true
+			var members: Array[int] = []
+			for slot in range(index, end + 1):
+				var mid := int(front_ids[slot])
+				if mid > 0:
+					members.append(mid)
+			result.append({"element": element, "size": size, "member_ids": members})
+		index = end + 1
+	## 縦（複数面の同列）。前衛横で既に出した属性は重ねない。
+	var board: BoardController = null
+	if _host != null:
+		board = _host.board as BoardController
+	if board != null:
+		for slot_index in BoardController.SLOTS_PER_FACE:
+			var by_element: Dictionary = {}
+			for entry in _side_all(false):
+				var ally: Fighter = entry
+				if ally.stand_slot != slot_index or ally.element.is_empty():
+					continue
+				if not ally.alive or ally.hp <= 0 or not is_instance_valid(ally.unit):
+					continue
+				var key := ally.element
+				if not by_element.has(key):
+					by_element[key] = []
+				(by_element[key] as Array).append(ally.unit.get_instance_id())
+			## 盤面の複数面も数える。
+			for element_key in CharacterSheet.ELEMENT_KEYS:
+				var stack: int = board.formation_stack_count(slot_index, element_key)
+				if stack < 2 or seen_elements.has(element_key):
+					continue
+				seen_elements[element_key] = true
+				var members2: Array[int] = []
+				var raw: Variant = by_element.get(element_key, [])
+				if raw is Array:
+					for mid in raw:
+						members2.append(int(mid))
+				## 他面のメンバーは fighters にいないことがあるので、サイズは stack を優先。
+				result.append({"element": element_key, "size": stack, "member_ids": members2})
+	return result
+
+
+func _apply_formation_auras() -> void:
+	var best_by_id: Dictionary = {}
+	for formation in _ally_formations():
+		var element := str(formation.get("element", ""))
+		var size := int(formation.get("size", 0))
+		var aura := _formation_aura_amount(element, size)
+		if float(aura.get("amount", 0.0)) <= 0.0:
+			continue
+		var targets: Dictionary = {}
+		for mid in formation.get("member_ids", []):
+			targets[int(mid)] = true
+		## メンバーの左右（同じ段のみ）。
+		for mid in formation.get("member_ids", []):
+			var member := _fighter_by_id(int(mid))
+			if member == null or member.stand_slot < 0:
+				continue
+			var back := _is_backline(member)
+			for entry in _side_all(false):
+				var ally: Fighter = entry
+				if ally == member or not is_instance_valid(ally.unit):
+					continue
+				if _is_backline(ally) != back:
+					continue
+				if absi(ally.stand_slot - member.stand_slot) != 1:
+					continue
+				targets[ally.unit.get_instance_id()] = true
+		var stat := str(aura["stat"])
+		var amount := float(aura["amount"])
+		for tid in targets.keys():
+			var prev: Dictionary = best_by_id.get(int(tid), {})
+			var prev_amount := float(prev.get(stat, 0.0))
+			if amount > prev_amount:
+				prev[stat] = amount
+				best_by_id[int(tid)] = prev
+	for tid in best_by_id.keys():
+		var fighter := _fighter_by_id(int(tid))
+		if fighter == null or fighter.enemy:
+			continue
+		var bonuses: Dictionary = best_by_id[int(tid)]
+		if float(bonuses.get("hp", 0.0)) > 0.0:
+			var hp_rate := float(bonuses["hp"])
+			fighter.max_hp = maxi(1, int(round(float(fighter.max_hp) * (1.0 + hp_rate))))
+			fighter.hp = fighter.max_hp
+			if is_instance_valid(fighter.unit):
+				fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
+		if float(bonuses.get("defense", 0.0)) > 0.0:
+			fighter.defense *= 1.0 + float(bonuses["defense"])
+		if float(bonuses.get("crit_rate", 0.0)) > 0.0:
+			fighter.crit_rate += float(bonuses["crit_rate"])
+		if float(bonuses.get("attribute_resist", 0.0)) > 0.0:
+			fighter.attribute_resist += float(bonuses["attribute_resist"])
+		if float(bonuses.get("gauge_rate", 0.0)) > 0.0:
+			fighter.kit["gauge_rate"] = float(fighter.kit.get("gauge_rate", 0.0)) + float(bonuses["gauge_rate"])
+		if float(bonuses.get("lifesteal", 0.0)) > 0.0:
+			fighter.kit["formation_lifesteal"] = float(bonuses["lifesteal"])
+		if float(bonuses.get("speed", 0.0)) > 0.0:
+			var base_speed := int(fighter.kit.get("base_speed", fighter.speed))
+			fighter.kit["formation_speed"] = int(round(float(base_speed) * float(bonuses["speed"])))
+			_recompute_speed(fighter, true)
+			fighter.ap = fighter.base_ap
+			fighter.saved_ap = fighter.base_ap
+			fighter.start_ap = fighter.base_ap
+
+
+## UI用。[{label, size, attr_pct, aura_label, aura_pct}]
+static func formation_banner_rows(board: BoardController) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	if board == null:
+		return rows
+	var elements := board.get_active_formation_elements()
+	for jp in elements:
+		var key := CharacterSheet._element_key(str(jp))
+		var size := board.formation_element_size(str(jp), key)
+		if size < 2:
+			size = 2
+		var attr := FORMATION_LINE if size >= 3 else FORMATION_PAIR
+		var aura: Dictionary = FORMATION_AURA.get(key, {}) as Dictionary
+		var aura_pct := 0.0
+		var aura_label := ""
+		if not aura.is_empty():
+			aura_pct = float(aura["line"] if size >= 3 else aura["pair"])
+			aura_label = str(aura.get("label", ""))
+		rows.append({
+			"label": str(jp),
+			"size": size,
+			"attr_pct": int(round(attr * 100.0)),
+			"aura_label": aura_label,
+			"aura_pct": int(round(aura_pct * 100.0)),
+		})
+	return rows
 
 
 func _neighbor_bonus(attacker: Fighter) -> float:
@@ -2779,14 +3039,18 @@ func _play_status_transfer(from_unit: GameUnit, to_unit: GameUnit, is_buff: bool
 
 
 func _tween_node(node: Node3D, dest: Vector3, duration: float) -> void:
-	if node == null or not is_instance_valid(node):
+	if node == null or not is_instance_valid(node) or _abort_requested:
 		return
 	if _motion != null:
 		_motion.kill()
+		_motion = null
 	_motion = node.create_tween()
 	_motion.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_motion.tween_property(node, "global_position", dest, duration)
-	await _motion.finished
+	var tween := _motion
+	await _await_tween(tween)
+	if _motion == tween:
+		_motion = null
 
 
 func _refresh_unit_aura(unit: GameUnit) -> void:
@@ -2827,6 +3091,29 @@ func _cast_buff(actor: Fighter, ally: Fighter, kind: String, amount: float) -> b
 		await _era6_on_buff_erased(actor)
 		await _wait(0.2)
 		return false
+	var warau := _warau_check(actor, ally)
+	if bool(warau.get("block", false)):
+		var stolen: Fighter = warau.get("dest", null)
+		ally.unit.popup_battle_text("バフ消", Color(1.0, 0.72, 0.4))
+		if stolen != null and is_instance_valid(stolen.unit):
+			await _play_status_transfer(actor.unit, stolen.unit, true)
+			_set_single_buff(actor, stolen, kind, amount)
+			stolen.unit.popup_battle_text("奪取", Color(0.95, 0.55, 0.85))
+			_host._log("笑うなが %s へのバフを消し、%s が奪った（%s）" % [ally.unit.get_display_name(), stolen.unit.get_display_name(), _describe_effect(kind, amount)])
+			actor.kit["warau_holding"] = true
+		else:
+			_host._log("笑うなが %s へのバフを消した（%s）" % [ally.unit.get_display_name(), _describe_effect(kind, amount)])
+			## 幻の保持。パッシブ再適用で何度も消した扱いにしない。
+			_clear_single_buff(actor)
+			actor.kit["buff_target_id"] = ally.unit.get_instance_id()
+			actor.kit["buff_kind_active"] = kind
+			actor.kit["buff_amount_active"] = amount
+			actor.kit["buff_source_active"] = actor.sheet_id
+			actor.kit["warau_phantom"] = true
+			actor.kit["warau_holding"] = true
+		await _era6_on_buff_erased(actor)
+		await _wait(0.2)
+		return stolen != null
 	await _play_status_transfer(actor.unit, ally.unit, true)
 	_set_single_buff(actor, ally, kind, amount)
 	ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
@@ -2836,14 +3123,104 @@ func _cast_buff(actor: Fighter, ally: Fighter, kind: String, amount: float) -> b
 	return true
 
 
+## 笑うな: 監視側（バフを受ける側の相手チーム）の人数で、左からの前衛枠数と奪取範囲を決める。
+func _warau_covered_slots(count: int) -> int:
+	if count >= 7:
+		return 3
+	if count >= 5:
+		return 2
+	if count >= 3:
+		return 1
+	return 0
+
+
+func _warau_steals_slot(count: int, slot: int) -> bool:
+	if count >= 11:
+		return true
+	if count >= 9:
+		return slot == 0
+	return false
+
+
+func _warau_same_slot_ally(watched_enemy_side: bool, slot: int) -> Fighter:
+	## watched_enemy_side = バフを受けようとしている側。奪う先はその反対側。
+	for entry in _side_all(not watched_enemy_side):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0 or not is_instance_valid(ally.unit):
+			continue
+		if ally.stand_slot == slot and not _is_backline(ally):
+			return ally
+	return null
+
+
+## {block, dest}。同じ陣営へのバフだけ見る。
+func _warau_check(buffer: Fighter, target: Fighter) -> Dictionary:
+	var out := {"block": false, "dest": null}
+	if buffer == null or target == null or not is_instance_valid(target.unit):
+		return out
+	if buffer.enemy != target.enemy:
+		return out
+	if target.stand_slot < 0 or _is_backline(target):
+		return out
+	var count := _synergy_member_count(not buffer.enemy, "笑うな")
+	var covered := _warau_covered_slots(count)
+	if covered <= 0 or target.stand_slot >= covered:
+		return out
+	out["block"] = true
+	if _warau_steals_slot(count, target.stand_slot):
+		out["dest"] = _warau_same_slot_ally(target.enemy, target.stand_slot)
+	return out
+
+
 func _set_single_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
+	var prev_holding := bool(actor.kit.get("warau_holding", false))
 	_clear_single_buff(actor)
+	var warau := _warau_check(actor, target)
+	if bool(warau.get("block", false)):
+		var stolen: Fighter = warau.get("dest", null)
+		if stolen != null and is_instance_valid(stolen.unit):
+			_apply_buff_value(stolen, kind, amount, actor.sheet_id)
+			actor.kit["buff_target_id"] = stolen.unit.get_instance_id()
+			actor.kit["buff_kind_active"] = kind
+			actor.kit["buff_amount_active"] = amount
+			actor.kit["buff_source_active"] = actor.sheet_id
+			actor.kit["warau_phantom"] = false
+			actor.kit["warau_holding"] = true
+			_refresh_unit_aura(stolen.unit)
+			if not prev_holding and is_instance_valid(target.unit):
+				target.unit.popup_battle_text("バフ消", Color(1.0, 0.72, 0.4))
+				stolen.unit.popup_battle_text("奪取", Color(0.95, 0.55, 0.85))
+				_host._log("笑うなが %s へのバフを消し、%s が奪った" % [target.unit.get_display_name(), stolen.unit.get_display_name()])
+			return
+		actor.kit["buff_target_id"] = target.unit.get_instance_id()
+		actor.kit["buff_kind_active"] = kind
+		actor.kit["buff_amount_active"] = amount
+		actor.kit["buff_source_active"] = actor.sheet_id
+		actor.kit["warau_phantom"] = true
+		actor.kit["warau_holding"] = true
+		if not prev_holding and is_instance_valid(target.unit):
+			target.unit.popup_battle_text("バフ消", Color(1.0, 0.72, 0.4))
+			_host._log("笑うなが %s へのバフを消した" % target.unit.get_display_name())
+		return
 	_apply_buff_value(target, kind, amount, actor.sheet_id)
 	actor.kit["buff_target_id"] = target.unit.get_instance_id()
 	actor.kit["buff_kind_active"] = kind
 	actor.kit["buff_amount_active"] = amount
 	actor.kit["buff_source_active"] = actor.sheet_id
+	actor.kit["warau_phantom"] = false
+	actor.kit["warau_holding"] = false
 	_refresh_unit_aura(target.unit)
+
+
+func _clear_single_buff(actor: Fighter) -> void:
+	var target := _fighter_by_id(int(actor.kit.get("buff_target_id", -1)))
+	var phantom := bool(actor.kit.get("warau_phantom", false))
+	if target != null and not phantom:
+		_apply_buff_value(target, str(actor.kit.get("buff_kind_active", "")), -float(actor.kit.get("buff_amount_active", 0.0)), int(actor.kit.get("buff_source_active", 0)))
+		_refresh_unit_aura(target.unit)
+	actor.kit["buff_target_id"] = -1
+	actor.kit["warau_phantom"] = false
+	actor.kit["warau_holding"] = false
 
 
 ## バフ/デバフの値を足す（amount が負なら戻す）。source_sheet は入れたキャラの ID で、
@@ -2880,14 +3257,6 @@ func _apply_buff_value(target: Fighter, kind: String, amount: float, source_shee
 			if ELEMENT_DAMAGE_KEYS.has(key) and not BUFF_NO_DOT_SHEETS.has(source_sheet):
 				var dot_key := key + "_dot"
 				target.kit[dot_key] = float(target.kit.get(dot_key, 0.0)) + value
-
-
-func _clear_single_buff(actor: Fighter) -> void:
-	var target := _fighter_by_id(int(actor.kit.get("buff_target_id", -1)))
-	if target != null:
-		_apply_buff_value(target, str(actor.kit.get("buff_kind_active", "")), -float(actor.kit.get("buff_amount_active", 0.0)), int(actor.kit.get("buff_source_active", 0)))
-		_refresh_unit_aura(target.unit)
-	actor.kit["buff_target_id"] = -1
 
 
 func _clear_copy(arita: Fighter) -> void:
@@ -3759,10 +4128,12 @@ func _ikuno_opening(actor: Fighter) -> void:
 	actor.kit["opening_target_id"] = target.unit.get_instance_id()
 	actor.kit["opening_strike"] = true
 	if is_instance_valid(actor.unit):
-		actor.unit.play_battle_role("attack")
 		actor.unit.popup_battle_text("開幕", Color(0.7, 0.9, 1.0))
+		var windup := actor.unit.play_battle_role("attack")
+		await _wait(minf(ATTACK_HIT_TIME, maxf(0.08, windup * 0.35)))
+	else:
+		await _wait(ATTACK_HIT_TIME)
 	_host._log("%s の開幕攻撃 → %s" % [actor.unit.get_display_name(), target.unit.get_display_name()])
-	await _wait(ATTACK_HIT_TIME)
 	actor.kit["continuity_done"] = false
 	actor.kit["opening_dealt"] = 0
 	## 通常の攻撃と同じ命中・撃破・ダメージ・レリックの処理を通す。
@@ -6839,8 +7210,9 @@ func _note_actor_dealt(actor: Fighter, amount: int) -> void:
 	if not actor.enemy:
 		actor.relic_dealt_total += amount
 	## 266 解説・280 地下鉄: 与えたダメージの割合が戻る。
-	if actor.relic_lifesteal > 0.0 and actor.alive:
-		RelicCombat.heal(actor, int(round(float(amount) * actor.relic_lifesteal)))
+	var lifesteal := actor.relic_lifesteal + float(actor.kit.get("formation_lifesteal", 0.0))
+	if lifesteal > 0.0 and actor.alive:
+		RelicCombat.heal(actor, int(round(float(amount) * lifesteal)))
 
 
 ## 291 金魚: ゲージが減ったら効果を出したとみなし、1回100として数える（暫定）。
@@ -7264,7 +7636,7 @@ func _relic_summon_kill(killer: Fighter) -> void:
 ##   ビアンカ・オーバースタディの召喚物はゲームに無いので、「それとは別に残る」は対象がない。
 ## - サノを継続ダメージで倒したときの「層を最後に与えた敵」は記録が無いので、倒した攻撃の主
 ##   （分からないときは直前にサノを攻撃した敵）で代用する。
-## - スマの「笑うなが消したバフ」は、笑うな自体が汎用には未実装なので、タナベがバフを消したときだけ数える。
+## - スマの「笑うなが消したバフ」は、笑うなシナジーまたはタナベが消したときに数える（_era6_on_buff_erased）。
 ## - サヤマの吸収耐性の低下・味方の受けるダメージの低下、サバエの層持ちからの軽減、シマガワ/スズカ/スマの
 ##   バフの継続ダメージ分は、属性耐性の式に足さず最終ダメージへの倍率で近似している。
 ## - にぎやかな未来の「攻撃したあと対象に炎の層を1つ」（battle.md の継続シナジー）は、ここで炎のメンバー全員に入れる。

@@ -595,7 +595,7 @@ static func note_hit_stack(fighter) -> void:
 	if step <= 0.0:
 		return
 	var cap := float(fighter.kit.get("relic_hit_cap", 0.0))
-	var stack := float(fighter.kit.get("relic_hit_stack", 0.0))
+	var stack: float = float(fighter.kit.get("relic_hit_stack", 0.0))
 	var next := stack + step
 	if cap > 0.0:
 		next = minf(cap, next)

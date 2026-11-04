@@ -101,8 +101,8 @@ var tally_routes_picked := 0
 
 
 func should_offer_relic_pick() -> bool:
-	## 初回ラウンドを除き、ルート選択後の準備開始時にレリック3択を出す。
-	return round_number > 1 and is_prep() and not is_run_over()
+	## 挑戦★ぶんのレリック選択が残っているとき。
+	return relic_pending_picks > 0 and is_prep() and not is_run_over()
 
 
 func add_relic(relic_id: int, seed: Dictionary = {}) -> int:
@@ -436,9 +436,11 @@ func _generate_route_options() -> void:
 func _apply_route_reward(route: Dictionary) -> void:
 	if route.is_empty():
 		return
-	match route["reward_type"]:
+	match str(route.get("reward_type", "")):
+		"relic_picks":
+			relic_pending_picks += maxi(0, int(route.get("relic_picks", 0)))
 		"gold":
-			add_coins(RouteChoice.get_gold_reward(route["strength"]))
+			add_coins(RouteChoice.get_gold_reward(int(route.get("strength", 0))))
 		"reroll":
 			free_rerolls += 1
 		"augment", "equipment":
@@ -458,23 +460,28 @@ func choose_extension(continue_run: bool) -> void:
 
 
 func _apply_round_start_income() -> void:
-	var blocks_interest := RelicEconomy.blocks_interest(self)
+	## 255 は利息自体を消す。093 は利息を経験値に変えるので、元の利息額は計算する。
+	var hard_block_interest := RelicEconomy.hard_blocks_interest(self)
+	var convert_interest_xp := RelicEconomy.converts_interest_to_xp(self)
 	last_income_breakdown = RoundIncome.calc_round_start_income(
 		coins_at_last_round_end,
 		get_level(),
 		get_active_streak(),
 		round_number,
 		RelicEconomy.interest_step(self),
-		0 if blocks_interest else RelicEconomy.interest_principal_extra(self)
+		0 if hard_block_interest else RelicEconomy.interest_principal_extra(self)
 	)
-	if blocks_interest:
+	if hard_block_interest:
 		last_income_breakdown["holding"] = 0
 	else:
-		last_income_breakdown["holding"] = int(last_income_breakdown["holding"]) + RelicEconomy.interest_extra(self) + RelicEconomy.interest_flat(self)
-		if next_interest_bonus > 0.0:
-			var boosted := int(round(float(last_income_breakdown["holding"]) * (1.0 + next_interest_bonus)))
-			last_income_breakdown["holding"] = boosted
-			next_interest_bonus = 0.0
+		var interest := RelicEconomy.decorate_interest(self, int(last_income_breakdown["holding"]), true)
+		if convert_interest_xp:
+			if interest > 0:
+				gain_experience(interest)
+			last_income_breakdown["holding"] = 0
+			last_income_breakdown["interest_xp"] = interest
+		else:
+			last_income_breakdown["holding"] = interest
 	last_income_breakdown["streak"] = int(last_income_breakdown["streak"]) + RelicEconomy.streak_extra(self)
 	last_income_breakdown["total"] = int(last_income_breakdown["base"]) + int(last_income_breakdown["holding"]) + int(last_income_breakdown["streak"]) + int(last_income_breakdown["round"]) + RelicEconomy.apply_round_open(self)
 	var income_total := int(last_income_breakdown["total"])

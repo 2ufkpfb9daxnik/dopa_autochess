@@ -43,6 +43,24 @@ func show_elements(elements: PackedStringArray) -> void:
 	_show_banner("\n".join(parts), accent, HOLD)
 
 
+func show_formation_rows(rows: Array[Dictionary]) -> void:
+	if rows.is_empty():
+		return
+	var parts: PackedStringArray = []
+	for row in rows:
+		var label := str(row.get("label", ""))
+		var attr_pct := int(row.get("attr_pct", 0))
+		var aura_label := str(row.get("aura_label", ""))
+		var aura_pct := int(row.get("aura_pct", 0))
+		if aura_label.is_empty() or aura_pct <= 0:
+			parts.append("%s陣形 属性+%d%%" % [label, attr_pct])
+		else:
+			parts.append("%s陣形 属性+%d%% / 隣接%s+%d%%" % [label, attr_pct, aura_label, aura_pct])
+	var first := str(rows[0].get("label", ""))
+	var accent: Color = ELEMENT_COLORS.get(first, Color(1.0, 0.95, 0.82))
+	_show_banner("\n".join(parts), accent, HOLD)
+
+
 func show_message(text: String, color: Color = Color(1.0, 0.92, 0.45), hold: float = 2.6) -> void:
 	if text.is_empty():
 		return

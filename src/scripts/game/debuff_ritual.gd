@@ -34,6 +34,7 @@ func open_for(unit: GameUnit) -> void:
 	_tracing = false
 	_circle_se_cooldown = 0.0
 	_orb_alive = [true, true, true]
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	top_level = true
 	position = Vector2.ZERO
 	size = get_viewport().get_visible_rect().size
@@ -92,8 +93,7 @@ func _gui_input(event: InputEvent) -> void:
 				_tracing = false
 			return
 		if _back_rect().has_point(button.position):
-			visible = false
-			set_process(false)
+			close_ritual()
 			accept_event()
 			return
 		if _mode == 0 and button.button_index == MOUSE_BUTTON_RIGHT:
@@ -252,11 +252,19 @@ func _back_rect() -> Rect2:
 	return Rect2(_guide + Vector2(-48.0, _radius + 56.0), Vector2(96.0, 40.0))
 
 
+func close_ritual() -> void:
+	visible = false
+	top_level = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_process(false)
+	_tracing = false
+	position = Vector2.ZERO
+	size = Vector2.ZERO
+
+
 func _succeed() -> void:
 	var unit := _unit
-	visible = false
-	_tracing = false
-	set_process(false)
+	close_ritual()
 	GameAudio.play_debuff_remove()
 	if unit != null and is_instance_valid(unit):
 		cleared.emit(unit)

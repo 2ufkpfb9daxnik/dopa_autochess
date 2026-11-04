@@ -1,82 +1,57 @@
 class_name RouteChoice
 extends RefCounted
 
-enum Strength { WEAK, MEDIUM, STRONG, ELITE, BOSS }
-
-const BOSS_ROUNDS: Array[int] = [5, 10, 15, 20, 25]
-const REWARD_TYPES: Array[String] = ["augment", "gold", "reroll", "equipment"]
-const REWARD_LABELS: Dictionary = {
-	"augment": "オーグメント",
-	"gold": "ゴールド",
-	"reroll": "無料更新",
-	"equipment": "装備",
-}
-
-const STRENGTH_LABELS: Dictionary = {
-	Strength.WEAK: "弱",
-	Strength.MEDIUM: "中",
-	Strength.STRONG: "強",
-	Strength.ELITE: "エリート",
-	Strength.BOSS: "ボス",
-}
-
-const ENEMY_STARS: Dictionary = {
-	Strength.WEAK: "★",
-	Strength.MEDIUM: "★★",
-	Strength.STRONG: "★★★",
-	Strength.ELITE: "★★★★",
-	Strength.BOSS: "★★★★★",
-}
+## 挑戦の★。数が多いほど敵が強く、レリック選択回数が増える。
+const STAR4_CHANCE := 0.16
+const ROUTE_HINT := "★が多いほど難しく、報酬も多い"
 
 
-static func generate_options(upcoming_round: int) -> Array[Dictionary]:
-	## ルート選択UIは廃止。敵強度だけラウンドから決めて1件返す。
-	return [default_for_round(upcoming_round)]
+static func generate_options(_upcoming_round: int) -> Array[Dictionary]:
+	var options: Array[Dictionary] = [
+		_make_option(1),
+		_make_option(2),
+		_make_option(3),
+	]
+	if randf() < STAR4_CHANCE:
+		options.append(_make_option(4))
+	return options
 
 
-static func default_for_round(upcoming_round: int) -> Dictionary:
-	var strength := Strength.MEDIUM
-	if BOSS_ROUNDS.has(upcoming_round):
-		strength = Strength.BOSS
-	elif upcoming_round <= 3:
-		strength = Strength.WEAK
-	elif upcoming_round <= 8:
-		strength = Strength.MEDIUM
-	elif upcoming_round <= 14:
-		strength = Strength.STRONG
-	else:
-		strength = Strength.ELITE
+static func default_for_round(_upcoming_round: int) -> Dictionary:
+	## ルート未選択時（ラウンド1など）の既定。普通相当。
+	return _make_option(2)
+
+
+static func for_stars(stars: int) -> Dictionary:
+	return _make_option(stars)
+
+
+static func _make_option(stars: int) -> Dictionary:
+	var clamped := clampi(stars, 1, 4)
+	var mark := star_text(clamped)
 	return {
-		"strength": strength,
-		"strength_label": STRENGTH_LABELS[strength],
-		"enemy_label": ENEMY_STARS[strength],
-		"reward_type": "none",
-		"reward_label": "",
+		"stars": clamped,
+		"relic_picks": clamped,
+		"strength": clamped,
+		"strength_label": mark,
+		"enemy_label": mark,
+		"reward_type": "relic_picks",
+		"reward_label": "レリック×%d" % clamped,
+		"button_text": "%s\nレリック×%d" % [mark, clamped],
 	}
 
 
-static func _make_option(strength: Strength) -> Dictionary:
-	return {
-		"strength": strength,
-		"strength_label": STRENGTH_LABELS[strength],
-		"enemy_label": ENEMY_STARS[strength],
-		"reward_type": "none",
-		"reward_label": "",
-	}
-
-
-const GOLD_REWARDS: Dictionary = {
-	Strength.WEAK: 3,
-	Strength.MEDIUM: 5,
-	Strength.STRONG: 8,
-	Strength.ELITE: 12,
-	Strength.BOSS: 15,
-}
-
-
-static func get_gold_reward(strength: Strength) -> int:
-	return int(GOLD_REWARDS.get(strength, 3))
+static func star_text(stars: int) -> String:
+	var out := ""
+	for _i in clampi(stars, 1, 4):
+		out += "★"
+	return out
 
 
 static func format_option(option: Dictionary) -> String:
-	return "敵%s / 報酬: %s" % [option["enemy_label"], option["reward_label"]]
+	var stars := int(option.get("stars", 2))
+	return "%s / レリック×%d" % [star_text(stars), stars]
+
+
+static func get_gold_reward(_strength: int) -> int:
+	return 0

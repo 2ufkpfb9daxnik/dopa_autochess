@@ -49,7 +49,12 @@ func open_with(ids: Array[int]) -> void:
 func close_pick() -> void:
 	_hide_tip()
 	visible = false
+	top_level = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	z_index = 0
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = Vector2.ZERO
 
 
 func _build() -> void:

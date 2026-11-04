@@ -6,10 +6,13 @@ var _video: VideoStreamPlayer
 var _frame_flash: TextureRect
 var _frame_paths: PackedStringArray = []
 var _hide_flash_next_frame := false
+var _idle_seconds := 0.0
+var _leaving := false
 
 
 func _ready() -> void:
 	GameAudio.stop_bgm()
+	GameAudio.set_se_suppressed(false)
 	$StartButton.pressed.connect(_on_start_pressed)
 	_video = $Background as VideoStreamPlayer
 	## 内蔵ループだと finished が来ないので、手動で繋いでループ時に dance を出す。
@@ -38,6 +41,16 @@ func _ready() -> void:
 	settings.offset_bottom = 84.0
 	settings.z_index = 10
 	add_child(settings)
+	var audio_test := AudioTest.new()
+	audio_test.button_font = 32
+	audio_test.button_height = 64.0
+	audio_test.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	audio_test.offset_left = -220.0
+	audio_test.offset_top = 96.0
+	audio_test.offset_right = -20.0
+	audio_test.offset_bottom = 160.0
+	audio_test.z_index = 10
+	add_child(audio_test)
 	resized.connect(_layout_chrome)
 	_layout_chrome()
 
@@ -62,10 +75,35 @@ func _layout_chrome() -> void:
 		title.offset_top = -minf(size.y * 0.78, 980.0) - lift
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _hide_flash_next_frame:
 		_frame_flash.visible = false
 		_hide_flash_next_frame = false
+	if _leaving:
+		return
+	_idle_seconds += delta
+	if _idle_seconds >= PlayDemo.IDLE_SECONDS:
+		_start_demo()
+
+
+func _input(event: InputEvent) -> void:
+	if _leaving:
+		return
+	if event is InputEventMouseMotion:
+		if (event as InputEventMouseMotion).relative.length_squared() > 4.0:
+			_idle_seconds = 0.0
+		return
+	if event.is_pressed():
+		_idle_seconds = 0.0
+
+
+func _start_demo() -> void:
+	if _leaving:
+		return
+	_leaving = true
+	_idle_seconds = 0.0
+	PlayDemo.mark_pending(get_tree())
+	get_tree().change_scene_to_file("res://scenes/game.tscn")
 
 
 func _on_video_finished() -> void:
@@ -106,5 +144,8 @@ func _list_frame_paths() -> PackedStringArray:
 
 
 func _on_start_pressed() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	GameAudio.play_confirm_strong()
 	get_tree().change_scene_to_file("res://scenes/game.tscn")

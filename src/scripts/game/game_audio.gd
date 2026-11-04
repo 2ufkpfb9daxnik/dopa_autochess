@@ -5,7 +5,11 @@ const BGM := "res://sounds/bgm/"
 const BATTLE := EFFECTS + "battle/"
 const SETTINGS_PATH := "user://audio_settings.cfg"
 const BGM_VOLUME_DB := -6.0
+## 秘密戦闘曲は基準より少し大きくする。
+const SECRET_BGM_BONUS_DB := 3.0
 const MUTED_VOLUME_DB := -80.0
+const NORMAL_BATTLE_EXTRA := ["stable_audio_3_00014.mp3"]
+const BGM_TEST_EXCLUDE := ["secret_battle.mp3"]
 const MONEY_STAGGER := 0.1
 const MONEY_VOICES := 3
 const DOT_STAGGER := 0.08
@@ -19,20 +23,29 @@ const ATTRIBUTE_FOLDERS := {
 	"absorb": "absorption",
 }
 
-enum BgmKind { NONE, CONSTRUCTION, BATTLE, SECRET, CLOCK, CLEAR, DEFEAT, WIN, LOSE }
+enum BgmKind { NONE, CONSTRUCTION, BATTLE, SECRET, CLOCK, CLEAR, DEFEAT, WIN, LOSE, TEST }
 
 static var _node: GameAudio
+
+const BUFF_BUS := "BuffReverb"
 
 var _bgm: AudioStreamPlayer
 var _bgm_kind: BgmKind = BgmKind.NONE
 var _bgm_enabled := true
 var _se_enabled := true
+## デモ中だけ効果音を止める（設定ファイルには書かない）。
+var _se_suppressed := false
+## デモBGM: ループせず、曲終了で次のランダム曲へ。
+var _demo_bgm := false
+var _demo_bgm_path := ""
 var _effect_lists: Dictionary = {}
+var _buff_bus_ready := false
 
 
 func _enter_tree() -> void:
 	_node = self
 	_load_settings()
+	_ensure_buff_reverb_bus()
 	if _bgm == null:
 		_bgm = AudioStreamPlayer.new()
 		add_child(_bgm)
@@ -60,6 +73,29 @@ static func set_se_enabled(enabled: bool) -> void:
 		return
 	_node._se_enabled = enabled
 	_node._save_settings()
+
+
+static func set_se_suppressed(suppressed: bool) -> void:
+	if _node == null:
+		return
+	_node._se_suppressed = suppressed
+
+
+static func play_demo_bgm() -> void:
+	## construction / stdbattle をランダムに。1曲終わったら別曲へ。
+	if _node == null:
+		return
+	_node._demo_bgm = true
+	_node._ensure_demo_bgm_finished()
+	_node._play_next_demo_bgm()
+
+
+static func stop_demo_bgm() -> void:
+	if _node == null:
+		return
+	_node._demo_bgm = false
+	_node._demo_bgm_path = ""
+	stop_bgm()
 
 
 static func bind_buttons(root: Node) -> void:
@@ -116,7 +152,7 @@ static func play_battle(secret: bool, clocktower: bool = false) -> void:
 	if clocktower:
 		_node._play_clocktower()
 		return
-	_node._play_bgm(_node._random_track("stdbattle"), BgmKind.BATTLE)
+	_node._play_bgm(_node._random_battle_track(), BgmKind.BATTLE)
 
 
 static func play_result(won: bool) -> void:
@@ -178,10 +214,16 @@ static func play_battle_gauge() -> void:
 
 
 static func play_battle_support() -> void:
-	## バフ／デバフ行動。soft SE は battle/guard に置いてある。
+	## バフ／デバフ行動。反響付きバス＋短いエコーで広がりを出す。
 	if _node == null:
 		return
-	_node._play_random_effect(BATTLE + "guard")
+	_node._ensure_buff_reverb_bus()
+	var path := _node._random_effect(BATTLE + "guard")
+	if path.is_empty():
+		return
+	_node._play_now(path, -1.0, BUFF_BUS)
+	_node._play_later(path, 0.06, -9.0, BUFF_BUS)
+	_node._play_later(path, 0.13, -16.0, BUFF_BUS)
 
 
 static func play_battle_guard() -> void:
@@ -243,6 +285,68 @@ static func stop_bgm() -> void:
 	_node._bgm_kind = BgmKind.NONE
 
 
+func _ensure_demo_bgm_finished() -> void:
+	if _bgm == null:
+		return
+	if not _bgm.finished.is_connected(_on_demo_bgm_finished):
+		_bgm.finished.connect(_on_demo_bgm_finished)
+
+
+func _on_demo_bgm_finished() -> void:
+	if not _demo_bgm:
+		return
+	_play_next_demo_bgm()
+
+
+func _play_next_demo_bgm() -> void:
+	var path := _random_demo_track(_demo_bgm_path)
+	if path.is_empty():
+		return
+	_demo_bgm_path = path
+	var kind := BgmKind.CONSTRUCTION if path.get_file().begins_with("construction") else BgmKind.BATTLE
+	_play_bgm(path, kind)
+
+
+func _random_demo_track(except_path: String = "") -> String:
+	var paths: PackedStringArray = []
+	for file_name in DirAccess.get_files_at(BGM):
+		if file_name.get_extension().to_lower() != "mp3":
+			continue
+		if not (file_name.begins_with("construction") or file_name.begins_with("stdbattle")):
+			continue
+		paths.append(BGM.path_join(file_name))
+	if paths.is_empty():
+		return ""
+	if paths.size() == 1:
+		return paths[0]
+	var choices: PackedStringArray = []
+	for path in paths:
+		if path != except_path:
+			choices.append(path)
+	if choices.is_empty():
+		choices = paths
+	return choices[randi() % choices.size()]
+
+
+## タイトルの音声テスト用。BGM フォルダ内の mp3 を名前順で返す（秘密戦闘曲は除外）。
+static func list_bgm_tracks() -> PackedStringArray:
+	var paths: PackedStringArray = []
+	for file_name in DirAccess.get_files_at(BGM):
+		if file_name.get_extension().to_lower() != "mp3":
+			continue
+		if file_name in BGM_TEST_EXCLUDE:
+			continue
+		paths.append(BGM.path_join(file_name))
+	paths.sort()
+	return paths
+
+
+static func play_bgm_track(path: String) -> void:
+	if _node == null or path.is_empty():
+		return
+	_node._play_bgm(path, BgmKind.TEST)
+
+
 static func _play(path: String) -> void:
 	if _node == null:
 		return
@@ -262,7 +366,8 @@ func _play_bgm(path: String, kind: BgmKind) -> void:
 	if stream == null:
 		return
 	if stream is AudioStreamMP3:
-		(stream as AudioStreamMP3).loop = true
+		## デモは曲終了を拾うためループしない。
+		(stream as AudioStreamMP3).loop = not _demo_bgm
 	_bgm.stream = stream
 	_bgm.play()
 	_bgm_kind = kind
@@ -282,8 +387,45 @@ func _random_track(prefix: String) -> String:
 	return paths[randi() % paths.size()]
 
 
-func _play_random_effect(folder: String, volume_db: float = 0.0) -> void:
-	_play_now(_random_effect(folder), volume_db)
+func _random_battle_track() -> String:
+	var paths: PackedStringArray = []
+	for file_name in DirAccess.get_files_at(BGM):
+		if file_name.get_extension().to_lower() != "mp3":
+			continue
+		if file_name.begins_with("stdbattle") or file_name in NORMAL_BATTLE_EXTRA:
+			paths.append(BGM.path_join(file_name))
+	if paths.is_empty():
+		return ""
+	return paths[randi() % paths.size()]
+
+
+func _ensure_buff_reverb_bus() -> void:
+	if _buff_bus_ready and AudioServer.get_bus_index(BUFF_BUS) >= 0:
+		return
+	var index := AudioServer.get_bus_index(BUFF_BUS)
+	if index < 0:
+		AudioServer.add_bus()
+		index = AudioServer.bus_count - 1
+		AudioServer.set_bus_name(index, BUFF_BUS)
+		AudioServer.set_bus_send(index, &"Master")
+	## 既存エフェクトを消してから Reverb を載せ直す。
+	while AudioServer.get_bus_effect_count(index) > 0:
+		AudioServer.remove_bus_effect(index, 0)
+	var reverb := AudioEffectReverb.new()
+	reverb.room_size = 0.62
+	reverb.damping = 0.28
+	reverb.spread = 0.78
+	reverb.hipass = 0.08
+	reverb.dry = 0.58
+	reverb.wet = 0.52
+	reverb.predelay_msec = 28.0
+	reverb.predelay_feedback = 0.18
+	AudioServer.add_bus_effect(index, reverb)
+	_buff_bus_ready = true
+
+
+func _play_random_effect(folder: String, volume_db: float = 0.0, bus: String = "Master") -> void:
+	_play_now(_random_effect(folder), volume_db, bus)
 
 
 func _random_effect(folder: String) -> String:
@@ -305,8 +447,8 @@ func _random_effect(folder: String) -> String:
 	return paths[randi() % paths.size()]
 
 
-func _play_now(path: String, volume_db: float = 0.0) -> void:
-	if path.is_empty() or not _se_enabled:
+func _play_now(path: String, volume_db: float = 0.0, bus: String = "Master") -> void:
+	if path.is_empty() or not _se_enabled or _se_suppressed:
 		return
 	var loaded := load(path) as AudioStream
 	if loaded == null:
@@ -317,6 +459,7 @@ func _play_now(path: String, volume_db: float = 0.0) -> void:
 	var player := AudioStreamPlayer.new()
 	player.stream = stream
 	player.volume_db = volume_db
+	player.bus = bus
 	player.finished.connect(player.queue_free)
 	add_child(player)
 	player.play()
@@ -325,7 +468,11 @@ func _play_now(path: String, volume_db: float = 0.0) -> void:
 func _apply_bgm_volume() -> void:
 	if _bgm == null:
 		return
-	_bgm.volume_db = BGM_VOLUME_DB if _bgm_enabled else MUTED_VOLUME_DB
+	if not _bgm_enabled:
+		_bgm.volume_db = MUTED_VOLUME_DB
+		return
+	var bonus := SECRET_BGM_BONUS_DB if _bgm_kind == BgmKind.SECRET else 0.0
+	_bgm.volume_db = BGM_VOLUME_DB + bonus
 
 
 func _load_settings() -> void:
@@ -343,9 +490,9 @@ func _save_settings() -> void:
 	config.save(SETTINGS_PATH)
 
 
-func _play_later(path: String, delay: float) -> void:
+func _play_later(path: String, delay: float, volume_db: float = 0.0, bus: String = "Master") -> void:
 	if delay <= 0.0:
-		_play_now(path)
+		_play_now(path, volume_db, bus)
 		return
 	var timer := get_tree().create_timer(delay)
-	timer.timeout.connect(func() -> void: _play_now(path))
+	timer.timeout.connect(func() -> void: _play_now(path, volume_db, bus))

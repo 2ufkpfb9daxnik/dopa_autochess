@@ -1,118 +1,120 @@
 class_name CommentFlow
 extends Control
 
-const FONT_SIZE := 40
-const LANE_HEIGHT := 52.0
-const START_Y := 16.0
-const SPEED := 170.0
-const _MASK_SHADER := """
-shader_type canvas_item;
-uniform vec4 hole;
-varying vec2 canvas_position;
+## 新しい行は下に追加（チャット／コンソール型）。上にスクロールで履歴を見る。
+const FONT_SIZE := 16
+const MAX_LINES := 200
+const STICK_BOTTOM_PX := 48.0
 
-void vertex() {
-	canvas_position = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
-}
-
-void fragment() {
-	if (canvas_position.x >= hole.x && canvas_position.x <= hole.x + hole.z && canvas_position.y >= hole.y && canvas_position.y <= hole.y + hole.w) {
-		discard;
-	}
-}
-"""
-
+var _scroll: ScrollContainer
+var _list: VBoxContainer
 var _pending: Array[String] = []
-var _mask: ShaderMaterial
+var _stick_bottom := true
 
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = true
-	var shader := Shader.new()
-	shader.code = _MASK_SHADER
-	_mask = ShaderMaterial.new()
-	_mask.shader = shader
-	set_hole(Rect2())
+	var panel := PanelContainer.new()
+	panel.name = "LogPanel"
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	## ある程度透過した普通の黒。
+	style.bg_color = Color(0.0, 0.0, 0.0, 0.55)
+	style.set_corner_radius_all(4)
+	style.content_margin_left = 8
+	style.content_margin_right = 6
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", style)
+	add_child(panel)
+	_scroll = ScrollContainer.new()
+	_scroll.name = "LogScroll"
+	_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.add_child(_scroll)
+	_list = VBoxContainer.new()
+	_list.name = "LogList"
+	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_list.add_theme_constant_override("separation", 4)
+	_scroll.add_child(_list)
+	var bar := _scroll.get_v_scroll_bar()
+	if bar != null:
+		bar.value_changed.connect(_on_scroll_value_changed)
+	resized.connect(_on_resized)
 
 
-func set_hole(rect: Rect2) -> void:
-	if _mask == null:
-		return
-	_mask.set_shader_parameter("hole", Vector4(rect.position.x, rect.position.y, rect.size.x, rect.size.y))
+## 互換のため残す（縦ログでは未使用）。
+func set_hole(_rect: Rect2) -> void:
+	pass
 
 
 func push(text: String) -> void:
 	if text.is_empty():
 		return
-	if size.x < 8.0:
+	if _list == null or size.x < 8.0:
 		_pending.append(text)
 		return
-	_spawn(text)
+	_append_line(text)
 
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED:
-		_flush_pending()
-
-
-func _process(delta: float) -> void:
-	var stale: Array[Node] = []
-	for child in get_children():
-		var label := child as Control
-		label.position.x -= SPEED * delta
-		if label.position.x + label.size.x < 0.0:
-			stale.append(label)
-	for label in stale:
-		label.queue_free()
+func _on_resized() -> void:
+	_flush_pending()
+	if _stick_bottom:
+		_scroll_to_bottom()
 
 
 func _flush_pending() -> void:
-	if size.x < 8.0 or _pending.is_empty():
+	if _list == null or size.x < 8.0 or _pending.is_empty():
 		return
 	var queued := _pending.duplicate()
 	_pending.clear()
 	for text in queued:
-		_spawn(text)
+		_append_line(text)
 
 
-func _spawn(text: String) -> void:
+func _append_line(text: String) -> void:
+	var follow := _stick_bottom or _is_near_bottom()
 	var label := Label.new()
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.add_theme_font_size_override("font_size", FONT_SIZE)
-	label.add_theme_color_override("font_color", Color(1, 1, 1))
-	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.92))
-	label.add_theme_constant_override("outline_size", 12)
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.material = _mask
-	add_child(label)
-	label.reset_size()
-	var text_size := label.get_minimum_size()
-	label.size = Vector2(text_size.x, LANE_HEIGHT)
-	var lane := _pick_lane()
-	label.set_meta("lane", lane)
-	label.position = Vector2(size.x, START_Y + float(lane) * LANE_HEIGHT)
+	label.add_theme_color_override("font_color", Color(0.96, 0.94, 0.88))
+	label.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.04, 0.9))
+	label.add_theme_constant_override("outline_size", 4)
+	_list.add_child(label)
+	label.custom_minimum_size = Vector2(maxf(40.0, size.x - 18.0), 0.0)
+	while _list.get_child_count() > MAX_LINES:
+		var oldest := _list.get_child(0)
+		_list.remove_child(oldest)
+		oldest.queue_free()
+	_stick_bottom = follow
+	if follow:
+		call_deferred("_scroll_to_bottom")
 
 
-func _pick_lane() -> int:
-	var lane_count := maxi(1, int(floor(maxf(0.0, size.y - START_Y) / LANE_HEIGHT)))
-	var fallback := 0
-	var fallback_right := INF
-	for lane in lane_count:
-		var right := _lane_right(lane)
-		if right <= size.x - 24.0:
-			return lane
-		if right < fallback_right:
-			fallback_right = right
-			fallback = lane
-	return fallback
+func _is_near_bottom() -> bool:
+	if _scroll == null:
+		return true
+	var bar := _scroll.get_v_scroll_bar()
+	if bar == null:
+		return true
+	return bar.max_value - bar.value <= STICK_BOTTOM_PX + bar.page
 
 
-func _lane_right(lane: int) -> float:
-	var right := -INF
-	for child in get_children():
-		if int(child.get_meta("lane", -1)) != lane:
-			continue
-		var label := child as Control
-		right = maxf(right, label.position.x + label.size.x)
-	return right
+func _on_scroll_value_changed(_value: float) -> void:
+	_stick_bottom = _is_near_bottom()
+
+
+func _scroll_to_bottom() -> void:
+	if _scroll == null:
+		return
+	var bar := _scroll.get_v_scroll_bar()
+	if bar != null:
+		bar.value = bar.max_value
+	_stick_bottom = true

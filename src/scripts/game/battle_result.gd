@@ -103,11 +103,10 @@ func _ready() -> void:
 
 
 func _has_point(point: Vector2) -> bool:
-	if size.x < 2.0 or size.y < 2.0:
+	## 表示中だけ全面モーダル。非表示やサイズ0では一切拾わない。
+	if not visible or size.x < 2.0 or size.y < 2.0:
 		return false
-	if point.y <= point.x * size.y / size.x:
-		return true
-	return _routes != null and _routes.get_rect().has_point(point)
+	return true
 
 
 func open(won: bool, body: String, hp_before: int = -1, hp_after: int = -1) -> void:
@@ -137,12 +136,15 @@ func open(won: bool, body: String, hp_before: int = -1, hp_after: int = -1) -> v
 	if won:
 		_defeat_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	_clear_routes()
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	z_as_relative = false
 	z_index = 100
 	top_level = true
 	set_anchors_preset(Control.PRESET_TOP_LEFT)
 	position = Vector2.ZERO
-	size = get_viewport().get_visible_rect().size
+	var viewport := get_viewport()
+	if viewport != null:
+		size = viewport.get_visible_rect().size
 	visible = true
 	move_to_front()
 	_layout_content()
@@ -212,28 +214,50 @@ func close() -> void:
 	_defeat_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if _clear_mark != null:
 		_clear_mark.visible = false
+	## top_level / 全面サイズのまま残すと、閉じたあとも入力を奪うことがある。
 	visible = false
+	top_level = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	z_index = 0
+	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	position = Vector2.ZERO
+	size = Vector2.ZERO
 	if modal_changed.is_valid():
 		modal_changed.call(false)
 
 
-func show_routes(lines: PackedStringArray, pick: Callable) -> void:
+func show_routes(lines: PackedStringArray, pick: Callable, hint: String = "") -> void:
 	_clear_routes()
 	_routes = VBoxContainer.new()
 	_routes.mouse_filter = Control.MOUSE_FILTER_STOP
-	_routes.z_index = 3
-	_routes.add_theme_constant_override("separation", 16)
+	_routes.z_index = 20
+	_routes.clip_contents = false
+	_routes.add_theme_constant_override("separation", 12)
 	add_child(_routes)
+	if not hint.is_empty():
+		var tip := Label.new()
+		tip.text = hint
+		tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tip.add_theme_font_size_override("font_size", 18)
+		tip.add_theme_color_override("font_color", Color(1.0, 0.92, 0.78))
+		tip.add_theme_color_override("font_outline_color", Color(0.12, 0.04, 0.06, 0.9))
+		tip.add_theme_constant_override("outline_size", 6)
+		_routes.add_child(tip)
 	var large := lines.size() <= 2
 	for index in lines.size():
 		var button := Button.new()
 		button.text = lines[index]
-		button.custom_minimum_size = Vector2(360, 110 if large else 64)
+		button.focus_mode = Control.FOCUS_ALL
+		button.mouse_filter = Control.MOUSE_FILTER_STOP
+		button.custom_minimum_size = Vector2(360, 110 if large else 72)
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.add_theme_font_size_override("font_size", 56 if large else 28)
+		button.add_theme_font_size_override("font_size", 56 if large else 26)
 		var picked := index
 		button.pressed.connect(func() -> void: pick.call(picked))
 		_routes.add_child(button)
+	move_child(_routes, get_child_count() - 1)
 	_layout_content()
 
 
@@ -329,9 +353,14 @@ func _layout_content() -> void:
 		_body.rotation = angle
 		_body.position = body_center - body_box * 0.5
 		if _routes != null:
-			## クリア時はルート選択も斜線に沿わせる。
-			var route_center := size * 0.5 + perp * (minf(size.x, size.y) * 0.16) + dir * (minf(size.x, size.y) * 0.08)
-			var route_box := Vector2(clampf(size.x * 0.42, 360.0, 560.0), 280.0)
+			## タイトル文字の左下付近に沿わせる（斜めレイアウト）。
+			var route_h := maxf(_routes.get_combined_minimum_size().y + 8.0, 160.0)
+			var route_box := Vector2(clampf(size.x * 0.42, 360.0, 560.0), route_h)
+			var route_center := (
+				title_center
+				+ perp * (title_box.y * 0.55 + route_box.y * 0.42)
+				+ dir * (-title_box.x * 0.22)
+			)
 			_routes.size = route_box
 			_routes.pivot_offset = route_box * 0.5
 			_routes.rotation = angle
@@ -340,9 +369,10 @@ func _layout_content() -> void:
 				var button := child as Button
 				if button == null:
 					continue
-				button.add_theme_font_size_override("font_size", 34)
-				button.custom_minimum_size = Vector2(route_box.x - 24.0, 72.0)
+				button.add_theme_font_size_override("font_size", 28)
+				button.custom_minimum_size = Vector2(route_box.x - 24.0, 64.0)
 	else:
+		## 勝利／敗北共通: タイトル左下にルート選択を置く。
 		_title.rotation = 0.0
 		_title.pivot_offset = Vector2.ZERO
 		_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -352,13 +382,25 @@ func _layout_content() -> void:
 		_body.rotation = 0.0
 		_body.pivot_offset = Vector2.ZERO
 		_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		_body.position = Vector2(column_x, 176.0)
-		_body.size = Vector2(text_w, 150.0)
+		var below_title := _title.position.y + _title.size.y + 8.0
 		if _routes != null:
 			_routes.rotation = 0.0
 			_routes.pivot_offset = Vector2.ZERO
-			_routes.position = Vector2(column_x, 332.0)
-			_routes.size = Vector2(text_w, 280.0)
+			var route_min := _routes.get_combined_minimum_size()
+			var route_h := maxf(route_min.y + 8.0, 120.0)
+			var route_y := clampf(below_title, 8.0, maxf(8.0, size.y - route_h - 16.0))
+			_routes.position = Vector2(column_x, route_y)
+			_routes.size = Vector2(text_w, route_h)
+			for child in _routes.get_children():
+				var button := child as Button
+				if button == null:
+					continue
+				button.add_theme_font_size_override("font_size", 26)
+				button.custom_minimum_size = Vector2(text_w - 16.0, 64.0)
+			below_title = _routes.position.y + route_h + 12.0
+		## 本文はルートの下に必要な分だけ。巨大なヒット領域を残さない。
+		_body.position = Vector2(column_x, below_title)
+		_body.size = Vector2(text_w, minf(180.0, maxf(80.0, size.y - below_title - 24.0)))
 	if _hp_value != null and _hp_value.visible:
 		## 右カラムの経験値と被らないよう、画面左端へ置く。
 		var left_pad := 28.0
@@ -536,7 +578,11 @@ func _play_defeat_actor() -> void:
 
 func _clear_routes() -> void:
 	if _routes != null and is_instance_valid(_routes):
-		_routes.queue_free()
+		var old := _routes
+		_routes = null
+		if old.get_parent() == self:
+			remove_child(old)
+		old.queue_free()
 	_routes = null
 
 

@@ -43,6 +43,7 @@ const BATTLE_SPEEDS: Array[int] = [1, 2, 4, 8]
 var _battle_speed_index := 0
 var _battle_speed_button: Button
 var _battle_playing := false
+var _battle_restart_requested := false
 var _battle_result: BattleResult
 var _unit_inspect: UnitInspect
 var _debuff_ritual: DebuffRitual
@@ -60,6 +61,7 @@ var _circle_wheel: CircleWheel
 var _bench_board: BenchBoard
 var _overflow_pile: OverflowPile
 var _board_notice: BoardNotice
+var _exp_hint_arrow: ExpHintArrow
 var _formation_banner: FormationBanner
 var _action_order_bar: ActionOrderBar
 var _comment_flow: CommentFlow
@@ -88,6 +90,10 @@ var _drag_bar: ColorRect
 var _split_x := 0.0
 var _hover_tip: PanelContainer
 var _hover_tip_label: Label
+var _demo_mode := false
+var _demo_exiting := false
+var _demo_leave_started := false
+var _demo_overlay: Control
 
 @onready var camera: Camera3D = $Camera3D
 @onready var board: BoardController = $Board
@@ -179,6 +185,7 @@ const RUN_END_MARQUEE_Z := 5
 
 
 func _ready() -> void:
+	_demo_mode = PlayDemo.consume_pending(get_tree())
 	_shop.setup(self)
 	_review.setup(self)
 	_formation.setup(self)
@@ -215,12 +222,19 @@ func _ready() -> void:
 	back_to_run_end_button.pressed.connect(_review.return_to_menu)
 	for index in route_buttons.size():
 		route_buttons[index].pressed.connect(func() -> void: _on_route_selected(index))
-	_log("準備フェーズ開始")
-	GameAudio.play_construction()
+	if _demo_mode:
+		_log("PLAY DEMO")
+		GameAudio.set_se_suppressed(true)
+		GameAudio.play_demo_bgm()
+	else:
+		_log("準備フェーズ開始")
+		GameAudio.play_construction()
 	call_deferred("_bind_button_confirms")
 	_shop.setup_odds_table()
 	_setup_log_panel()
 	call_deferred("_finish_startup_layout")
+	if _demo_mode:
+		call_deferred("_begin_demo_mode")
 
 
 func _bind_button_confirms() -> void:
@@ -235,6 +249,150 @@ func _finish_startup_layout() -> void:
 	_update_ui()
 	await _fit_bottom_ui_layout()
 	_layout_formation_ui()
+
+
+func _begin_demo_mode() -> void:
+	if not _demo_mode or _demo_exiting:
+		return
+	_mount_demo_overlay()
+	_apply_demo_chrome()
+	await _run_demo_loop()
+
+
+func _mount_demo_overlay() -> void:
+	if _demo_overlay != null:
+		return
+	_demo_overlay = PlayDemo.make_overlay(_exit_demo_to_title)
+	($CanvasLayer/UI as Control).add_child(_demo_overlay)
+
+
+func _apply_demo_chrome() -> void:
+	prep_blocker.visible = false
+	battle_overlay.visible = false
+	income_overlay.visible = false
+	extension_overlay.visible = false
+	route_overlay.visible = false
+	run_end_overlay.visible = false
+	run_end_review_bar.visible = false
+	run_stats_panel.visible = false
+	## ショップは見せる。アクション列は DEMO マーキーに置き換える。
+	bottom_ui.visible = true
+	shop_panel.visible = true
+	coin_row.visible = true
+	action_column.visible = false
+	battle_button.visible = false
+	back_button.visible = false
+	if _battle_speed_button != null:
+		_battle_speed_button.visible = false
+	if _debug_roster_button != null:
+		_debug_roster_button.visible = false
+	if _debug_roster_panel != null:
+		_debug_roster_panel.visible = false
+	if _hp_exp_button != null:
+		_hp_exp_button.visible = false
+	reroll_button.visible = false
+	exp_button.visible = false
+	input_handler.set_enabled(false)
+	_shop.set_modal_blocked(true)
+	_shop.hide_odds_table()
+	if _circle_wheel != null:
+		_circle_wheel.set_unit_drag_enabled(false)
+		_circle_wheel.set_interaction_enabled(false)
+		_circle_wheel.set_cleanse_enabled(false)
+	if _bench_board != null:
+		_bench_board.set_input_enabled(false)
+	if _overflow_pile != null:
+		_overflow_pile.set_input_enabled(false)
+	if _relic_tray != null:
+		_relic_tray.visible = true
+	_refresh_demo_shop_slots()
+
+
+func _refresh_demo_shop_slots() -> void:
+	for index in shop_slots.get_child_count():
+		var slot := shop_slots.get_child(index) as ShopSlotPanel
+		if slot == null:
+			continue
+		if index >= session.shop_unit_ids.size() or session.shop_unit_ids[index] < 0:
+			slot.set_sold_out()
+			slot.disabled = true
+			continue
+		var unit_id: int = session.shop_unit_ids[index]
+		var cost := RelicEconomy.shop_price(session, index)
+		slot.set_unit(unit_id, cost)
+		slot.disabled = true
+
+
+func _can_continue_demo() -> bool:
+	return is_inside_tree() and _demo_mode and not _demo_exiting and not _demo_leave_started
+
+
+func _run_demo_loop() -> void:
+	while _can_continue_demo():
+		PlayDemo.seed_board(self)
+		if not _can_continue_demo():
+			break
+		_apply_demo_chrome()
+		_formation.refresh_widgets()
+		_update_synergy_panel()
+		if _formation_banner != null:
+			_announce_formation_bonus()
+		if board.get_front_unit_count() <= 0:
+			await get_tree().create_timer(0.4).timeout
+			if not _can_continue_demo():
+				break
+			continue
+		session.start_battle()
+		board.set_battle_mode(true)
+		_battle_playing = true
+		_battle_restart_requested = false
+		_apply_battle_time_scale()
+		_update_ui()
+		var outcome: Dictionary = await _run_battle_attempt()
+		## シーン遷移後は触らない（viewport が null になる）。
+		if not is_inside_tree() or _demo_leave_started:
+			return
+		_battle_playing = false
+		_battle_restart_requested = false
+		Engine.time_scale = 1.0
+		board.set_battle_mode(false)
+		if _demo_exiting or not _demo_mode:
+			break
+		if bool(outcome.get("aborted", false)):
+			break
+		session.phase = GameSession.Phase.PREP
+		_update_ui()
+		await get_tree().create_timer(1.1).timeout
+		if not _can_continue_demo():
+			break
+	if _demo_exiting and is_inside_tree() and not _demo_leave_started:
+		_leave_demo_scene()
+
+
+func _exit_demo_to_title() -> void:
+	if _demo_exiting or _demo_leave_started:
+		return
+	_demo_exiting = true
+	_demo_mode = false
+	GameAudio.set_se_suppressed(false)
+	Engine.time_scale = 1.0
+	if _battle_playing and _combat != null:
+		_combat.request_abort()
+	else:
+		_leave_demo_scene()
+
+
+func _leave_demo_scene() -> void:
+	if _demo_leave_started:
+		return
+	_demo_leave_started = true
+	_demo_exiting = true
+	_demo_mode = false
+	GameAudio.set_se_suppressed(false)
+	GameAudio.stop_demo_bgm()
+	if not is_inside_tree():
+		return
+	get_tree().change_scene_to_file("res://scenes/title.tscn")
 
 
 func _setup_bottom_ui_fonts() -> void:
@@ -399,7 +557,8 @@ func _mount_side_controls() -> void:
 	action_column.get_parent().remove_child(action_column)
 	ui.add_child(action_column)
 	action_column.mouse_filter = Control.MOUSE_FILTER_STOP
-	action_column.z_index = 6
+	## サークル外縁のヒットがアクション列に食い込むので、戦闘開始などが下に隠れないよう前面へ。
+	action_column.z_index = 20
 	action_column.alignment = BoxContainer.ALIGNMENT_BEGIN
 	_setup_column_hover_tips()
 
@@ -956,11 +1115,13 @@ func _on_action(action: GameAction) -> void:
 			if session.try_buy_exp():
 				_log("経験値を購入した (+%d)" % (GameSession.EXP_GAIN + RelicEconomy.exp_bonus(session)))
 				_note_deploy_cap_change(cap_before_exp)
+				_clear_exp_purchase_hint()
 		GameAction.Type.BUY_EXP_HP:
 			var cap_before_hp := session.get_board_unit_cap()
 			if session.try_buy_exp_with_hp():
 				_log("経験値を購入した (+%d, HP-%d)" % [RelicEconomy.hp_exp_gain(session), RelicEconomy.hp_exp_cost(session)])
 				_note_deploy_cap_change(cap_before_hp)
+				_clear_exp_purchase_hint()
 		GameAction.Type.SELL_UNDER_CURSOR:
 			if not session.is_prep() or _formation.is_dragging():
 				return
@@ -969,9 +1130,20 @@ func _on_action(action: GameAction) -> void:
 				_on_sell_requested(hover_unit)
 				_update_ui()
 		GameAction.Type.START_BATTLE:
-			_start_battle()
+			if _battle_playing:
+				_request_battle_restart()
+			else:
+				_start_battle()
 		GameAction.Type.GO_BACK:
 			get_tree().change_scene_to_file("res://scenes/title.tscn")
+
+
+func _request_battle_restart() -> void:
+	if not _battle_playing or _combat == null or _battle_restart_requested:
+		return
+	_battle_restart_requested = true
+	_combat.request_abort()
+	_update_ui()
 
 
 func _buy_from_shop(slot_index: int) -> void:
@@ -989,7 +1161,48 @@ func _buy_from_shop(slot_index: int) -> void:
 	_log("%s ★ を購入した (%d コイン)" % [data["name"], data["cost"]])
 
 
+## 味方を戦闘開始直前の見た目・位置に戻す（敵は呼び出し側で消し直す）。
+func _reset_allies_for_battle_attempt() -> void:
+	for unit in board.get_all_units():
+		if unit == null or not is_instance_valid(unit) or unit.is_enemy:
+			continue
+		unit.battle_ko = false
+		unit.defeat_playing = false
+		unit.stop_guard_hit_shake()
+		unit.rotation.x = 0.0
+		unit.release_battle_clip()
+		unit.clear_status_auras()
+		unit.set_battle_walking(false)
+		unit.refresh_visuals()
+	board.refresh_presentation()
+
+
+func _run_battle_attempt() -> Dictionary:
+	_reset_allies_for_battle_attempt()
+	board.clear_enemy_units()
+	var enemy_count := 0
+	if _demo_mode:
+		enemy_count = PlayDemo.spawn_enemies(self)
+	else:
+		var route := session.selected_route
+		if route.is_empty():
+			route = RouteChoice.default_for_round(session.round_number)
+		enemy_count = EnemySpawn.spawn_for_battle(
+			board,
+			units_root,
+			session,
+			route
+		)
+	_log("敵 %d 体出現" % enemy_count)
+	_update_ui()
+	_announce_formation_bonus()
+	return await _combat.play()
+
+
 func _start_battle() -> void:
+	if _battle_playing:
+		_request_battle_restart()
+		return
 	if not session.is_prep():
 		return
 	if board.has_overflow():
@@ -1006,23 +1219,39 @@ func _start_battle() -> void:
 	prep_blocker.visible = false
 	battle_overlay.visible = false
 	board.set_battle_mode(true)
-	var enemy_count := EnemySpawn.spawn_for_battle(
-		board,
-		units_root,
-		session.round_number,
-		session.selected_route
-	)
-	_log("敵 %d 体出現" % enemy_count)
-	_update_ui()
-	_announce_formation_bonus()
 	_battle_playing = true
+	_battle_restart_requested = false
 	_apply_battle_time_scale()
-	var outcome: Dictionary = await _combat.play()
+	var outcome: Dictionary = {}
+	while is_inside_tree():
+		outcome = await _run_battle_attempt()
+		if not is_inside_tree():
+			_battle_playing = false
+			Engine.time_scale = 1.0
+			return
+		## やり直し: 今の戦闘を捨てて、戦闘開始ボタン直後と同じ手順をもう一度。
+		if bool(outcome.get("aborted", false)) and _battle_restart_requested:
+			_battle_restart_requested = false
+			_log("戦闘やり直し (ラウンド %d)" % session.round_number)
+			GameAudio.play_battle(secret_battle, _battle.is_clock_tower())
+			_apply_battle_time_scale()
+			_update_ui()
+			continue
+		break
 	_battle_playing = false
+	_battle_restart_requested = false
 	Engine.time_scale = 1.0
 	if _debuff_ritual != null:
-		_debuff_ritual.visible = false
+		_debuff_ritual.close_ritual()
 	if not is_inside_tree():
+		return
+	if bool(outcome.get("aborted", false)):
+		if session.phase == GameSession.Phase.BATTLE:
+			session.phase = GameSession.Phase.PREP
+			session.state_changed.emit()
+		battle_overlay.visible = false
+		board.set_battle_mode(false)
+		_update_ui()
 		return
 	var battle_won: bool = bool(outcome.get("won", false))
 	var remaining_enemies: int = int(outcome.get("remaining", 0))
@@ -1123,29 +1352,37 @@ func _battle_result_body(won: bool, hp_before: int, level_before: int) -> String
 		lines.append("")
 		lines.append("次のラウンドなし")
 		return "\n".join(lines)
-	var blocks_interest := RelicEconomy.blocks_interest(session)
+	var hard_block_interest := RelicEconomy.hard_blocks_interest(session)
+	var convert_interest_xp := RelicEconomy.converts_interest_to_xp(session)
 	var income := RoundIncome.calc_round_start_income(
 		session.coins_at_last_round_end,
 		session.get_level(),
 		session.get_active_streak(),
 		session.round_number,
 		RelicEconomy.interest_step(session),
-		0 if blocks_interest else RelicEconomy.interest_principal_extra(session)
+		0 if hard_block_interest else RelicEconomy.interest_principal_extra(session)
 	)
-	if blocks_interest:
+	var interest_xp := 0
+	if hard_block_interest:
 		income["total"] = int(income["total"]) - int(income["holding"])
 		income["holding"] = 0
 	else:
-		var flat_interest := RelicEconomy.interest_flat(session) + RelicEconomy.interest_extra_preview(session)
-		income["holding"] = int(income["holding"]) + flat_interest
-		if session.next_interest_bonus > 0.0:
-			income["holding"] = int(round(float(income["holding"]) * (1.0 + session.next_interest_bonus)))
-		income["total"] = int(income["base"]) + int(income["holding"]) + int(income["streak"]) + int(income["round"])
+		var interest := RelicEconomy.decorate_interest(session, int(income["holding"]), false)
+		if convert_interest_xp:
+			interest_xp = interest
+			income["total"] = int(income["total"]) - int(income["holding"])
+			income["holding"] = 0
+		else:
+			income["holding"] = interest
+			income["total"] = int(income["base"]) + int(income["holding"]) + int(income["streak"]) + int(income["round"])
 	var streak_extra := RelicEconomy.streak_extra(session)
 	income["streak"] = int(income["streak"]) + streak_extra
 	income["total"] = int(income["total"]) + streak_extra
 	lines.append("")
-	lines.append("次の利子 %d" % int(income["holding"]))
+	if interest_xp > 0:
+		lines.append("次の利子→経験値 %d" % interest_xp)
+	else:
+		lines.append("次の利子 %d" % int(income["holding"]))
 	lines.append("次の収入 +%d" % int(income["total"]))
 	lines.append("基本 %d / 利子 %d / 連勝敗 %d / ラウンド %d" % [
 		int(income["base"]),
@@ -1178,37 +1415,50 @@ func _show_route_choice() -> void:
 	route_overlay.visible = false
 	prep_blocker.visible = true
 	input_handler.set_enabled(false)
+	var lines := PackedStringArray()
+	for option in session.route_options:
+		lines.append(str(option.get("button_text", RouteChoice.format_option(option))))
+	if lines.is_empty():
+		lines.append(str(RouteChoice.default_for_round(session.round_number).get("button_text", "★★")))
 	if _battle_result != null and _battle_result.visible:
-		_battle_result.show_routes(PackedStringArray(["次の戦闘へ"]), _on_route_selected)
+		_battle_result.show_routes(lines, _on_route_selected, RouteChoice.ROUTE_HINT)
 		return
-	## リザルト外から来た場合も同じ続行ボタンを出す。
 	if _battle_result != null:
 		_battle_result.open(true, "ラウンド %d" % session.round_number)
-		_battle_result.show_routes(PackedStringArray(["次の戦闘へ"]), _on_route_selected)
+		_battle_result.show_routes(lines, _on_route_selected, RouteChoice.ROUTE_HINT)
 
 
 func _on_route_selected(index: int) -> void:
 	var route := session.select_route(index)
-	if route.is_empty():
-		return
+	## 成否にかかわらず結果オーバーレイとブロッカーは外す（残ると次の戦闘開始が押せない）。
 	if _battle_result != null:
 		_battle_result.close()
-	GameAudio.play_construction()
 	route_overlay.visible = false
 	prep_blocker.visible = false
+	if action_column != null:
+		action_column.move_to_front()
+	if route.is_empty():
+		_shop.set_modal_blocked(false)
+		input_handler.set_enabled(session.is_prep() and not _relic_pick_active)
+		_update_ui()
+		return
+	GameAudio.play_construction()
 	shop_panel.visible = true
 	coin_row.visible = true
 	board.reset_circle_rotation()
 	if _circle_wheel != null:
 		_circle_wheel.reset_visual_spin()
-	_log("ラウンド %d 開始" % session.round_number)
+	var stars := int(route.get("stars", 0))
+	_log("ラウンド %d 開始（%s）" % [session.round_number, RouteChoice.star_text(stars)])
 	_grant_ono_free_rerolls()
 	_show_income_feedback()
 	_update_ui()
-	if session.should_offer_relic_pick():
-		_open_relic_pick()
-	else:
+	if not session.should_offer_relic_pick() and not _relic_pick_active:
+		prep_blocker.visible = false
+		_shop.set_modal_blocked(false)
 		input_handler.set_enabled(true)
+		if action_column != null:
+			action_column.move_to_front()
 
 
 func _open_relic_pick() -> void:
@@ -1226,7 +1476,6 @@ func _flush_relic_picks() -> void:
 		return
 	if session == null or session.relic_pending_picks <= 0:
 		return
-	session.relic_pending_picks -= 1
 	_open_relic_pick()
 
 
@@ -1588,13 +1837,18 @@ func _sakai_on_relic_equipped(unit: GameUnit) -> void:
 
 func _on_relic_chosen(relic_id: int) -> void:
 	_relic_pick_active = false
+	session.relic_pending_picks = maxi(0, session.relic_pending_picks - 1)
 	session.add_relic(relic_id)
 	var data := RelicCatalog.get_relic(relic_id)
 	_log("レリック獲得: %s" % str(data.get("name", relic_id)))
+	_update_ui()
+	if _relic_pick_active or session.should_offer_relic_pick():
+		return
 	prep_blocker.visible = false
 	_shop.set_modal_blocked(false)
 	input_handler.set_enabled(true)
-	_update_ui()
+	if action_column != null:
+		action_column.move_to_front()
 
 
 func _on_end_run() -> void:
@@ -1660,6 +1914,19 @@ func _show_board_notice(text: String, persistent: bool = false) -> void:
 	if _board_notice == null:
 		return
 	_board_notice.show_notice(text, persistent)
+	if text == NOTICE_CIRCLE_CAP:
+		_show_exp_purchase_hint()
+
+
+func _show_exp_purchase_hint() -> void:
+	if _exp_hint_arrow == null or exp_button == null or not exp_button.visible:
+		return
+	_exp_hint_arrow.point_at(exp_button)
+
+
+func _clear_exp_purchase_hint() -> void:
+	if _exp_hint_arrow != null:
+		_exp_hint_arrow.clear()
 
 
 func _refresh_overflow_notice() -> void:
@@ -1697,6 +1964,7 @@ func _on_drag_state_changed(is_dragging: bool, sell_zone_side: int) -> void:
 	if not sell_drag_hint_right.visible:
 		return
 	sell_drag_hint_right.z_index = 30
+	_update_sell_hint_refund(_formation.dragging_unit())
 	var active_color := Color(1.0, 0.55, 0.55, 1.0)
 	var idle_color := Color(1.0, 1.0, 1.0, 0.7)
 	sell_drag_hint_right.modulate = active_color if sell_zone_side == 1 else idle_color
@@ -1741,6 +2009,16 @@ func _setup_synergy_list() -> void:
 	_synergy_detail.mouse_filter = Control.MOUSE_FILTER_STOP
 	_synergy_detail.mouse_entered.connect(_on_synergy_detail_mouse_entered)
 	_synergy_detail.mouse_exited.connect(_on_synergy_detail_mouse_exited)
+	var detail_panel := StyleBoxFlat.new()
+	detail_panel.bg_color = Color(0.1, 0.11, 0.14, 1.0)
+	detail_panel.border_color = Color(0.42, 0.4, 0.36, 1.0)
+	detail_panel.set_border_width_all(2)
+	detail_panel.set_corner_radius_all(4)
+	detail_panel.content_margin_left = 2
+	detail_panel.content_margin_right = 2
+	detail_panel.content_margin_top = 2
+	detail_panel.content_margin_bottom = 2
+	_synergy_detail.add_theme_stylebox_override("panel", detail_panel)
 	var margin := MarginContainer.new()
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
@@ -2152,6 +2430,9 @@ func _setup_formation_ui() -> void:
 	_board_notice = BoardNotice.new()
 	_board_notice.name = "BoardNotice"
 	ui.add_child(_board_notice)
+	_exp_hint_arrow = ExpHintArrow.new()
+	_exp_hint_arrow.name = "ExpHintArrow"
+	ui.add_child(_exp_hint_arrow)
 	_formation_banner = FormationBanner.new()
 	_formation_banner.name = "FormationBanner"
 	ui.add_child(_formation_banner)
@@ -2227,10 +2508,19 @@ func _on_circle_rotate_steps(steps: int) -> void:
 func _announce_formation_bonus() -> void:
 	if _formation_banner == null:
 		return
-	var elements := board.get_active_formation_elements()
-	if elements.is_empty():
+	var rows := BattleDirector.formation_banner_rows(board)
+	if rows.is_empty():
 		return
-	_formation_banner.show_elements(elements)
+	_formation_banner.show_formation_rows(rows)
+	for row in rows:
+		var label := str(row.get("label", ""))
+		var attr_pct := int(row.get("attr_pct", 0))
+		var aura_label := str(row.get("aura_label", ""))
+		var aura_pct := int(row.get("aura_pct", 0))
+		if aura_label.is_empty() or aura_pct <= 0:
+			_log("%s陣形 属性+%d%%" % [label, attr_pct])
+		else:
+			_log("%s陣形 属性+%d%% / 隣接%s+%d%%" % [label, attr_pct, aura_label, aura_pct])
 
 
 func _note_deploy_cap_change(before_cap: int) -> void:
@@ -2556,9 +2846,14 @@ func _layout_run_end_defeat(view: Vector2) -> void:
 
 
 func _layout_formation_ui() -> void:
+	if not is_inside_tree() or _demo_leave_started:
+		return
 	if _circle_wheel == null or _battle.viewport_container == null:
 		return
-	var viewport_size := get_viewport().get_visible_rect().size
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	var viewport_size := viewport.get_visible_rect().size
 	var top := 8.0
 	var bottom := viewport_size.y - 8.0
 	var left_h := bottom - top
@@ -2624,6 +2919,12 @@ func _layout_formation_ui() -> void:
 	_bench_board.position = Vector2(cards_x - 6.0, bench_top)
 	_bench_board.size = Vector2(_shop.panel_width() + 12.0, bench_h)
 	_place_overflow_pile(right_x, cards_x, bench_top, bench_h)
+	if _demo_mode and _demo_overlay != null:
+		## アクション列の位置に縦流し DEMO を置く。
+		PlayDemo.layout_marquee(
+			_demo_overlay,
+			Rect2(right_x, top, _action_column_width, right_h)
+		)
 	## 売却帯はベンチのすぐ上（ショップとのあいだ）。
 	_place_sell_zone(Rect2(cards_x - 6.0, sell_top, _shop.panel_width() + 12.0, sell_h))
 	_place_side_column(right_x)
@@ -2676,17 +2977,23 @@ func _layout_log_column() -> void:
 
 
 func _layout_comment_flow() -> void:
-	if _comment_flow == null:
+	if _comment_flow == null or synergy_panel == null or _circle_wheel == null:
 		return
-	var viewport_size := get_viewport().get_visible_rect().size
-	_comment_flow.z_index = 0
-	if _comment_flow.get_parent() != null:
-		_comment_flow.get_parent().move_child(_comment_flow, 0)
-	_place_control(_comment_flow, Rect2(Vector2.ZERO, viewport_size))
-	var hole := _battle.battle_rect
-	if _battle.viewport_container != null:
-		hole = _battle.viewport_container.get_global_rect()
-	_comment_flow.set_hole(hole)
+	## シナジーとサークルのあいだ。縦幅はシナジーパネルに合わせる。
+	var syn := Rect2(synergy_panel.position, synergy_panel.size)
+	var circle := Rect2(_circle_wheel.position, _circle_wheel.size)
+	var left := syn.end.x + 4.0
+	var right := circle.position.x - 4.0
+	if right - left < 120.0:
+		left = syn.position.x + syn.size.x * 0.55
+		right = circle.position.x + circle.size.x * 0.22
+	var band := Rect2(
+		Vector2(left, syn.position.y),
+		Vector2(maxf(120.0, right - left), maxf(96.0, syn.size.y))
+	)
+	_comment_flow.z_index = 7
+	_comment_flow.mouse_filter = Control.MOUSE_FILTER_STOP
+	_place_control(_comment_flow, band)
 
 
 func _place_control(control: Control, rect: Rect2) -> void:
@@ -2744,9 +3051,58 @@ func _place_sell_zone(rect: Rect2) -> void:
 	zone.offset_top = rect.position.y
 	zone.offset_right = rect.end.x
 	zone.offset_bottom = rect.end.y
-	var sell_label := zone.get_node_or_null("SellDragLabelRight") as Label
-	if sell_label != null:
-		sell_label.text = "売却"
+	_ensure_sell_hint_row()
+	if zone.visible:
+		_update_sell_hint_refund(_formation.dragging_unit())
+
+
+func _ensure_sell_hint_row() -> void:
+	var zone := sell_drag_hint_right
+	if zone.get_node_or_null("SellDragRow") != null:
+		return
+	var old := zone.get_node_or_null("SellDragLabelRight")
+	if old != null:
+		old.queue_free()
+	var row := HBoxContainer.new()
+	row.name = "SellDragRow"
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 2)
+	var prefix := Label.new()
+	prefix.name = "SellPrefix"
+	prefix.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prefix.add_theme_font_size_override("font_size", 18)
+	prefix.text = "売却("
+	prefix.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var icon := TextureRect.new()
+	icon.name = "SellCoinIcon"
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.texture = load("res://images/status/coin.png")
+	icon.custom_minimum_size = Vector2(20, 20)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var amount := Label.new()
+	amount.name = "SellAmount"
+	amount.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	amount.add_theme_font_size_override("font_size", 18)
+	amount.text = "0)"
+	amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(prefix)
+	row.add_child(icon)
+	row.add_child(amount)
+	zone.add_child(row)
+
+
+func _update_sell_hint_refund(unit: GameUnit) -> void:
+	_ensure_sell_hint_row()
+	var amount := sell_drag_hint_right.get_node_or_null("SellDragRow/SellAmount") as Label
+	if amount == null:
+		return
+	var refund := 0
+	if unit != null and is_instance_valid(unit):
+		refund = RelicEconomy.star_sell_refund(session, unit.get_cost(), unit.stars)
+	amount.text = "%d)" % refund
 
 
 func _place_side_column(column_x: float) -> void:
@@ -2758,10 +3114,15 @@ func _place_side_column(column_x: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if not is_inside_tree() or _demo_leave_started or get_viewport() == null:
+		return
+	if _demo_mode and not _demo_exiting and _demo_overlay != null:
+		PlayDemo.tick_marquee(_demo_overlay, delta)
 	if _run_end_active and _run_end_diagonal and not _run_end_marquee_rows.is_empty():
 		_run_end_marquee_offset += RUN_END_MARQUEE_SPEED * delta
 		_place_run_end_marquee()
-	_shop.update_hover()
+	if not _demo_exiting:
+		_shop.update_hover()
 	if _synergy_close_left < 0.0:
 		return
 	if _is_pointer_over_synergy_detail():
@@ -2776,8 +3137,18 @@ func _process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if not is_inside_tree() or _demo_leave_started:
+		return
+	if _demo_mode and not _demo_exiting and PlayDemo.is_exit_event(event):
+		_exit_demo_to_title()
+		var viewport := get_viewport()
+		if viewport != null:
+			viewport.set_input_as_handled()
+		return
 	if _relic_use_uid >= 0 and _handle_relic_use_input(event):
-		get_viewport().set_input_as_handled()
+		var viewport := get_viewport()
+		if viewport != null:
+			viewport.set_input_as_handled()
 		return
 	_formation.handle_mouse_motion(event)
 
@@ -3029,6 +3400,15 @@ func _update_ui() -> void:
 	board.board_unit_limit = session.get_board_unit_cap()
 	_formation.refresh_widgets()
 	call_deferred("_layout_formation_ui")
+	if _demo_leave_started or not is_inside_tree():
+		return
+	if _demo_mode and not _demo_exiting:
+		_apply_demo_chrome()
+		round_label.text = "ラウンド: %d / %d" % [session.round_number, session.max_round]
+		hp_label.text = "HP: %d / %d" % [session.player_hp, RelicEconomy.player_max_hp(session)]
+		coin_label.text = str(session.coins)
+		_update_synergy_panel()
+		return
 	if _run_end_active:
 		call_deferred("layout_run_end_overlay")
 		_set_debug_roster_open(false)
@@ -3123,7 +3503,12 @@ func _update_ui() -> void:
 	exp_button.disabled = not economy_open or gold_exp_blocked or session.coins < exp_cost
 	exp_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	reroll_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()
+	if _battle_playing:
+		battle_button.text = "やり直し中…" if _battle_restart_requested else "戦闘やり直し"
+		battle_button.disabled = _battle_restart_requested
+	else:
+		battle_button.text = "戦闘開始"
+		battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()
 	if _debug_roster_button != null:
 		_debug_roster_button.disabled = not session.is_prep()
 		if not session.is_prep():
@@ -3135,7 +3520,7 @@ func _update_ui() -> void:
 			if card != null:
 				card.disabled = debug_blocked
 	input_handler.set_enabled(economy_open and not _run_end_active and not _relic_pick_active)
-	if _relic_pick_active:
+	if _relic_pick_active and not _battle_playing:
 		battle_button.disabled = true
 		reroll_button.disabled = true
 		exp_button.disabled = true

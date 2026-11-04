@@ -41,6 +41,10 @@ var _relic30_left := 0
 var _relic167_left := 0
 var _relic183_left := 0
 var _growth_killer: Fighter = null
+## 017 オオツの追加の層が直前に付いた敵の前衛（継続ダメージを出すため）。
+var _otsu_layer_front: Fighter = null
+## バフを入れた順番（018 オノは新しく受けたバフから消す）。
+var _buff_seq := 0
 ## レリック用の戦闘記録。play() の戻り値 "relic_stats" で渡す。
 var _stats: Dictionary = {}
 ## 戦闘中に置いた装置（185・186・194・181・182・198）。{"id", "slot", "attackable"}
@@ -254,6 +258,7 @@ func _release_stale_debuffs() -> void:
 
 
 func finish() -> void:
+	_arita_save_copies()
 	if _motion != null:
 		_motion.kill()
 		_motion = null
@@ -622,7 +627,9 @@ func _support(actor: Fighter) -> void:
 			_nose_note_enemy_buff(actor, ally_front)
 			await _note_arita_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
 		else:
-			var ally := _buff_target(actor, kind)
+			var ally := _kit_buff_target_override(actor)
+			if ally == null:
+				ally = _buff_target(actor, kind)
 			if ally == null:
 				ally = actor
 			if _tanabe_block_enemy_buff(actor, ally):
@@ -631,7 +638,7 @@ func _support(actor: Fighter) -> void:
 			else:
 				await _play_status_transfer(actor.unit, ally.unit, true)
 				_set_single_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
-				if actor.sheet_id == 11:
+				if actor.sheet_id in [11, 23, 25, 31, 34]:
 					actor.kit["front_buff_active"] = true
 				_refresh_unit_aura(ally.unit)
 				ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
@@ -845,6 +852,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 			_fukusaki_on_ap_loss(fighter)
 			await _miyake_on_ap_loss(fighter)
 			_tarumi_on_other_ap_loss(fighter, actor)
+			_kinomoto_on_ap_loss(fighter)
 		fighter.unit.action_value = fighter.ap
 	if actor.alive and is_instance_valid(actor.unit):
 		actor.ap = actor.base_ap
@@ -982,9 +990,11 @@ func _assign_sheet(fighter: Fighter, sheet: Dictionary) -> void:
 			var copied_uid := int(flags.get("copied_uid", -1))
 			if copied_uid > 0 and fighter.unit.equipped_relic_uids.has(copied_uid):
 				fighter.kit["copy_taken_cut_active"] = float(fighter.kit.get("copy_taken_cut", 0.0))
-		if fighter.sheet_id == 14 and bool(flags.get("break_taken_armed", false)):
-			fighter.kit["break_taken_cut_active"] = float(fighter.kit.get("break_taken_cut", 0.0))
-			# resist already baked into attribute via battle flag below if needed
+		## 001 アカシ: そのマッチでレリックを合成した回数だけ、炎の上昇が入った状態で始まる。
+		if fighter.sheet_id == 1 and not fighter.enemy and _host != null and _host.session != null:
+			var synths := int(_host.session.tally_relic_synths)
+			var start_ramp := float(fighter.kit.get("merge_ramp", 0.0)) * float(synths)
+			fighter.kit["fire_ramp"] = minf(float(fighter.kit.get("fire_cap", start_ramp)), start_ramp)
 		if fighter.sheet_id == 16:
 			fighter.kit["swing_water_bonus"] = float(flags.get("swing_water_bonus", 0.0))
 		if fighter.sheet_id == 17:
@@ -1086,9 +1096,9 @@ func _roll_action(fighter: Fighter) -> String:
 
 func _roll_hit(defender: Fighter) -> bool:
 	var speed := float(defender.speed)
-	var bonus := int(defender.kit.get("hit_speed_bonus", 0))
-	if bonus > 0:
-		speed += float(bonus)
+	var bonus := float(defender.kit.get("hit_speed_bonus", 0))
+	if bonus > 0.0:
+		speed += bonus
 		defender.kit["hit_speed_bonus"] = 0
 	var chance := clampf(1.05 - speed / 280.0, 0.55, 0.9)
 	return randf() < chance
@@ -1450,7 +1460,7 @@ func _threat(fighter: Fighter) -> int:
 		value += int(fighter.kit.get("full_priority", 0))
 	if fighter.sheet_id == 69 and int(fighter.kit.get("nose_mark_id", -1)) > 0 and fighter.hp > 0:
 		value -= int(fighter.kit.get("priority_cut", 0))
-	if fighter.sheet_id == 33 and not _is_backline(fighter) and fighter.hp > 0 and _gojo_has_mark(fighter.enemy):
+	if fighter.sheet_id == 33 and not _is_backline(fighter) and fighter.hp > 0 and _gojo_has_mark(not fighter.enemy):
 		value -= int(fighter.kit.get("priority_cut", 0))
 	value += RelicCombat.aura_priority(fighter, _fighters, _host.board if _host != null else null)
 	return maxi(0, value)
@@ -1726,6 +1736,12 @@ func _pick_attack_target(actor: Fighter) -> Fighter:
 		var marked13 := _fighter_by_id(int(actor.kit.get("charged_target_id", -1)))
 		if marked13 != null and marked13.alive and marked13.hp > 0 and marked13.enemy != actor.enemy:
 			return marked13
+	var kawai_id := int(actor.kit.get("kawai_force_id", -1))
+	if kawai_id > 0:
+		actor.kit["kawai_force_id"] = -1
+		var kawai := _fighter_by_id(kawai_id)
+		if kawai != null and kawai.alive and kawai.hp > 0 and kawai.enemy != actor.enemy:
+			return kawai
 	var forced_kawai := _fighter_by_id(int(actor.kit.get("force_target_id", -1)))
 	if forced_kawai != null and forced_kawai.alive and forced_kawai.hp > 0 and forced_kawai.enemy != actor.enemy:
 		actor.kit["force_target_id"] = -1
@@ -1874,8 +1890,42 @@ func _weighted_fighter(pool: Array) -> Fighter:
 func _finish_attack_kits(actor: Fighter) -> void:
 	if actor.sheet_id == 1 or actor.sheet_id == 6:
 		actor.kit["first_attack"] = false
+	if actor.sheet_id == 1:
+		var pending := int(actor.kit.get("ramp_pending", 0))
+		if pending > 0:
+			actor.kit["ramp_pending"] = 0
+			var ramp := float(actor.kit.get("fire_ramp", 0.0)) + float(actor.kit.get("fire_per_hit", 0.0)) * float(pending)
+			actor.kit["fire_ramp"] = minf(float(actor.kit.get("fire_cap", ramp)), ramp)
+	if actor.sheet_id == 2 and bool(actor.kit.get("empowered_spent", false)):
+		actor.kit["empowered_spent"] = false
+		actor.kit["empowered"] = false
 	if actor.sheet_id == 79:
 		actor.kit["water_empowered"] = false
+	## 015 ウダ: 範囲を受けた敵の「次の1回の攻撃」の低下は、この攻撃で終わる。
+	actor.kit["uda_next_cut"] = 0.0
+	## 034 ゴセ: 外れてもこの1回は終わる。
+	actor.kit["force_crit_target_id"] = -1
+	actor.kit["forced_crit_damage_bonus"] = 0.0
+	## 024 カドマ: 代わりに受けた低下は、その1回の攻撃だけ。
+	if is_instance_valid(actor.unit):
+		var attacker_id := actor.unit.get_instance_id()
+		for key in _fighters.keys():
+			var kadoma: Fighter = _fighters[key]
+			if kadoma.sheet_id == 24 and int(kadoma.kit.get("redirect_attacker_id", -1)) == attacker_id:
+				kadoma.kit["redirect_attacker_id"] = -1
+				kadoma.kit["redirect_taken_cut_active"] = 0.0
+	## 021 カタノ: 回数は攻撃1回で1つ減る。
+	if actor.sheet_id == 21 and actor.element == "earth" and int(actor.kit.get("synth_left", 0)) > 0 and actor.alive and actor.hp > 0:
+		actor.kit["synth_left"] = int(actor.kit.get("synth_left", 0)) - 1
+		actor.kit["priority_cut_active"] = int(actor.kit.get("priority_cut", 0))
+		actor.kit["priority_cut_fresh"] = true
+		_persist_synth_left(actor)
+	## 026 カンザキ: 風の上昇を入れた攻撃でダメージが入ったら、回数を1つ使う。
+	await _kanzaki_finish_attack(actor)
+	await _kashiba_column_follow(actor)
+	await _kawai_side_strike(actor)
+	await _kuwana_splash_copy(actor)
+	await _flush_attack_tallies()
 
 
 func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
@@ -1891,6 +1941,8 @@ func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 
 
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
+	if actor.sheet_id == 8 and bool(actor.kit.get("opening_strike", false)):
+		actor.kit["opening_dealt"] = dealt
 	if dealt <= 0:
 		_era2_on_damage_dealt(actor, target, dealt)
 		return
@@ -1913,16 +1965,17 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 		if _unit_has_buff(target.unit):
 			_ono_cleanse(actor, target)
 			actor.kit["bare_fire"] = false
-	if actor.sheet_id == 1:
+	## 001 アカシ: 上昇はその攻撃のダメージを与えたあと（攻撃の終わり）に入れる。1体につき1回。
+	if actor.sheet_id == 1 and actor.element == "fire" and actor.alive and actor.hp > 0:
 		var seen: Dictionary = actor.kit.get("ramp_ids", {})
 		var target_id := target.unit.get_instance_id()
 		if not seen.has(target_id):
 			seen[target_id] = true
 			actor.kit["ramp_ids"] = seen
-			var ramp := float(actor.kit.get("fire_ramp", 0.0)) + float(actor.kit.get("fire_per_hit", 0.0))
-			actor.kit["fire_ramp"] = minf(float(actor.kit.get("fire_cap", ramp)), ramp)
-	if actor.sheet_id == 2 and bool(actor.kit.get("empowered", false)):
-		actor.kit["empowered"] = false
+			actor.kit["ramp_pending"] = int(actor.kit.get("ramp_pending", 0)) + 1
+	## 002 アサヒ: 強い氷の1回は、その攻撃が終わってから消える（範囲にも入る）。
+	if actor.sheet_id == 2 and actor.element == "ice" and bool(actor.kit.get("empowered", false)):
+		actor.kit["empowered_spent"] = true
 	if actor.sheet_id == 3:
 		var cap := int(actor.kit.get("barrier_max", actor.barrier))
 		if actor.barrier < cap:
@@ -1933,7 +1986,7 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 		target.kit["ayakawa_vuln"] = float(actor.kit.get("earth_vuln", 0.0))
 		target.kit["ayakawa_slow"] = int(actor.kit.get("slow", 0))
 		_recompute_speed(target, true)
-	if actor.sheet_id == 22 and not bool(actor.kit.get("reflecting", false)):
+	if actor.sheet_id == 22 and actor.element == "thunder" and not bool(actor.kit.get("reflecting", false)):
 		_katsuyama_note_dealt(actor, target)
 	_era2_on_damage_dealt(actor, target, dealt)
 	await _era3_after_ice_hit(actor, target)
@@ -1942,12 +1995,60 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 
 
 func _absorb_followup(actor: Fighter, target: Fighter) -> void:
+	actor.kit["dot_ratio"] = _paprika_dot_ratio(actor.enemy)
 	_add_layers(target, "absorb", 1)
 	if target.alive:
 		await _apply_dot(actor, target)
 	if not target.alive:
 		_growth_killer = actor
 		await _ko(target)
+	## 倒した敵の層を移したあとで、生きている敵の層を揃える。
+	if actor.sheet_id == 4 and bool(actor.kit.get("azuchi_break_pending", false)):
+		actor.kit["azuchi_break_pending"] = false
+		await _azuchi_equalize_layers(actor)
+
+
+## 004 アヅチ: パプリカの継続の割合（1人のときも5%）。
+func _paprika_dot_ratio(enemy: bool) -> float:
+	var count := _synergy_member_count(enemy, "パプリカ")
+	if count >= 6:
+		return 0.15
+	if count >= 4:
+		return 0.10
+	return 0.05
+
+
+## 004 アヅチ: 吸収の撃破で、生きている敵の吸収の層をいちばん多い数まで揃え、全員にさらに層を付ける。
+func _azuchi_equalize_layers(actor: Fighter) -> void:
+	var foes: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe.alive and foe.hp > 0 and is_instance_valid(foe.unit):
+			foes.append(foe)
+	if foes.is_empty():
+		return
+	foes.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		return a.unit.unit_id < b.unit.unit_id
+	)
+	var top := 0
+	for entry in foes:
+		var foe: Fighter = entry
+		top = maxi(top, int(foe.layers.get("absorb", 0)))
+	var extra := maxi(0, int(actor.kit.get("extra_layers", 1)))
+	for entry in foes:
+		var foe: Fighter = entry
+		var add := maxi(0, top - int(foe.layers.get("absorb", 0))) + extra
+		_add_layers(foe, "absorb", add)
+	if is_instance_valid(actor.unit):
+		_host._log("%s の撃破で敵の吸収の層が揃った" % actor.unit.get_display_name())
+	actor.kit["dot_ratio"] = _paprika_dot_ratio(actor.enemy)
+	for entry in foes:
+		var foe: Fighter = entry
+		if foe.alive:
+			await _apply_dot(actor, foe)
+		if not foe.alive and is_instance_valid(foe.unit) and not foe.unit.battle_ko:
+			_growth_killer = actor
+			await _ko(foe)
 
 
 func _add_layers(target: Fighter, element: String, count: int) -> void:
@@ -2214,7 +2315,8 @@ func _on_fighter_down(dead: Fighter) -> void:
 	var azuchi := _living_sheet(not dead.enemy, 4)
 	if azuchi == null or not receiver.alive:
 		return
-	_apply_dot(azuchi, receiver)
+	azuchi.kit["dot_ratio"] = _paprika_dot_ratio(azuchi.enemy)
+	await _apply_dot(azuchi, receiver)
 	if not receiver.alive and is_instance_valid(receiver.unit) and not receiver.unit.battle_ko:
 		await _ko(receiver)
 
@@ -2367,8 +2469,15 @@ func _debuff_target(actor: Fighter) -> Fighter:
 		if marked69 != null and marked69.alive and marked69.hp > 0 and marked69.enemy != actor.enemy:
 			return marked69
 		return _extreme(_opponents(actor), "threat", true)
-	if actor.sheet_id == 67:
+	if actor.sheet_id == 67 or actor.sheet_id == 33:
 		return _extreme(_opponents(actor), "hp", true)
+	if actor.sheet_id == 32:
+		return _extreme(_opponents(actor), "attack", true)
+	if actor.sheet_id == 24:
+		var resisted := _fighter_by_id(int(actor.kit.get("resist_cut_target_id", -1)))
+		if resisted != null and resisted.alive and resisted.hp > 0 and resisted.enemy != actor.enemy:
+			return resisted
+		return _extreme(_opponents(actor), "threat", true)
 	if actor.sheet_id == 51:
 		if bool(actor.kit.get("aoe_debuff_armed", false)):
 			return null
@@ -2607,6 +2716,8 @@ func _clear_buffs_touching(dead: Fighter) -> void:
 
 
 func _note_arita_buff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
+	_buff_seq += 1
+	actor.kit["buff_stamp"] = _buff_seq
 	for entry in _side(actor.enemy):
 		var ally: Fighter = entry
 		if ally.sheet_id != 5:
@@ -2635,6 +2746,8 @@ func _arita_copy(arita: Fighter) -> void:
 	arita.kit["copy_target_id"] = target.unit.get_instance_id()
 	arita.kit["copy_kind"] = kind
 	arita.kit["copy_amount"] = amount
+	_buff_seq += 1
+	arita.kit["copy_stamp"] = _buff_seq
 	_refresh_unit_aura(target.unit)
 	_host._log("%s が %s へのバフをコピー（%s）" % [arita.unit.get_display_name(), target.unit.get_display_name(), _describe_effect(kind, amount)])
 
@@ -2760,6 +2873,9 @@ func _ktrnksy_add_gauge(fighter: Fighter, step: int) -> void:
 
 
 func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
+	await _flush_attack_tallies()
+	## 025 カワイ: 対象をカワイにするのは次の1回の行動だけ。
+	actor.kit["kawai_force_id"] = -1
 	_ktrnksy_on_ally_action(actor)
 	_era3_on_ally_action(actor, was_buff)
 	_era5_on_ally_action(actor, was_buff)
@@ -2769,7 +2885,8 @@ func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 	if actor.sheet_id == 2:
 		var gauge := int(actor.kit.get("gauge", 0)) + _scaled_gauge(actor, 10)
 		if was_buff:
-			gauge += _scaled_gauge(actor, int(actor.kit.get("gauge_buff_extra", 0)))
+			## バフ時の多い分には、パンドラの増加率は入らない。
+			gauge += int(actor.kit.get("gauge_buff_extra", 0))
 		GameAudio.play_battle_gauge()
 		if gauge >= 100:
 			actor.kit["gauge"] = 0
@@ -2916,10 +3033,12 @@ func _awaji_after_ice_attack(actor: Fighter, target: Fighter, broke: bool) -> vo
 		return
 	if target == null or not is_instance_valid(target.unit):
 		return
-	if target.alive and target.hp > 0 and not bool(actor.kit.get("first_ice_used", false)):
+	## 最初の氷の1回は、対象が倒れていても使い切る。
+	if not bool(actor.kit.get("first_ice_used", false)):
 		actor.kit["first_ice_used"] = true
-		target.kit["awaji_first_skip"] = maxi(1, int(actor.kit.get("first_skip", 1)))
-		_host._log("%s の最初の氷で %s は次の行動をしない" % [actor.unit.get_display_name(), target.unit.get_display_name()])
+		if target.alive and target.hp > 0:
+			target.kit["awaji_first_skip"] = maxi(1, int(actor.kit.get("first_skip", 1)))
+			_host._log("%s の最初の氷で %s は次の行動をしない" % [actor.unit.get_display_name(), target.unit.get_display_name()])
 	if not broke:
 		return
 	if not target.alive or target.hp <= 0:
@@ -3046,13 +3165,15 @@ func _note_hit_received(attacker: Fighter, target: Fighter, is_dot: bool) -> voi
 		_inabe_on_hit(target, attacker)
 	if target.sheet_id == 42 and target.alive and target.hp > 0:
 		_suita_add_gauge(target, _oscillator_gauge_step(target.enemy))
-	if target.sheet_id == 22 and target.alive:
-		await _katsuyama_on_self_hit(attacker, target)
+	## 022 カツヤマ: 1回の攻撃で増える分をためておき、攻撃が終わってから100を確かめる（_flush_attack_tallies）。
+	## 受けた時点で体力が0より大きかった被弾は、その被弾で倒れても数える。
+	if target.sheet_id == 22:
+		_katsuyama_note_hit(target, attacker, true, target)
 		return
 	for entry in _side(target.enemy):
 		var ally: Fighter = entry
 		if ally.sheet_id == 22 and ally.alive and ally.hp > 0:
-			await _katsuyama_on_ally_hit(attacker, ally)
+			_katsuyama_note_hit(ally, attacker, false, target)
 
 
 func _katsuyama_roster(katsuyama: Fighter) -> Dictionary:
@@ -3082,18 +3203,49 @@ func _katsuyama_register_attacker(katsuyama: Fighter, attacker: Fighter) -> void
 	katsuyama.kit["reflect_roster"] = roster
 
 
-func _katsuyama_on_self_hit(attacker: Fighter, katsuyama: Fighter) -> void:
-	_katsuyama_register_attacker(katsuyama, attacker)
-	await _katsuyama_add_gauge(katsuyama, _oscillator_gauge_step(katsuyama.enemy))
+func _katsuyama_note_hit(katsuyama: Fighter, attacker: Fighter, self_hit: bool, victim: Fighter) -> void:
+	if attacker == null or not is_instance_valid(attacker.unit) or attacker.enemy == katsuyama.enemy:
+		return
+	if self_hit:
+		katsuyama.kit["kt_self_pending"] = true
+	elif victim != null and is_instance_valid(victim.unit):
+		var allies: Dictionary = katsuyama.kit.get("kt_ally_pending", {})
+		allies[victim.unit.get_instance_id()] = true
+		katsuyama.kit["kt_ally_pending"] = allies
+	var attackers: Dictionary = katsuyama.kit.get("kt_attacker_pending", {})
+	attackers[attacker.unit.get_instance_id()] = attacker
+	katsuyama.kit["kt_attacker_pending"] = attackers
 
 
-func _katsuyama_on_ally_hit(attacker: Fighter, katsuyama: Fighter) -> void:
-	_katsuyama_register_attacker(katsuyama, attacker)
-	await _katsuyama_add_gauge(katsuyama, int(katsuyama.kit.get("ally_hit_gauge", 0)))
+## 攻撃1回ぶんのまとめ（022 カツヤマのゲージと名簿、013 イナベの1回）。攻撃と行動の終わりに呼ぶ。
+func _flush_attack_tallies() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 13:
+			fighter.kit["inabe_hit_seen"] = false
+		if fighter.sheet_id != 22:
+			continue
+		var self_hit := bool(fighter.kit.get("kt_self_pending", false))
+		var allies: Dictionary = fighter.kit.get("kt_ally_pending", {})
+		var attackers: Dictionary = fighter.kit.get("kt_attacker_pending", {})
+		fighter.kit["kt_self_pending"] = false
+		fighter.kit["kt_ally_pending"] = {}
+		fighter.kit["kt_attacker_pending"] = {}
+		if not self_hit and allies.is_empty() and attackers.is_empty():
+			continue
+		for attacker_key in attackers.keys():
+			var attacker: Fighter = attackers[attacker_key]
+			if attacker != null:
+				_katsuyama_register_attacker(fighter, attacker)
+		var gain := 0
+		if self_hit:
+			gain += _oscillator_gauge_step(fighter.enemy)
+		gain += int(fighter.kit.get("ally_hit_gauge", 0)) * allies.size()
+		await _katsuyama_add_gauge(fighter, gain)
 
 
 func _katsuyama_add_gauge(katsuyama: Fighter, amount: int) -> void:
-	if amount <= 0 or not katsuyama.alive or not is_instance_valid(katsuyama.unit):
+	if amount <= 0 or not is_instance_valid(katsuyama.unit):
 		return
 	var gauge := int(katsuyama.kit.get("gauge", 0)) + amount
 	GameAudio.play_battle_gauge()
@@ -3132,7 +3284,8 @@ func _katsuyama_reflect(katsuyama: Fighter) -> void:
 	for entry in plan:
 		var foe: Fighter = entry["foe"]
 		for _hit in int(entry["hits"]):
-			if not katsuyama.alive or foe == null or not foe.alive:
+			## 倒れた被弾で100になったときも返す。
+			if not is_instance_valid(katsuyama.unit) or foe == null or not foe.alive:
 				break
 			await _resolve_packet(katsuyama, foe, true, false, false)
 			if not foe.alive:
@@ -3170,13 +3323,22 @@ func _apply_randoseru_on(actor: Fighter, target: Fighter) -> void:
 	if actor.sheet_id == 60 and not bool(actor.kit.get("extra_layer_used", false)):
 		layers += int(actor.kit.get("extra_layers", 0))
 		actor.kit["extra_layer_used"] = true
+	_otsu_layer_front = null
 	_add_layers(target, "thunder", layers)
+	var otsu_front := _otsu_layer_front
+	_otsu_layer_front = null
 	var saved := float(actor.kit.get("dot_ratio", 0.05))
 	actor.kit["dot_ratio"] = _randoseru_dot_ratio(actor.enemy)
 	var old_element := actor.element
 	actor.element = "thunder"
 	if target.alive:
 		await _apply_dot(actor, target)
+	## 017 オオツの追加の層も、層を付けた味方の攻撃力とランドセルの割合で継続ダメージになる。
+	if otsu_front != null and otsu_front != target and otsu_front.alive:
+		await _apply_dot(actor, otsu_front)
+		if not otsu_front.alive and is_instance_valid(otsu_front.unit) and not otsu_front.unit.battle_ko:
+			_growth_killer = actor
+			await _ko(otsu_front)
 	actor.element = old_element
 	actor.kit["dot_ratio"] = saved
 	actor.kit["randoseru_applied"] = true
@@ -3327,9 +3489,14 @@ func _miyake_release_aoe(miyake: Fighter) -> void:
 
 func _opening_kits() -> void:
 	_era2_battle_start_flags()
+	## 開幕の効果は、IDが小さいキャラクターから順に行う（008 → 017 → 050 → 061）。
+	await _ikuno_openings()
 	await _otsu_opening_layers()
 	await _daito_opening_dots()
 	await _era4_opening()
+
+
+func _ikuno_openings() -> void:
 	var openers: Array = []
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
@@ -3365,34 +3532,11 @@ func _ikuno_opening(actor: Fighter) -> void:
 	_host._log("%s の開幕攻撃 → %s" % [actor.unit.get_display_name(), target.unit.get_display_name()])
 	await _wait(ATTACK_HIT_TIME)
 	actor.kit["continuity_done"] = false
-	var connected := _roll_hit(target)
-	var broke := _reduce_break_gauge(actor, target)
-	if not connected:
-		GameAudio.play_battle_miss()
-		if is_instance_valid(target.unit):
-			target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
-		_host._log("%s の開幕攻撃は %s に外れた" % [actor.unit.get_display_name(), target.unit.get_display_name()])
-		await _continuity_with_attack(actor, target)
-		actor.kit["opening_strike"] = false
-		actor.kit["follow_left"] = int(actor.kit.get("follow_attacks", 1))
-		if is_instance_valid(actor.unit) and not actor.unit.battle_ko:
-			actor.unit.play_battle_role("idle")
-		await _wait(0.12)
-		return
-	var bonus := _kit_bonus(actor, target, false)
-	var rolled := _roll_damage(actor, target, true, bonus, -1.0)
-	var raw := int(rolled["amount"])
-	var crit := bool(rolled["crit"])
-	var guarded := target.guarding and raw > 0
-	var dealt := _mitigate(target, raw)
-	_play_attack_sounds(actor, crit)
-	_play_hit_fx(actor, target)
-	var absorbed := _apply_damage(target, dealt)
-	if dealt > 0 and is_instance_valid(target.unit):
-		var color := Color(1.0, 0.86, 0.35) if crit else Color(0.75, 0.9, 1.0)
-		target.unit.popup_battle_text("-%d" % dealt, color)
-	_host._log(_damage_log(actor.unit.get_display_name(), target.unit.get_display_name(), raw, dealt, absorbed, crit, guarded, "開幕ダメージ"))
-	await _continuity_with_attack(actor, target)
+	actor.kit["opening_dealt"] = 0
+	## 通常の攻撃と同じ命中・撃破・ダメージ・レリックの処理を通す。
+	await _resolve_packet(actor, target, true, false, false)
+	actor.kit["opening_strike"] = false
+	var dealt := int(actor.kit.get("opening_dealt", 0))
 	if dealt > 0 and target.alive and target.hp > 0:
 		var bump := int(actor.kit.get("ap_bump", 0))
 		if bump > 0:
@@ -3400,16 +3544,10 @@ func _ikuno_opening(actor: Fighter) -> void:
 			if is_instance_valid(target.unit):
 				target.unit.action_value = target.ap
 			_host._log("%s の行動ポイントが %d 上がった" % [target.unit.get_display_name(), bump])
-		await _note_hit_received(actor, target, false)
-	actor.kit["opening_strike"] = false
 	if target.alive and target.hp > 0:
 		actor.kit["follow_left"] = int(actor.kit.get("follow_attacks", 1))
 	else:
 		actor.kit["follow_left"] = 0
-		_growth_killer = actor
-		await _ko(target)
-	if broke and target.alive and target.hp > 0:
-		pass
 	if is_instance_valid(actor.unit) and not actor.unit.battle_ko:
 		actor.unit.play_battle_role("idle")
 	await _wait(0.12)
@@ -3485,6 +3623,8 @@ func _izumi_on_first_targeted(attacker: Fighter, izumi: Fighter) -> void:
 
 func _refresh_passive_kits() -> void:
 	_refresh_ise_back_buff()
+	_refresh_back_kit_buffs()
+	_refresh_kashiba_buff()
 	_refresh_uda_guard()
 	_refresh_otsu_buff()
 	_refresh_sakai_aura()
@@ -3528,11 +3668,10 @@ func _note_primary_target_effects(actor: Fighter, target: Fighter) -> void:
 func _on_attack_contact(actor: Fighter, target: Fighter, _connected: bool, dealt: int, direct: bool) -> void:
 	if direct and target.sheet_id == 12 and target.alive and target.hp > 0:
 		await _itami_reflect_wind(target, actor)
-	if direct and dealt > 0 and actor.sheet_id == 15 and bool(actor.kit.get("aoe_resolving", false)) == false:
-		# splash cut handled below via aoe packet flag in caller? use kit flag on actor for splash packets
-		pass
-	if not direct and dealt >= 0 and actor.sheet_id == 15:
+	if not direct and _connected and actor.sheet_id == 15:
 		_uda_on_splash(actor, target)
+	if _connected and actor.element == "water":
+		_kuwana_note_contact(actor, target, direct)
 	if direct and actor.sheet_id == 12 and actor.alive:
 		actor.kit["last_dot_target_id"] = target.unit.get_instance_id()
 
@@ -3555,7 +3694,6 @@ func _ibaraki_on_break(ibaraki: Fighter) -> void:
 	ibaraki.kit["break_taken_cut_active"] = float(ibaraki.kit.get("break_taken_cut", 0.0))
 	ibaraki.attribute_resist += float(ibaraki.kit.get("break_resist", 0.0))
 	if is_instance_valid(ibaraki.unit):
-		ibaraki.unit.kit_flags["break_taken_armed"] = true
 		ibaraki.unit.popup_battle_text("撃破耐性", Color(0.55, 0.8, 1.0))
 	_host._log("%s は水の撃破で耐性が上がった" % ibaraki.unit.get_display_name())
 
@@ -3571,7 +3709,7 @@ func _itami_reflect_wind(itami: Fighter, attacker: Fighter) -> void:
 	if not bool(itami.kit.get("resist_gained", false)):
 		itami.kit["resist_gained"] = true
 		itami.attribute_resist += float(itami.kit.get("resist_gain", 0.0))
-		itami.kit["hit_speed_bonus"] = int(itami.kit.get("hit_speed", 0))
+		itami.kit["hit_speed_bonus"] = float(itami.kit.get("hit_speed", 0))
 		_host._log("%s の属性耐性が上がった" % itami.unit.get_display_name())
 
 
@@ -3589,14 +3727,19 @@ func _inabe_on_hit(inabe: Fighter, attacker: Fighter) -> void:
 		return
 	if attacker != null and is_instance_valid(attacker.unit) and attacker.enemy != inabe.enemy:
 		inabe.kit["last_hitter_id"] = attacker.unit.get_instance_id()
+	## 1回の攻撃で1回（範囲で重ねて受けても1回）。_flush_attack_tallies で戻す。
+	if bool(inabe.kit.get("inabe_hit_seen", false)):
+		return
+	inabe.kit["inabe_hit_seen"] = true
 	var step := _oscillator_gauge_step(inabe.enemy)
 	var gauge := int(inabe.kit.get("gauge", 0)) + step
 	GameAudio.play_battle_gauge()
 	if gauge >= 100:
 		inabe.kit["gauge"] = 0
-		inabe.kit["charged_ready"] = true
-		if attacker != null and is_instance_valid(attacker.unit):
+		## 次の風が残っているあいだは、覚えた敵は最初の敵のまま。
+		if not bool(inabe.kit.get("charged_ready", false)) and attacker != null and is_instance_valid(attacker.unit):
 			inabe.kit["charged_target_id"] = attacker.unit.get_instance_id()
+		inabe.kit["charged_ready"] = true
 		_show_gauge(inabe)
 		if is_instance_valid(inabe.unit):
 			inabe.unit.popup_battle_text("次の風", Color(0.55, 0.95, 0.7))
@@ -3678,6 +3821,9 @@ func _refresh_ise_back_buff() -> void:
 func _ise_on_absorb_layers(actor: Fighter, primary: Fighter) -> void:
 	if actor == null or primary == null or actor.element != "absorb":
 		return
+	## イセの追加の攻撃では、層の数による減少を見ない。
+	if bool(actor.kit.get("ise_follow_resolving", false)):
+		return
 	var ise := _best_sheet(actor.enemy, 11)
 	if ise == null or not _is_backline(ise) or ise.hp <= 0:
 		return
@@ -3689,14 +3835,10 @@ func _ise_on_absorb_layers(actor: Fighter, primary: Fighter) -> void:
 		var foe: Fighter = entry
 		if foe == primary or not foe.alive or foe.hp <= 0:
 			continue
-		var left := int(foe.break_left.get("absorb", BREAK_MAX))
-		if left <= 0:
-			continue
-		var reduce := mini(times, left)
-		foe.break_left["absorb"] = left - reduce
-		if is_instance_valid(foe.unit):
-			foe.unit.popup_battle_text("撃破-%d" % reduce, Color(0.75, 0.85, 1.0))
-	ise.kit["ise_extra_budget"] = int(ise.kit.get("ise_extra_budget", int(ise.kit.get("extra_attacks", 1))))
+		## 1回ずつ減らし、途中で0になった敵は残りの回数を減らさない。
+		for _i in times:
+			if _step_break_gauge(actor, foe, "absorb"):
+				break
 
 
 func _ise_follow_attacks(actor: Fighter, primary: Fighter) -> void:
@@ -3711,10 +3853,12 @@ func _ise_follow_attacks(actor: Fighter, primary: Fighter) -> void:
 		return
 	var times := mini(left, mini(layers, maxi(1, int(ise.kit.get("break_extra", 2)))))
 	ise.kit["ise_attacks_left"] = left - times
+	actor.kit["ise_follow_resolving"] = true
 	for _i in times:
 		if not primary.alive or primary.hp <= 0:
 			break
 		await _resolve_packet(actor, primary, true, false, false)
+	actor.kit["ise_follow_resolving"] = false
 
 
 func _refresh_uda_guard() -> void:
@@ -3741,12 +3885,28 @@ func _refresh_uda_guard() -> void:
 
 
 func _uda_on_splash(uda: Fighter, target: Fighter) -> void:
+	if uda.element != "thunder" or not _is_backline(uda):
+		return
 	var guarded := _fighter_by_id(int(uda.kit.get("guard_target_id", -1)))
 	if guarded == null or not guarded.alive:
 		return
-	if not _is_backline(uda):
-		return
-	target.kit["outgoing_cut"] = float(uda.kit.get("splash_cut", 0.0))
+	## 次の1回の攻撃の対象が、そのときウダが守っている味方であるときだけ下がる（_uda_cut_bonus）。
+	target.kit["uda_next_cut"] = float(uda.kit.get("splash_cut", 0.0))
+	target.kit["uda_cut_source_id"] = uda.unit.get_instance_id()
+
+
+## 015 ウダ: 範囲を受けた敵の次の1回の攻撃。狙った相手が守られている味方なら与ダメージが下がる。
+func _uda_cut_bonus(attacker: Fighter) -> float:
+	var cut := float(attacker.kit.get("uda_next_cut", 0.0))
+	if cut <= 0.0:
+		return 0.0
+	var uda := _fighter_by_id(int(attacker.kit.get("uda_cut_source_id", -1)))
+	if uda == null or not uda.alive or uda.hp <= 0 or not _is_backline(uda):
+		return 0.0
+	var guarded_id := int(uda.kit.get("guard_target_id", -1))
+	if guarded_id < 0 or int(attacker.kit.get("last_attack_target_id", -1)) != guarded_id:
+		return 0.0
+	return -cut
 
 
 func _refresh_otsu_buff() -> void:
@@ -3777,6 +3937,8 @@ func _otsu_try_extra_layer(primary: Fighter, _added: int) -> void:
 	front.layers["thunder"] = int(front.layers.get("thunder", 0)) + add
 	front.kit["otsu_marked_layers"] = int(front.kit.get("otsu_marked_layers", 0)) + add
 	otsu.kit["otsu_extra_used"] = used + add
+	## この層の継続ダメージは、層を付けた味方が出す（_apply_randoseru_on）。
+	_otsu_layer_front = front
 
 
 func _highest_attack_front(enemy: bool) -> Fighter:
@@ -3796,7 +3958,8 @@ func _otsu_opening_layers() -> void:
 		var pending := int(otsu.kit.get("otsu_pending", 0))
 		if pending <= 0:
 			continue
-		var front := _highest_attack_front(otsu.enemy)
+		## 層が付くのは敵の前衛のうち、攻撃力が最も高い1体。
+		var front := _highest_attack_front(not otsu.enemy)
 		if front == null:
 			continue
 		var add := mini(pending, maxi(1, int(otsu.kit.get("extra_cap", 2)) - int(otsu.kit.get("otsu_extra_used", 0))))
@@ -3809,37 +3972,80 @@ func _otsu_opening_layers() -> void:
 		if is_instance_valid(otsu.unit):
 			otsu.unit.kit_flags["otsu_pending"] = 0
 		_host._log("%s の開始層が %s に付いた" % [otsu.unit.get_display_name(), front.unit.get_display_name()])
-		await _apply_dot(otsu, front)
+		await _otsu_thunder_dot(otsu, front)
+
+
+## 017 オオツ: 追加の層の継続ダメージ。雷で、割合はランドセルの段階。
+func _otsu_thunder_dot(source: Fighter, target: Fighter) -> void:
+	if source == null or target == null or not target.alive:
+		return
+	var saved_ratio := float(source.kit.get("dot_ratio", 0.05))
+	var saved_element := source.element
+	source.kit["dot_ratio"] = _randoseru_dot_ratio(source.enemy)
+	source.element = "thunder"
+	await _apply_dot(source, target)
+	source.element = saved_element
+	source.kit["dot_ratio"] = saved_ratio
+	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+		_growth_killer = source
+		await _ko(target)
 
 
 func _otsu_on_death(otsu: Fighter) -> void:
-	var front := _highest_attack_front(otsu.enemy)
-	if front == null or not front.alive:
-		return
-	var marked := int(front.kit.get("otsu_marked_layers", 0))
-	if marked <= 0:
-		return
-	var hits := mini(marked, maxi(1, int(otsu.kit.get("death_hits", 2))))
-	for _i in hits:
-		if not front.alive or front.hp <= 0:
-			break
-		front.kit["otsu_marked_layers"] = maxi(0, int(front.kit.get("otsu_marked_layers", 0)) - 1)
-		otsu.kit["attack_no_crit"] = true
-		await _resolve_packet(otsu, front, true, false, false)
-		otsu.kit["attack_no_crit"] = false
+	## 追加の層が付いている敵の前衛すべてに、その層の数（1体の上限まで）だけ雷が入る。
+	var fronts: Array = []
+	for entry in _opponents(otsu):
+		var foe: Fighter = entry
+		if not foe.alive or foe.hp <= 0 or foe.stand_slot < 0 or foe.stand_slot >= BoardController.FRONT_COUNT:
+			continue
+		if int(foe.kit.get("otsu_marked_layers", 0)) > 0:
+			fronts.append(foe)
+	fronts.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		return a.unit.unit_id < b.unit.unit_id
+	)
+	var cap := maxi(1, int(otsu.kit.get("death_hits", 2)))
+	var saved_relic_layers := otsu.relic_layers
+	for entry in fronts:
+		var front: Fighter = entry
+		var hits := mini(int(front.kit.get("otsu_marked_layers", 0)), cap)
+		for _i in hits:
+			if not front.alive or front.hp <= 0:
+				break
+			front.kit["otsu_marked_layers"] = maxi(0, int(front.kit.get("otsu_marked_layers", 0)) - 1)
+			## この攻撃では新しい層は付かず、クリティカルもしない。
+			otsu.kit["attack_no_crit"] = true
+			otsu.kit["continuity_done"] = true
+			otsu.relic_layers = 0
+			await _resolve_packet(otsu, front, true, false, false)
+			otsu.relic_layers = saved_relic_layers
+			otsu.kit["attack_no_crit"] = false
 
 
 func _ono_cleanse(actor: Fighter, target: Fighter) -> void:
 	var need := maxi(1, int(actor.kit.get("cleanse_count", 1)))
-	var cleared := 0
+	var target_id := target.unit.get_instance_id()
+	## 新しく受けたバフから消す。アリタのコピーもバフとして数える。
+	var found: Array = []
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if int(fighter.kit.get("buff_target_id", -1)) != target.unit.get_instance_id():
-			continue
-		_clear_single_buff(fighter)
-		cleared += 1
+		if int(fighter.kit.get("buff_target_id", -1)) == target_id:
+			found.append({"owner": fighter, "copy": false, "stamp": int(fighter.kit.get("buff_stamp", 0))})
+		if int(fighter.kit.get("copy_target_id", -1)) == target_id:
+			found.append({"owner": fighter, "copy": true, "stamp": int(fighter.kit.get("copy_stamp", 0))})
+	found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a["stamp"]) > int(b["stamp"])
+	)
+	var cleared := 0
+	for entry in found:
 		if cleared >= need:
 			break
+		var item: Dictionary = entry
+		var owner: Fighter = item["owner"]
+		if bool(item["copy"]):
+			_clear_copy(owner)
+		else:
+			_clear_single_buff(owner)
+		cleared += 1
 	if cleared > 0 and is_instance_valid(target.unit):
 		target.unit.popup_battle_text("バフ解除", Color(1.0, 0.7, 0.35))
 		_host._log("%s が %s のバフを消した" % [actor.unit.get_display_name(), target.unit.get_display_name()])
@@ -3850,13 +4056,26 @@ func _most_buffed_foe(actor: Fighter) -> Fighter:
 	var best := -1
 	for entry in _opponents(actor):
 		var foe: Fighter = entry
-		var count := 1 if _unit_has_buff(foe.unit) else 0
+		var count := _buff_count(foe.unit)
 		if chosen == null or count > best or (count == best and foe.unit.unit_id < chosen.unit.unit_id):
 			chosen = foe
 			best = count
 	if chosen != null and best > 0:
 		return chosen
 	return _extreme(_opponents(actor), "threat", true)
+
+
+## 受けているバフの数（バフとアリタのコピー）。
+func _buff_count(unit: GameUnit) -> int:
+	var unit_id := unit.get_instance_id()
+	var count := 0
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if int(fighter.kit.get("buff_target_id", -1)) == unit_id:
+			count += 1
+		if int(fighter.kit.get("copy_target_id", -1)) == unit_id:
+			count += 1
+	return count
 
 
 func _sumoto_active(enemy_side: bool) -> bool:
@@ -3882,14 +4101,25 @@ func _sumoto_on_miss(actor: Fighter, target: Fighter) -> void:
 
 
 func _era2_battle_start_flags() -> void:
-	var kakogawa := _best_sheet(false, 19)
-	if kakogawa != null and not _is_backline(kakogawa) and kakogawa.hp > 0:
-		kakogawa.kit["kakogawa_left"] = 1
+	## 019 カコガワ: 敵味方それぞれ、星が最も高い1体が戦闘開始時に前衛なら1回残る。見るのは開始時だけ。
+	for enemy_side in [false, true]:
+		var kakogawa := _sheet_any(enemy_side, 19)
+		if kakogawa == null or bool(kakogawa.kit.get("kakogawa_start_checked", false)):
+			continue
+		kakogawa.kit["kakogawa_start_checked"] = true
+		if kakogawa.alive and not _is_backline(kakogawa) and kakogawa.hp > 0:
+			kakogawa.kit["kakogawa_left"] = int(kakogawa.kit.get("kakogawa_left", 0)) + 1
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
-		if fighter.sheet_id == 32 and not _is_backline(fighter) and fighter.hp > 0:
-			fighter.kit["started_front"] = true
-			fighter.kit["front_crit_damage_active"] = float(fighter.kit.get("front_crit_damage", 0.0))
+		## 032 コウリョー: 前衛かどうかと席は、戦闘開始時の配置で決める。
+		if fighter.sheet_id == 32 and not bool(fighter.kit.get("kouryo_start_checked", false)):
+			fighter.kit["kouryo_start_checked"] = true
+			if not _is_backline(fighter) and fighter.hp > 0:
+				fighter.kit["started_front"] = true
+				fighter.kit["start_slot"] = fighter.stand_slot
+				fighter.kit["front_crit_damage_active"] = float(fighter.kit.get("front_crit_damage", 0.0))
+		if fighter.sheet_id == 5:
+			_arita_restore_copy(fighter)
 		if fighter.sheet_id == 34:
 			fighter.kit["ice_forced_left"] = 1
 		if fighter.sheet_id == 29:
@@ -3903,11 +4133,26 @@ func _era2_battle_start_flags() -> void:
 func _era2_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Array:
 	var out: Array = extras.duplicate()
 	if actor.element == "fire":
-		var kago := _best_sheet(actor.enemy, 19)
-		if kago != null and int(kago.kit.get("kakogawa_left", 0)) > 0:
+		## 019 カコガワ: 倒れたあとの1回も使えるよう、生死を問わず回数を持つ1体を見る。
+		var kago := _kakogawa_with_charge(actor.enemy)
+		if kago != null:
 			kago.kit["kakogawa_left"] = int(kago.kit.get("kakogawa_left", 0)) - 1
 			var need := maxi(1, int(kago.kit.get("extra_targets", 1)))
-			var picks := _era2_lowest_defense(actor, primary, need, out)
+			## 範囲があるときは、その体のうち選ぶ数までを防御力が低い敵に置き換える。残りはIDが小さい敵のまま。
+			var replace := need if out.is_empty() else mini(need, out.size())
+			var picks := _era2_lowest_defense(actor, primary, replace, [])
+			if not out.is_empty():
+				var keep_n := out.size() - picks.size()
+				var rest: Array = []
+				for entry in out:
+					if rest.size() >= keep_n:
+						break
+					if not picks.has(entry):
+						rest.append(entry)
+				if rest.size() < keep_n:
+					for foe in _era2_smallest_id(actor, primary, keep_n - rest.size(), picks + rest):
+						rest.append(foe)
+				out = rest
 			for foe in picks:
 				if not out.has(foe):
 					out.append(foe)
@@ -3942,13 +4187,18 @@ func _era2_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Arr
 			for foe in _era2_smallest_id(actor, primary, death_extra, out):
 				if not out.has(foe):
 					out.append(foe)
+		## 025 カワイ: 隣への1回は範囲に入れず、攻撃のあとに別に入れる（_kawai_side_strike）。
+		actor.kit["kawai_side_id"] = -1
 		var kawai_live := _best_sheet(actor.enemy, 25)
 		if kawai_live != null and _is_backline(kawai_live) and kawai_live.hp > 0:
 			var side := _era2_lane_neighbor(primary)
 			if side != null and side != primary and not out.has(side):
-				out.append(side)
-				side.kit["force_target_id"] = kawai_live.unit.get_instance_id()
-	if actor.element == "ice":
+				actor.kit["kawai_side_id"] = side.unit.get_instance_id()
+				actor.kit["kawai_source_id"] = kawai_live.unit.get_instance_id()
+		## 026 カンザキ: 回数が残っていれば、この攻撃の風が強くなる（通常と範囲で1つ）。
+		_era2_arm_kanzaki_wind(actor)
+	if actor.element == "ice" and not out.is_empty():
+		## 034 ゴセ: 範囲が出る氷の攻撃だけで使う。
 		var gose := _best_sheet(actor.enemy, 34)
 		if gose != null and _is_backline(gose) and gose.hp > 0 and int(gose.kit.get("ice_forced_left", 0)) > 0:
 			gose.kit["ice_forced_left"] = 0
@@ -3959,6 +4209,29 @@ func _era2_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Arr
 					focus = foe
 			actor.kit["forced_crit_damage_bonus"] = float(gose.kit.get("forced_crit_damage", 0.0))
 			actor.kit["force_crit_target_id"] = focus.unit.get_instance_id()
+	## 020 カシバ: 範囲の追加の体が後衛に入った列を覚える（攻撃のあとに同じ列の前衛へ1回）。
+	actor.kit["kashiba_back_cols"] = []
+	if actor.sheet_id == 20 and actor.element == "earth" and _kashiba_bearer(actor.enemy) == actor:
+		var cols: Array = []
+		for entry in out:
+			var foe: Fighter = entry
+			if foe.stand_slot >= BoardController.FRONT_COUNT:
+				var col := foe.stand_slot - BoardController.FRONT_COUNT
+				if not cols.has(col):
+					cols.append(col)
+		actor.kit["kashiba_back_cols"] = cols
+	## 031 クワナ: この攻撃の範囲と、水の範囲が当たった体を覚える。
+	if actor.element == "water":
+		var range_ids: Dictionary = {}
+		if is_instance_valid(primary.unit):
+			range_ids[primary.unit.get_instance_id()] = true
+		for entry in out:
+			var foe: Fighter = entry
+			if is_instance_valid(foe.unit):
+				range_ids[foe.unit.get_instance_id()] = true
+		actor.kit["kuwana_range_ids"] = range_ids
+		actor.kit["kuwana_splash"] = not out.is_empty()
+		actor.kit["kuwana_hit_ids"] = {}
 	return out
 
 
@@ -3967,11 +4240,18 @@ func _era2_kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> floa
 	if is_dot:
 		return bonus
 	bonus += float(attacker.kit.get("sakai_damage_bonus", 0.0))
-	if attacker.sheet_id == 21 and int(attacker.kit.get("synth_left", 0)) > 0 and attacker.element == "earth" and bool(attacker.kit.get("splash_resolving", false)):
+	## 021 カタノ: 層の数による上昇は範囲ダメージだけ。範囲だけを受ける体（通常の対象以外）に入れる。
+	## 通常の対象の範囲部分は、通常の攻撃と同じ1回の計算なのでここでは区別できない。
+	if attacker.sheet_id == 21 and int(attacker.kit.get("synth_left", 0)) > 0 and attacker.element == "earth" and is_instance_valid(defender.unit) and int(attacker.kit.get("last_attack_target_id", -1)) != defender.unit.get_instance_id():
 		var layers := mini(int(defender.layers.get("earth", 0)), maxi(1, int(attacker.kit.get("layer_cap", 3))))
 		bonus += float(attacker.kit.get("layer_splash", 0.0)) * float(layers)
-	if attacker.sheet_id == 21 and int(attacker.kit.get("synth_left", 0)) > 0 and attacker.element == "earth":
-		bonus += float(attacker.kit.get("earth_empower", 0.0))
+	## 018 オノ: バフが残っていない敵へのダメージだけ炎が高い。_kit_bonus は通常の対象で決めた分を入れているので、敵ごとに差を直す。
+	if attacker.sheet_id == 18 and attacker.element == "fire" and is_instance_valid(defender.unit):
+		var want := 0.0 if _unit_has_buff(defender.unit) else float(attacker.kit.get("bare_bonus", 0.0))
+		var have := float(attacker.kit.get("bare_bonus", 0.0)) if bool(attacker.kit.get("bare_fire", false)) else 0.0
+		bonus += want - have
+	## 015 ウダ: 範囲を受けた敵の次の攻撃。
+	bonus += _uda_cut_bonus(attacker)
 	if attacker.sheet_id == 26 and int(attacker.kit.get("synth_left", 0)) > 0 and attacker.element == "wind":
 		bonus += float(attacker.kit.get("wind_self", 0.0))
 	if attacker.element == "wind" and bool(attacker.kit.get("kanzaki_empowered", false)):
@@ -3988,41 +4268,74 @@ func _era2_side_crit(attacker: Fighter) -> float:
 
 
 func _era2_on_damage_dealt(actor: Fighter, target: Fighter, dealt: int) -> void:
-	if actor.sheet_id == 21 and actor.element == "earth" and int(actor.kit.get("synth_left", 0)) > 0 and dealt > 0:
-		actor.kit["synth_left"] = int(actor.kit.get("synth_left", 0)) - 1
-		actor.kit["priority_cut_active"] = int(actor.kit.get("priority_cut", 0))
-		_persist_synth_left(actor)
 	if actor.element == "wind" and bool(actor.kit.get("kanzaki_empowered", false)) and dealt > 0:
-		actor.kit["kanzaki_empowered"] = false
-		var source := _fighter_by_id(int(actor.kit.get("kanzaki_source_id", -1)))
-		if source != null and source.sheet_id == 26:
-			if not bool(source.kit.get("gem_locked", false)):
-				source.kit["synth_left"] = maxi(0, int(source.kit.get("synth_left", 0)) - 1)
-				_persist_synth_left(source)
-			var gain := float(source.kit.get("resist_gain", 0.0))
-			var cap := float(source.kit.get("resist_cap", 0.0))
-			var now := float(source.kit.get("resist_gained", 0.0))
-			var add := minf(gain, maxf(0.0, cap - now))
-			source.kit["resist_gained"] = now + add
-			source.attribute_resist += add
+		actor.kit["kanzaki_hit"] = true
+	if actor.sheet_id == 29 and bool(actor.kit.get("absorb_burst", false)):
+		actor.kit["burst_dealt"] = int(actor.kit.get("burst_dealt", 0)) + maxi(0, dealt)
+		if not target.alive or target.hp <= 0:
+			actor.kit["burst_killed"] = true
 	if actor.sheet_id == 33 and actor.element == "water" and dealt > 0 and target.alive and target.hp > 0:
 		if not bool(target.kit.get("gojo_marked", false)):
 			target.kit["gojo_marked"] = true
 			target.kit["mark_taken_active"] = float(actor.kit.get("mark_taken", 0.0))
-	if actor.sheet_id == 20 and actor.element == "earth" and target.stand_slot >= BoardController.FRONT_COUNT:
-		_kashiba_column_follow(actor, target)
-	_era2_arm_kanzaki_wind(actor)
 
 
+
+## 026 カンザキ: 攻撃の前に、回数が残っているカンザキのうち星が最も高い1体の上昇を入れる。
+## 強化したカンザキは、1戦闘につき残っている回数までで、回数は減らない。
 func _era2_arm_kanzaki_wind(actor: Fighter) -> void:
+	actor.kit["kanzaki_empowered"] = false
+	actor.kit["kanzaki_hit"] = false
 	if actor.element != "wind":
 		return
-	var best := _best_sheet(actor.enemy, 26)
-	if best == null or int(best.kit.get("synth_left", 0)) <= 0:
+	var best: Fighter = null
+	for key in _fighters.keys():
+		var kanzaki: Fighter = _fighters[key]
+		if kanzaki.sheet_id != 26 or kanzaki.enemy != actor.enemy:
+			continue
+		if not kanzaki.alive or kanzaki.hp <= 0 or not is_instance_valid(kanzaki.unit):
+			continue
+		if _kanzaki_charges(kanzaki) <= 0:
+			continue
+		if best == null or kanzaki.unit.stars > best.unit.stars or (kanzaki.unit.stars == best.unit.stars and kanzaki.unit.unit_id < best.unit.unit_id):
+			best = kanzaki
+	if best == null:
 		return
 	actor.kit["kanzaki_empowered"] = true
 	actor.kit["kanzaki_wind_bonus"] = float(best.kit.get("wind_empower", 0.0))
 	actor.kit["kanzaki_source_id"] = best.unit.get_instance_id()
+
+
+func _kanzaki_charges(kanzaki: Fighter) -> int:
+	var left := int(kanzaki.kit.get("synth_left", 0))
+	if bool(kanzaki.kit.get("gem_locked", false)):
+		return maxi(0, left - int(kanzaki.kit.get("kanzaki_used_battle", 0)))
+	return left
+
+
+func _kanzaki_finish_attack(actor: Fighter) -> void:
+	if not bool(actor.kit.get("kanzaki_empowered", false)):
+		return
+	actor.kit["kanzaki_empowered"] = false
+	var hit := bool(actor.kit.get("kanzaki_hit", false))
+	actor.kit["kanzaki_hit"] = false
+	## 外れと、ガードでダメージが0になった攻撃では回数は減らない。
+	if not hit:
+		return
+	var source := _fighter_by_id(int(actor.kit.get("kanzaki_source_id", -1)))
+	if source == null or source.sheet_id != 26:
+		return
+	if bool(source.kit.get("gem_locked", false)):
+		source.kit["kanzaki_used_battle"] = int(source.kit.get("kanzaki_used_battle", 0)) + 1
+	else:
+		source.kit["synth_left"] = maxi(0, int(source.kit.get("synth_left", 0)) - 1)
+		_persist_synth_left(source)
+	var gain := float(source.kit.get("resist_gain", 0.0))
+	var cap := float(source.kit.get("resist_cap", 0.0))
+	var now := float(source.kit.get("resist_gained", 0.0))
+	var add := minf(gain, maxf(0.0, cap - now))
+	source.kit["resist_gained"] = now + add
+	source.attribute_resist += add
 
 
 func _era2_on_targeted(actor: Fighter, target: Fighter) -> void:
@@ -4030,6 +4343,8 @@ func _era2_on_targeted(actor: Fighter, target: Fighter) -> void:
 		if not bool(actor.kit.get("kadoma_resisted", false)):
 			actor.kit["kadoma_resisted"] = true
 			actor.attribute_resist -= float(target.kit.get("attacker_resist_cut", 0.0))
+			## デバフは、直前に属性耐性を下げた敵へ入れる。
+			target.kit["resist_cut_target_id"] = actor.unit.get_instance_id()
 	if target.sheet_id == 30 and target.hp > 0:
 		target.kit["hit_crit_stacks"] = float(target.kit.get("hit_crit_stacks", 0.0)) + float(target.kit.get("hit_crit", 0.0))
 		if not bool(target.kit.get("first_resist_done", false)):
@@ -4047,9 +4362,13 @@ func _era2_on_death(dead: Fighter) -> void:
 		if is_instance_valid(dead.unit):
 			dead.unit.kit_flags["nishimino_double_armed"] = false
 	if dead.sheet_id == 19:
-		var best := _best_sheet(dead.enemy, 19)
-		if best == dead:
+		## 倒れた本人も含めて星が最も高い1体だけが、倒れたあとの1回を持つ。
+		var best := _sheet_any(dead.enemy, 19)
+		if best == dead and not bool(dead.kit.get("kakogawa_death_used", false)):
+			dead.kit["kakogawa_death_used"] = true
 			dead.kit["kakogawa_left"] = int(dead.kit.get("kakogawa_left", 0)) + 1
+	if dead.sheet_id == 13:
+		dead.kit["charged_ready"] = false
 	if dead.sheet_id == 25 and _is_backline(dead):
 		dead.kit["death_splash_left"] = int(dead.kit.get("death_extra", 1))
 	if dead.sheet_id == 27:
@@ -4061,11 +4380,15 @@ func _era2_on_death(dead: Fighter) -> void:
 
 
 func _era2_after_turn(actor: Fighter, _was_buff: bool) -> void:
-	if actor.sheet_id == 21 and int(actor.kit.get("priority_cut_active", 0)) > 0:
-		actor.kit["priority_cut_active"] = 0
+	## 021 カタノ: 下がった優先度は、次にカタノが行動したあとで戻る。
+	if actor.sheet_id == 21:
+		if bool(actor.kit.get("priority_cut_fresh", false)):
+			actor.kit["priority_cut_fresh"] = false
+		elif int(actor.kit.get("priority_cut_active", 0)) > 0:
+			actor.kit["priority_cut_active"] = 0
 	await _kudoyama_on_ally_act(actor)
-	_kinomoto_on_ap_tick(actor)
-	if actor.enemy and int(actor.layers.get("water", 0)) > 0:
+	## 036 サクライ: 水の層がある「敵」の行動のあと。敵側のサクライなら味方の行動のあと。
+	if int(actor.layers.get("water", 0)) > 0:
 		await _sakurai_summon(actor)
 
 
@@ -4081,12 +4404,13 @@ func _kadoma_maybe_redirect(actor: Fighter, picked: Fighter) -> Fighter:
 		return picked
 	kadoma.kit["redirect_used"] = true
 	kadoma.kit["redirect_taken_cut_active"] = float(kadoma.kit.get("redirect_taken_cut", 0.0))
+	kadoma.kit["redirect_attacker_id"] = actor.unit.get_instance_id()
 	_host._log("%s が攻撃を引き受けた" % kadoma.unit.get_display_name())
 	return kadoma
 
 
 func _kouryo_facing_target(actor: Fighter) -> Fighter:
-	var slot := actor.stand_slot
+	var slot := int(actor.kit.get("start_slot", actor.stand_slot))
 	if slot < 0 or slot >= BoardController.FRONT_COUNT:
 		return null
 	var matched: Fighter = null
@@ -4102,17 +4426,17 @@ func _kouryo_facing_target(actor: Fighter) -> Fighter:
 	return matched if matched != null else smallest
 
 
-func _kashiba_column_follow(actor: Fighter, back_target: Fighter) -> void:
-	if back_target.stand_slot < BoardController.FRONT_COUNT:
+## 020 カシバ: 範囲の追加の体が後衛に入った列の前衛へ、土の範囲ダメージがもう1回入る。
+## 入る前衛の数は攻撃1回につき上限まで。当たった前衛（ガードでも）は次の1回は行動しない。
+func _kashiba_column_follow(actor: Fighter) -> void:
+	var cols: Array = actor.kit.get("kashiba_back_cols", [])
+	actor.kit["kashiba_back_cols"] = []
+	if cols.is_empty() or actor.sheet_id != 20 or actor.element != "earth":
 		return
-	var best := _best_sheet(actor.enemy, 20)
-	if best == null or best != actor:
-		return
-	var col := back_target.stand_slot - BoardController.FRONT_COUNT
 	var fronts: Array = []
 	for entry in _opponents(actor):
 		var foe: Fighter = entry
-		if foe.stand_slot == col and foe.alive and foe.hp > 0:
+		if cols.has(foe.stand_slot) and foe.alive and foe.hp > 0:
 			fronts.append(foe)
 	fronts.sort_custom(func(a: Fighter, b: Fighter) -> bool:
 		if _threat(a) != _threat(b):
@@ -4125,15 +4449,99 @@ func _kashiba_column_follow(actor: Fighter, back_target: Fighter) -> void:
 		if hit >= limit:
 			break
 		var front: Fighter = entry
-		front.kit["skip_next_action"] = true
+		if not front.alive:
+			continue
 		hit += 1
+		var dealt: int = await _kit_side_hit(actor, front, _kit_bonus(actor, front, false), -1.0, "列の土", Color(0.85, 0.7, 0.45))
+		if dealt >= 0 and front.alive and front.hp > 0:
+			front.kit["skip_next_action"] = true
+			_host._log("%s は次の行動をしない" % front.unit.get_display_name())
+
+
+## 020 カシバ: 星が最も高い1体（同じ星はIDが小さい1体）。
+func _kashiba_bearer(enemy: bool) -> Fighter:
+	return _best_sheet(enemy, 20)
+
+
+## 020 カシバ: 体力が0より大きいあいだ、攻撃力が最も高い味方の土の与ダメージが高い。
+func _refresh_kashiba_buff() -> void:
+	for key in _fighters.keys():
+		var kashiba: Fighter = _fighters[key]
+		if kashiba.sheet_id != 20 or not kashiba.alive or kashiba.hp <= 0:
+			continue
+		var pool: Array = _side(kashiba.enemy)
+		if not pool.has(kashiba):
+			pool.append(kashiba)
+		var target := _extreme(pool, "attack", true)
+		if target == null:
+			continue
+		if int(kashiba.kit.get("buff_target_id", -1)) == target.unit.get_instance_id():
+			continue
+		_set_single_buff(kashiba, target, "highest_attack_earth", float(kashiba.kit.get("buff_amount", 0.0)))
+		_refresh_unit_aura(target.unit)
+
+
+## 通常の攻撃とは別に入る1回（列・隣・召喚など）。命中を見て、当たればダメージを入れる。
+## 外れたら -1、当たれば入ったダメージ（ガードで0もある）を返す。
+func _kit_side_hit(actor: Fighter, target: Fighter, bonus: float, attack_override: float, label: String, color: Color) -> int:
+	if actor == null or target == null or not target.alive or not is_instance_valid(target.unit) or not is_instance_valid(actor.unit):
+		return -1
+	if not _roll_hit(target):
+		GameAudio.play_battle_miss()
+		target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
+		_host._log("%s の%sは %s に外れた" % [actor.unit.get_display_name(), label, target.unit.get_display_name()])
+		return -1
+	var rolled := _roll_damage(actor, target, true, bonus, attack_override)
+	var raw := int(rolled["amount"])
+	var crit := bool(rolled["crit"])
+	var guarded := target.guarding and raw > 0
+	var dealt := _mitigate(target, raw)
+	_play_attack_sounds(actor, crit)
+	_play_hit_fx(actor, target)
+	var absorbed := _apply_damage(target, dealt)
+	_note_actor_dealt(actor, absorbed)
+	if dealt > 0:
+		target.unit.popup_battle_text("-%d" % dealt, Color(1.0, 0.86, 0.35) if crit else color)
+	_host._log(_damage_log(actor.unit.get_display_name(), target.unit.get_display_name(), raw, dealt, absorbed, crit, guarded, label))
+	if dealt > 0:
+		await _note_hit_received(actor, target, false)
+	if not target.alive:
+		_growth_killer = actor
+		if not target.unit.battle_ko:
+			await _ko(target)
+	elif dealt > 0 and not target.guarding:
+		await _flinch(target)
+	return dealt
+
+
+## 生死を問わず、その側の sheet_id のうち星が最も高い1体（同じ星はIDが小さい1体）。
+func _sheet_any(enemy: bool, sheet_id: int) -> Fighter:
+	var chosen: Fighter = null
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy != enemy or fighter.sheet_id != sheet_id or not is_instance_valid(fighter.unit):
+			continue
+		if chosen == null or fighter.unit.stars > chosen.unit.stars or (fighter.unit.stars == chosen.unit.stars and fighter.unit.unit_id < chosen.unit.unit_id):
+			chosen = fighter
+	return chosen
+
+
+## 019 カコガワ: 回数が残っている1体（倒れていてもよい）。
+func _kakogawa_with_charge(enemy: bool) -> Fighter:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy == enemy and fighter.sheet_id == 19 and int(fighter.kit.get("kakogawa_left", 0)) > 0:
+			return fighter
+	return null
 
 
 func _kitazawa_death_burst(dead: Fighter) -> void:
+	## 対象は、キタザワ自身が炎のダメージ耐性を下げている敵。
 	var target: Fighter = null
-	for entry in _opponents(dead):
-		var foe: Fighter = entry
-		if foe.alive and foe.hp > 0 and float(foe.kit.get("received_fire_resist", 0.0)) < 0.0:
+	for entry in dead.kit.get("debuffs", []):
+		var item: Dictionary = entry
+		var foe := _fighter_by_id(int(item.get("target_id", -1)))
+		if foe != null and foe.alive and foe.hp > 0 and foe.enemy != dead.enemy:
 			target = foe
 			break
 	if target == null:
@@ -4147,7 +4555,11 @@ func _kitazawa_death_burst(dead: Fighter) -> void:
 	elif count >= 4:
 		layers = 20
 	_add_layers(target, "fire", layers)
+	dead.kit["dot_ratio"] = _nigiyaka_dot_ratio(dead.enemy)
 	await _apply_dot(dead, target)
+	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+		_growth_killer = dead
+		await _ko(target)
 
 
 func _kuwana_death_copy(dead: Fighter) -> void:
@@ -4177,7 +4589,8 @@ func _gojo_has_mark(enemy_side: bool) -> bool:
 
 
 func _gojo_transfer_mark(dead: Fighter) -> void:
-	var gojo := _best_sheet(not dead.enemy, 33)
+	## ゴジョーの体力が0以下でも、残っている回数があれば移る。
+	var gojo := _sheet_any(not dead.enemy, 33)
 	if gojo == null or int(gojo.kit.get("mark_moves_left", 0)) <= 0:
 		dead.kit["gojo_marked"] = false
 		dead.kit["mark_taken_active"] = 0.0
@@ -4204,15 +4617,14 @@ func _kudoyama_on_ally_act(actor: Fighter) -> void:
 		var kudo: Fighter = _fighters[key]
 		if kudo.sheet_id != 29 or kudo.enemy != actor.enemy or kudo.hp <= 0:
 			continue
-		var gain := 0
+		## 増える量はソア橋の段階。前衛では自分の攻撃（外れても）だけで増える。
 		if _is_backline(kudo):
 			if actor == kudo or _is_backline(actor):
 				continue
-			gain = 12
 		else:
-			if actor != kudo or actor.element != "absorb":
+			if actor != kudo or not bool(actor.kit.get("did_attack", false)):
 				continue
-			gain = 12
+		var gain := _soar_bridge_gauge_step(kudo.enemy)
 		if gain <= 0:
 			continue
 		kudo.kit["gauge"] = mini(100, int(kudo.kit.get("gauge", 0)) + gain)
@@ -4229,23 +4641,42 @@ func _kudoyama_burst(kudo: Fighter) -> void:
 	if target == null:
 		return
 	kudo.kit["absorb_burst"] = true
+	kudo.kit["burst_dealt"] = 0
+	kudo.kit["burst_killed"] = false
+	## この攻撃はクリティカルしない。
+	kudo.kit["attack_no_crit"] = true
 	await _resolve_packet(kudo, target, true, false, false)
+	kudo.kit["attack_no_crit"] = false
 	kudo.kit["absorb_burst"] = false
+	## 入った吸収のダメージの割合だけ体力が戻る。
+	var dealt := int(kudo.kit.get("burst_dealt", 0))
+	if dealt > 0 and kudo.alive and kudo.hp > 0 and is_instance_valid(kudo.unit):
+		var heal := int(round(float(dealt) * float(kudo.kit.get("absorb_heal", 0.0))))
+		if heal > 0:
+			RelicCombat.heal(kudo, heal)
+			kudo.unit.popup_battle_text("+%d" % heal, Color(0.55, 0.95, 0.62))
+			_host._log("%s が %d 回復した" % [kudo.unit.get_display_name(), heal])
+	## 敵を倒したらゲージが戻る。100以上でももう出さず、99で残る。
+	if bool(kudo.kit.get("burst_killed", false)) and kudo.alive and kudo.hp > 0:
+		kudo.kit["gauge"] = mini(99, int(kudo.kit.get("gauge", 0)) + int(kudo.kit.get("gauge_refund", 0)))
+		_show_gauge(kudo)
+	kudo.kit["burst_killed"] = false
 
 
-func _kinomoto_on_ap_tick(actor: Fighter) -> void:
-	for key in _fighters.keys():
-		var kino: Fighter = _fighters[key]
-		if kino.sheet_id != 28 or kino.enemy != actor.enemy or kino.hp <= 0:
-			continue
-		if actor == kino:
-			continue
-		kino.kit["gauge"] = mini(100, int(kino.kit.get("gauge", 0)) + 10)
+## 028 キノモト: ほかのキャラクターの行動で行動ポイントが実際に減ったとき、ポップミュージックの量を2回入れてから100を確かめる。
+func _kinomoto_on_ap_loss(kino: Fighter) -> void:
+	if kino.sheet_id != 28 or not kino.alive or kino.hp <= 0:
+		return
+	var step := _pop_music_gauge_step(kino.enemy)
+	var gauge := int(kino.kit.get("gauge", 0)) + step * 2
+	GameAudio.play_battle_gauge()
+	if gauge >= 100:
+		kino.kit["gauge"] = 0
 		_show_gauge(kino)
-		if int(kino.kit.get("gauge", 0)) >= 100:
-			kino.kit["gauge"] = 0
-			_show_gauge(kino)
-			_kinomoto_copy(kino)
+		_kinomoto_copy(kino)
+		return
+	kino.kit["gauge"] = gauge
+	_show_gauge(kino)
 
 
 func _kinomoto_copy(kino: Fighter) -> void:
@@ -4297,20 +4728,39 @@ func _sakurai_summon(acted: Fighter) -> void:
 	sakurai.element = "water"
 	sakurai.crit_damage += float(sakurai.kit.get("summon_crit_damage", 0.0)) / 100.0
 	var bonus := _kit_bonus(sakurai, target, false) + RelicCombat.summon_outgoing(sakurai, _host.session)
-	var rolled := _roll_damage(sakurai, target, true, bonus, power)
-	var dealt := _mitigate(target, int(rolled["amount"]))
-	_apply_damage(target, dealt)
-	_add_layers(target, "water", 1)
-	sakurai.element = saved_element
+	## 1回ごとに命中を見る。外れても召喚物は消え、層は付く。
+	var dealt: int = await _kit_side_hit(sakurai, target, bonus, power, "召喚", Color(0.45, 0.85, 1.0))
 	sakurai.crit_damage = saved_crit
 	sakurai.kit["summon_strike"] = false
-	if is_instance_valid(target.unit) and dealt > 0:
-		target.unit.popup_battle_text("-%d" % dealt, Color(0.45, 0.85, 1.0))
-		_host._log("%s の召喚が %s に %d" % [sakurai.unit.get_display_name(), target.unit.get_display_name(), dealt])
-	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+	if not target.alive:
 		_relic_summon_kill(sakurai)
-		_growth_killer = sakurai
-		await _ko(target)
+	elif is_instance_valid(target.unit):
+		## モナドの領域の水の攻撃として層を1つ付け、その割合の継続ダメージを出す。
+		_add_layers(target, "water", 1)
+		var saved_ratio := float(sakurai.kit.get("dot_ratio", 0.05))
+		var saved_attack := sakurai.attack
+		sakurai.kit["dot_ratio"] = _monad_dot_ratio(sakurai.enemy)
+		sakurai.attack = power
+		await _apply_dot(sakurai, target)
+		sakurai.attack = saved_attack
+		sakurai.kit["dot_ratio"] = saved_ratio
+		if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+			_relic_summon_kill(sakurai)
+			_growth_killer = sakurai
+			await _ko(target)
+	sakurai.element = saved_element
+	if dealt < 0 and is_instance_valid(target.unit):
+		_host._log("%s の召喚は外れた" % sakurai.unit.get_display_name())
+
+
+## モナドの領域の継続の割合（2人より少ないときも5%）。
+func _monad_dot_ratio(enemy: bool) -> float:
+	var count := _synergy_member_count(enemy, "モナドの領域")
+	if count >= 6:
+		return 0.15
+	if count >= 4:
+		return 0.10
+	return 0.05
 
 
 func _refresh_sakai_aura() -> void:
@@ -4345,6 +4795,216 @@ func _refresh_sakai_aura() -> void:
 						touched.append(ally)
 	for entry in touched:
 		_recompute_speed(entry as Fighter, true)
+
+
+## 前衛で行動のバフを選んだときの対象。シートの buff_kind の効果のまま、対象だけを変える。
+func _kit_buff_target_override(actor: Fighter) -> Fighter:
+	var pool: Array = _side(actor.enemy)
+	if not pool.has(actor) and actor.alive:
+		pool.append(actor)
+	match actor.sheet_id:
+		23:
+			## 023 カトウ: 速度が最も高い1体（自身も比べる）。
+			return _extreme(pool, "speed", true)
+		25:
+			## 025 カワイ: 速度が最も低い1体（自身も入る）。
+			return _extreme(pool, "speed", false)
+		34:
+			## 034 ゴセ: クリティカル率が最も低い1体（自身も比べる）。
+			return _extreme(pool, "crit_rate", false)
+		28:
+			## 028 キノモト: 前衛の隣（真ん中は左端を先に見る）。いないときは自身。
+			if actor.stand_slot < 0 or actor.stand_slot >= BoardController.FRONT_COUNT:
+				return actor
+			var order: Array = [1] if actor.stand_slot != 1 else [0, 2]
+			for slot in order:
+				for entry in _side(actor.enemy):
+					var ally: Fighter = entry
+					if ally != actor and ally.stand_slot == int(slot) and ally.alive and ally.hp > 0:
+						return ally
+			return actor
+	return null
+
+
+## 後衛にいて体力が0より大きいあいだ、行動しなくても入るバフ（023・025・031・034）。
+## 前衛で選んだバフとは同時に乗らない。前衛に出ると後衛のバフは消える。
+func _refresh_back_kit_buffs() -> void:
+	for key in _fighters.keys():
+		var owner: Fighter = _fighters[key]
+		if not (owner.sheet_id in [23, 25, 31, 34]):
+			continue
+		if not owner.alive or owner.hp <= 0 or not is_instance_valid(owner.unit):
+			continue
+		if not _is_backline(owner):
+			if int(owner.kit.get("buff_target_id", -1)) >= 0 and not bool(owner.kit.get("front_buff_active", false)):
+				_clear_single_buff(owner)
+			continue
+		owner.kit["front_buff_active"] = false
+		var target := _back_kit_buff_target(owner)
+		if target == null:
+			if int(owner.kit.get("buff_target_id", -1)) >= 0:
+				_clear_single_buff(owner)
+			continue
+		var kind := str(owner.kit.get("buff_kind", ""))
+		if int(owner.kit.get("buff_target_id", -1)) == target.unit.get_instance_id() and str(owner.kit.get("buff_kind_active", "")) == kind:
+			continue
+		_set_single_buff(owner, target, kind, float(owner.kit.get("buff_amount", 0.0)))
+		_refresh_unit_aura(target.unit)
+
+
+func _back_kit_buff_target(owner: Fighter) -> Fighter:
+	var others: Array = []
+	for entry in _side(owner.enemy):
+		var ally: Fighter = entry
+		if ally != owner and ally.alive and ally.hp > 0:
+			others.append(ally)
+	match owner.sheet_id:
+		23:
+			return owner if others.is_empty() else _extreme(others, "speed", true)
+		31:
+			return owner if others.is_empty() else _extreme(others, "attack", true)
+		34:
+			return owner if others.is_empty() else _extreme(others, "crit_rate", false)
+		25:
+			## 同じ列の前衛。席が空ならバフはない。
+			var col := owner.stand_slot - BoardController.FRONT_COUNT
+			for entry in others:
+				var ally: Fighter = entry
+				if ally.stand_slot == col:
+					return ally
+			return null
+	return null
+
+
+## 025 カワイ: 風の通常の攻撃のあと、対象の隣の敵へ風の攻撃が1回入る。当たった敵は次の1回の対象がカワイになる。
+func _kawai_side_strike(actor: Fighter) -> void:
+	var side_id := int(actor.kit.get("kawai_side_id", -1))
+	actor.kit["kawai_side_id"] = -1
+	if side_id < 0 or actor.element != "wind":
+		return
+	var kawai := _fighter_by_id(int(actor.kit.get("kawai_source_id", -1)))
+	if kawai == null or not kawai.alive or kawai.hp <= 0 or not _is_backline(kawai):
+		return
+	var side := _fighter_by_id(side_id)
+	if side == null or not side.alive or side.hp <= 0:
+		return
+	var dealt: int = await _kit_side_hit(actor, side, _kit_bonus(actor, side, false), -1.0, "隣の風", Color(0.6, 0.95, 0.75))
+	if dealt >= 0 and side.alive and side.hp > 0:
+		side.kit["kawai_force_id"] = kawai.unit.get_instance_id()
+		_host._log("%s の次の対象は %s" % [side.unit.get_display_name(), kawai.unit.get_display_name()])
+
+
+## 031 クワナ: 水の範囲ダメージが当たった体を覚える。ガードで当たった体も入る。
+func _kuwana_note_contact(actor: Fighter, target: Fighter, direct: bool) -> void:
+	if direct and not bool(actor.kit.get("kuwana_splash", false)):
+		return
+	if not is_instance_valid(target.unit):
+		return
+	var hits: Dictionary = actor.kit.get("kuwana_hit_ids", {})
+	hits[target.unit.get_instance_id()] = true
+	actor.kit["kuwana_hit_ids"] = hits
+
+
+## 031 クワナ: 後衛にいるとき、味方の水の範囲が当たったあと、範囲の体から隣の敵へ水の層をコピーし、
+## コピーした数だけ、その攻撃の水の範囲ダメージを入れる。
+func _kuwana_splash_copy(actor: Fighter) -> void:
+	var hits: Dictionary = actor.kit.get("kuwana_hit_ids", {})
+	var range_ids: Dictionary = actor.kit.get("kuwana_range_ids", {})
+	actor.kit["kuwana_hit_ids"] = {}
+	actor.kit["kuwana_range_ids"] = {}
+	actor.kit["kuwana_splash"] = false
+	if hits.is_empty() or actor.element != "water":
+		return
+	var kuwana := _best_sheet(actor.enemy, 31)
+	if kuwana == null or not _is_backline(kuwana) or kuwana.hp <= 0:
+		return
+	var source: Fighter = null
+	for hit_id in hits.keys():
+		var foe := _fighter_by_id(int(hit_id))
+		if foe == null or not foe.alive or foe.hp <= 0:
+			continue
+		var layers := int(foe.layers.get("water", 0))
+		if layers <= 0:
+			continue
+		if source == null or layers > int(source.layers.get("water", 0)) or (layers == int(source.layers.get("water", 0)) and foe.unit.unit_id < source.unit.unit_id):
+			source = foe
+	if source == null:
+		return
+	var front := source.stand_slot < BoardController.FRONT_COUNT
+	var base := 0 if front else BoardController.FRONT_COUNT
+	var dest: Fighter = null
+	for entry in _side(source.enemy):
+		var foe: Fighter = entry
+		if foe == source or not foe.alive or foe.hp <= 0:
+			continue
+		if foe.stand_slot < base or foe.stand_slot >= base + BoardController.FRONT_COUNT:
+			continue
+		if absi(foe.stand_slot - source.stand_slot) != 1:
+			continue
+		if range_ids.has(foe.unit.get_instance_id()):
+			continue
+		if dest == null or foe.unit.unit_id < dest.unit.unit_id:
+			dest = foe
+	if dest == null:
+		return
+	var copy := mini(int(source.layers.get("water", 0)), maxi(1, int(kuwana.kit.get("copy_layers", 1))))
+	if copy <= 0:
+		return
+	_add_layers(dest, "water", copy)
+	_host._log("%s が %s から %s へ水の層を %d コピーした" % [kuwana.unit.get_display_name(), source.unit.get_display_name(), dest.unit.get_display_name(), copy])
+	for _i in copy:
+		if not dest.alive or dest.hp <= 0:
+			break
+		await _kit_side_hit(actor, dest, _kit_bonus(actor, dest, false), -1.0, "水の範囲", Color(0.45, 0.85, 1.0))
+
+
+## 005 アリタ: 戦闘開始時に、前の戦闘から残っているコピーを入れ直す。
+func _arita_restore_copy(arita: Fighter) -> void:
+	if bool(arita.kit.get("arita_restored", false)) or arita.enemy or not is_instance_valid(arita.unit):
+		return
+	arita.kit["arita_restored"] = true
+	var saved: Variant = arita.unit.kit_flags.get("arita_copy", {})
+	if not (saved is Dictionary) or (saved as Dictionary).is_empty():
+		return
+	var data: Dictionary = saved
+	var target_id := int(data.get("target_id", -1))
+	var on_circle := false
+	for unit in _host.board.get_circle_units():
+		if unit != null and unit.get_instance_id() == target_id:
+			on_circle = true
+			break
+	if not on_circle:
+		## 対象がサークルに乗っていないときは消える。
+		arita.unit.kit_flags.erase("arita_copy")
+		return
+	var target := _fighter_by_id(target_id)
+	if target == null or not target.alive or target.hp <= 0:
+		return
+	var kind := str(data.get("kind", ""))
+	var amount := float(data.get("amount", 0.0))
+	_apply_buff_value(target, kind, amount)
+	arita.kit["copy_target_id"] = target_id
+	arita.kit["copy_kind"] = kind
+	arita.kit["copy_amount"] = amount
+	_refresh_unit_aura(target.unit)
+	_host._log("%s のコピーが %s に残っている（%s）" % [arita.unit.get_display_name(), target.unit.get_display_name(), _describe_effect(kind, amount)])
+
+
+## 005 アリタ: コピーしたバフは戦闘が終わっても残る。対象かアリタが倒れていれば消える。
+func _arita_save_copies() -> void:
+	for key in _fighters.keys():
+		var arita: Fighter = _fighters[key]
+		if arita.sheet_id != 5 or arita.enemy or not is_instance_valid(arita.unit):
+			continue
+		var target := _fighter_by_id(int(arita.kit.get("copy_target_id", -1)))
+		if arita.alive and arita.hp > 0 and target != null and target.alive and target.hp > 0 and not target.enemy:
+			arita.unit.kit_flags["arita_copy"] = {
+				"target_id": target.unit.get_instance_id(),
+				"kind": str(arita.kit.get("copy_kind", "")),
+				"amount": float(arita.kit.get("copy_amount", 0.0)),
+			}
+		else:
+			arita.unit.kit_flags.erase("arita_copy")
 
 
 func _era2_lowest_defense(actor: Fighter, primary: Fighter, count: int, blocked: Array) -> Array:
@@ -5157,6 +5817,12 @@ func _toba_earth_target(actor: Fighter) -> Fighter:
 
 
 func _era4_note_break(actor: Fighter, target: Fighter, broke: bool) -> void:
+	## 004 アヅチ: 吸収の撃破ゲージを0にした攻撃は、層が付いたあとに敵の層を揃える。
+	if actor != null and actor.sheet_id == 4 and broke and actor.element == "absorb":
+		actor.kit["azuchi_break_pending"] = true
+	## 014 イバラキ: 外れた攻撃でも、水の撃破ゲージを0にすれば入る。
+	if actor != null and actor.sheet_id == 14 and broke and actor.element == "water" and actor.alive and actor.hp > 0:
+		_ibaraki_on_break(actor)
 	if actor == null or target == null or actor.element != "earth":
 		return
 	if not is_instance_valid(target.unit):

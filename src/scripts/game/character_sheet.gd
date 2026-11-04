@@ -116,6 +116,7 @@ static func _binds_for(unit_id: int) -> Array:
 	match unit_id:
 		1:
 			return [
+				["合成時の上昇", "merge_ramp", true],
 				["炎の与ダメージ", "fire_per_hit", true],
 				["上昇の上限", "fire_cap", true],
 				["範囲の追加", "extra_targets", false],
@@ -254,7 +255,8 @@ static func _binds_for(unit_id: int) -> Array:
 				["層1つの範囲ダメージ", "layer_splash", true],
 				["数える層", "layer_cap", false],
 				["狙われにくさ", "priority_cut", false],
-				["土の与ダメージ", "earth_empower", true],
+				## 土の与ダメージはバフの欄。カタノ自身の攻撃には入らない。
+				["土の与ダメージ", "buff_amount", true],
 			]
 		23:
 			return [
@@ -595,6 +597,8 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 		12:
 			sheet["buff_kind"] = "wind_resist"
 			sheet["uses_buff"] = false
+			## 命中時の速度は★2で28.8のように小数になるので、整数に丸めない。
+			sheet["hit_speed"] = float(sheet["effects"].get("命中時の速度", sheet.get("hit_speed", 0)))
 		13:
 			sheet["buff_kind"] = "wind_resist"
 			sheet["uses_buff"] = false

@@ -1371,46 +1371,59 @@ func _izumi_on_relic_equipped(unit: GameUnit, uid: int) -> void:
 	if unit == null or uid <= 0:
 		return
 	var flags: Dictionary = unit.kit_flags
-	_izumi_try_swing_hp(unit)
+	## 増えたレリックを装備し直したときは、スウィングも増やす1回も起きない。
+	if uid == int(flags.get("copied_uid", -1)):
+		return
+	var hp_gain := _swing_on_relic_equipped(unit, "swing_hp", "swing_used", "swing_hp_bonus", false)
+	if hp_gain > 0.0:
+		_log("%s の最大体力が %d 上がった（スウィング）" % [unit.get_display_name(), int(hp_gain)])
 	var copy_left := int(flags.get("copy_left", 1))
 	if copy_left <= 0:
 		return
-	flags["copy_left"] = copy_left - 1
-	unit.kit_flags = flags
+	## 増えたレリックを装備できないときは増えず、1回も残る。
+	if unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
+		return
 	var relic_id := session.relic_id_of(uid)
 	if relic_id <= 0:
 		return
 	var copied_uid := session.add_relic(relic_id)
 	if copied_uid <= 0:
 		return
+	flags["copy_left"] = copy_left - 1
 	flags["copied_uid"] = copied_uid
 	unit.kit_flags = flags
 	_log("%s が増えたレリックを得た" % unit.get_display_name())
-	if unit.equipped_relic_uids.size() >= GameUnit.RELIC_EQUIP_CAP:
-		return
 	for owner in board.get_all_units():
 		owner.equipped_relic_uids.erase(copied_uid)
 	unit.equipped_relic_uids.append(copied_uid)
 	_log("%s が増えたレリックを装備した" % unit.get_display_name())
 
 
-func _izumi_try_swing_hp(unit: GameUnit) -> void:
-	if unit == null or unit.unit_id != 10:
-		return
+## スウィング: レリックを装備したとき、数える装備が上限より少なければ上昇が残る。
+## 量は装備した時点の星の欄の値に、装備した時点のスウィング人数の倍率を掛け、
+## 半分以上の端数を切り上げた整数（percent のときは整数の%）である。増えた量を返す。
+func _swing_on_relic_equipped(unit: GameUnit, base_key: String, used_key: String, bonus_key: String, percent: bool) -> float:
+	if unit == null:
+		return 0.0
 	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
 	if sheet.is_empty():
-		return
+		return 0.0
 	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_used", 0))
+	var used := int(unit.kit_flags.get(used_key, 0))
 	if used >= cap:
-		return
-	var base := int(sheet.get("swing_hp", 15))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_used"] = used + 1
-	unit.kit_flags["swing_hp_bonus"] = int(unit.kit_flags.get("swing_hp_bonus", 0)) + bonus
-	_log("%s の最大体力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+		return 0.0
+	var base := float(sheet.get(base_key, 0.0))
+	if percent:
+		base *= 100.0
+	var bonus := floorf(base * _swing_mult() + 0.5)
+	if bonus <= 0.0:
+		return 0.0
+	unit.kit_flags[used_key] = used + 1
+	if percent:
+		unit.kit_flags[bonus_key] = float(unit.kit_flags.get(bonus_key, 0.0)) + bonus / 100.0
+	else:
+		unit.kit_flags[bonus_key] = int(unit.kit_flags.get(bonus_key, 0)) + int(bonus)
+	return bonus
 
 
 func _swing_synergy_count() -> int:
@@ -1440,39 +1453,17 @@ func _swing_mult() -> float:
 func _ibaraki_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 14:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_def_used", 0))
-	if used >= cap:
-		return
-	var base := int(sheet.get("swing_defense", 10))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_def_used"] = used + 1
-	unit.kit_flags["swing_defense_bonus"] = int(unit.kit_flags.get("swing_defense_bonus", 0)) + bonus
-	_log("%s の防御力が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+	var bonus := _swing_on_relic_equipped(unit, "swing_defense", "swing_def_used", "swing_defense_bonus", false)
+	if bonus > 0.0:
+		_log("%s の防御力が %d 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _oumi_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 16:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_water_used", 0))
-	if used >= cap:
-		return
-	var base := float(sheet.get("swing_water", 0.08))
-	var bonus := base * _swing_mult()
-	if bonus <= 0.0:
-		return
-	unit.kit_flags["swing_water_used"] = used + 1
-	unit.kit_flags["swing_water_bonus"] = float(unit.kit_flags.get("swing_water_bonus", 0.0)) + bonus
-	_log("%s の水与ダメージが上がった（スウィング）" % unit.get_display_name())
+	var bonus := _swing_on_relic_equipped(unit, "swing_water", "swing_water_used", "swing_water_bonus", true)
+	if bonus > 0.0:
+		_log("%s の水与ダメージが %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _otsu_on_relic_equipped(unit: GameUnit) -> void:
@@ -1481,12 +1472,12 @@ func _otsu_on_relic_equipped(unit: GameUnit) -> void:
 	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
 	if sheet.is_empty():
 		return
+	## 数えるのは受け取った時点の星の上限まで。戦闘開始時に層を付けると数は消える（battle_director 側で0に戻す）。
 	var cap := int(sheet.get("relic_count_cap", 1))
-	var used := int(unit.kit_flags.get("otsu_relic_counted", 0))
-	if used >= cap:
+	var pending := int(unit.kit_flags.get("otsu_pending", 0))
+	if pending >= cap:
 		return
-	unit.kit_flags["otsu_relic_counted"] = used + 1
-	unit.kit_flags["otsu_pending"] = int(unit.kit_flags.get("otsu_pending", 0)) + 1
+	unit.kit_flags["otsu_pending"] = pending + 1
 	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
 
 
@@ -1530,15 +1521,9 @@ func _senboku_on_relic_equipped(unit: GameUnit) -> void:
 			unit.kit_flags["senboku_equip_used"] = equip_used + 1
 			unit.kit_flags["senboku_equip_hp"] = int(unit.kit_flags.get("senboku_equip_hp", 0)) + hp_gain
 			_log("%s の最大体力が %d 上がった（装備）" % [unit.get_display_name(), hp_gain])
-	var swing_cap := int(sheet.get("swing_cap", 1))
-	var swing_used := int(unit.kit_flags.get("swing_thunder_used", 0))
-	if swing_used < swing_cap:
-		var base := float(sheet.get("swing_thunder", 0.06))
-		var bonus := base * _swing_mult()
-		if bonus > 0.0:
-			unit.kit_flags["swing_thunder_used"] = swing_used + 1
-			unit.kit_flags["swing_thunder_bonus"] = float(unit.kit_flags.get("swing_thunder_bonus", 0.0)) + bonus
-			_log("%s の雷与ダメージが上がった（スウィング）" % unit.get_display_name())
+	var bonus := _swing_on_relic_equipped(unit, "swing_thunder", "swing_thunder_used", "swing_thunder_bonus", true)
+	if bonus > 0.0:
+		_log("%s の雷与ダメージが %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _ono_free_rerolls_on_board() -> int:
@@ -1575,6 +1560,7 @@ func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
 		owner.equipped_relic_uids.erase(right_uid)
 	var result_id := RelicCatalog.synthesize_id(left_id, right_id)
 	session.add_relic(result_id)
+	session.tally_relic_synths += 1
 	if synth_gold > 0:
 		session.add_coins(synth_gold)
 	RelicEconomy.note_relic_synthesized(session)
@@ -1606,20 +1592,9 @@ func _note_synth_kit_charges() -> void:
 func _sakai_on_relic_equipped(unit: GameUnit) -> void:
 	if unit == null or unit.unit_id != 35:
 		return
-	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
-	if sheet.is_empty():
-		return
-	var cap := int(sheet.get("swing_cap", 1))
-	var used := int(unit.kit_flags.get("swing_speed_used", 0))
-	if used >= cap:
-		return
-	var base := int(sheet.get("swing_speed", 8))
-	var bonus := int(round(float(base) * _swing_mult()))
-	if bonus <= 0:
-		return
-	unit.kit_flags["swing_speed_used"] = used + 1
-	unit.kit_flags["swing_speed_bonus"] = int(unit.kit_flags.get("swing_speed_bonus", 0)) + bonus
-	_log("%s の左右速度が %d 上がった（スウィング）" % [unit.get_display_name(), bonus])
+	var bonus := _swing_on_relic_equipped(unit, "swing_speed", "swing_speed_used", "swing_speed_bonus", false)
+	if bonus > 0.0:
+		_log("%s の左右速度が %d 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
 
 
 func _on_relic_chosen(relic_id: int) -> void:

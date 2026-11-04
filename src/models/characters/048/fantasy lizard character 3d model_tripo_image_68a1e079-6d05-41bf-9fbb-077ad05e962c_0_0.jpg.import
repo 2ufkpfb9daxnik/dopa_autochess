@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://ckomovcjew0ef"
+path.s3tc="res://.godot/imported/fantasy lizard character 3d model_tripo_image_68a1e079-6d05-41bf-9fbb-077ad05e962c_0_0.jpg-833a432075fa78a8658fde492ee841a7.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "a799e00e3c934c7582a2f89a282c870a"
+}
+
+[deps]
+
+source_file="res://models/characters/048/fantasy lizard character 3d model_tripo_image_68a1e079-6d05-41bf-9fbb-077ad05e962c_0_0.jpg"
+dest_files=["res://.godot/imported/fantasy lizard character 3d model_tripo_image_68a1e079-6d05-41bf-9fbb-077ad05e962c_0_0.jpg-833a432075fa78a8658fde492ee841a7.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

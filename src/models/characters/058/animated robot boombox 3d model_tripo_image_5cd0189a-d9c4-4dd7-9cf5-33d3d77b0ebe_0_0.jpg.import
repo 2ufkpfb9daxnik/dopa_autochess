@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://bwbp761xh3u73"
+path.s3tc="res://.godot/imported/animated robot boombox 3d model_tripo_image_5cd0189a-d9c4-4dd7-9cf5-33d3d77b0ebe_0_0.jpg-885cc8a60df6581e467256323cb28041.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "bb1ae5390f082acbce69c75c2a38a362"
+}
+
+[deps]
+
+source_file="res://models/characters/058/animated robot boombox 3d model_tripo_image_5cd0189a-d9c4-4dd7-9cf5-33d3d77b0ebe_0_0.jpg"
+dest_files=["res://.godot/imported/animated robot boombox 3d model_tripo_image_5cd0189a-d9c4-4dd7-9cf5-33d3d77b0ebe_0_0.jpg-885cc8a60df6581e467256323cb28041.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

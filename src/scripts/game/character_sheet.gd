@@ -352,6 +352,167 @@ static func _binds_for(unit_id: int) -> Array:
 				["召喚のクリティカルダメージ", "summon_crit_damage", false],
 				["バフの水ダメージ", "buff_amount", true],
 			]
+		46:
+			return [
+				["クリティカルダメージ", "buff_amount", true],
+			]
+		47:
+			return [
+				["外れない回数", "force_hits", false],
+				["優先度の低下", "priority_cut", false],
+				["装備の体力", "equip_hp", false],
+				["数える装備", "equip_cap", false],
+				["バフの攻撃力", "buff_amount", false],
+				["スウィングの雷ダメージ", "swing_thunder", true],
+				["スウィングの装備", "swing_cap", false],
+			]
+		48:
+			return [
+				["同じ列の雷ダメージ", "column_thunder", true],
+				["自身の雷ダメージ", "self_thunder", true],
+				["バフの受けるダメージ", "buff_amount", true],
+			]
+		49:
+			return [
+				["行動の遅れ", "ap_delay", false],
+				["戦闘開始時の体力", "start_hp_ratio", true],
+				["満タン時のターゲット優先度", "full_priority", false],
+				["防御力", "dot_defense", true],
+				["吸収のダメージ耐性", "buff_amount", true],
+			]
+		50:
+			return [
+				["戦闘開始の層", "start_layers", false],
+				["開始時のゲージ", "gauge", false],
+				["利息", "interest_gain", true],
+				["利息の上限", "interest_cap", true],
+				["利息中の層", "interest_layers", false],
+				["ゲージ中の炎の与ダメージ", "gauge_fire", true],
+				["炎の与ダメージ", "buff_amount", true],
+			]
+		51:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["追加の敵", "extra_targets", false],
+				["デバフの与ダメージ", "buff_amount", true],
+			]
+		52:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["クリティカル時のゲージ", "crit_gauge", false],
+				["多い減少", "break_extra", false],
+				["ゲージ中の水クリティカル率", "gauge_crit", true],
+				["クリティカルダメージ", "buff_amount", true],
+			]
+		53:
+			return [
+				["消す回数", "cleanse_count", false],
+				["受けるダメージ", "ally_taken_cut", true],
+				["バフの土ダメージ", "buff_amount", true],
+			]
+		54:
+			return [
+				["範囲の回数", "aoe_hits", false],
+				["バフの氷ダメージ", "buff_amount", true],
+			]
+		55:
+			return [
+				["バフの雷ダメージ", "buff_amount", true],
+			]
+		56:
+			return [
+				["残す回数", "gem_charges", false],
+				["減らす回数", "break_extra", false],
+				["次の炎ダメージ", "next_fire", true],
+				["バフの炎ダメージ", "buff_amount", true],
+			]
+		57:
+			return [
+				["減らない層", "persist_layers", false],
+				["最初の攻撃の層", "first_layers", false],
+				["開始時の層", "start_layers", false],
+				["デバフの継続ダメージ", "buff_amount", true],
+			]
+		58:
+			return [
+				["署名の数", "sign_need", false],
+				["減らす回数", "break_extra", false],
+				["次の風ダメージ", "next_wind", true],
+				["バフの風ダメージ", "buff_amount", true],
+			]
+		59:
+			return [
+				["0にした経験値", "break_xp", false],
+				["ラウンドの経験値", "round_xp", false],
+				["追加の攻撃", "extra_attacks", false],
+				["バフの土ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		61:
+			return [
+				["土の攻撃", "opening_earth", true],
+				["残っているあいだ", "pending_earth", true],
+				["次の通常の対象", "lock_attacks", false],
+				["バフの土ダメージ", "buff_amount", true],
+			]
+		62:
+			return [
+				["貫通", "pen_per_hit", true],
+				["行動の早まり", "ap_cut", false],
+				["雷のダメージ耐性", "buff_amount", true],
+			]
+		63:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["多い層", "extra_layers", false],
+				["もう1体の層", "side_layers", false],
+				["バフの吸収ダメージ", "buff_amount", true],
+			]
+		64:
+			return [
+				["満ちたあとのクリティカル率", "gauge_crit", false],
+				["氷のクリティカルダメージ", "ice_crit_damage", false],
+				["クリティカル時のゲージ", "crit_gauge", false],
+				["バフのクリティカル率", "buff_amount", false],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		65:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["満ちたときの減少", "break_extra", false],
+				["倒されたときの減少", "death_break", false],
+				["クリティカル時のゲージ", "crit_gauge", false],
+				["倒されたあとの雷の被ダメージ", "death_thunder_taken", true],
+				["雷の与ダメージ", "buff_amount", true],
+			]
+		66:
+			return [
+				["最初の攻撃で受けるダメージ", "first_taken_cut", true],
+				["バフで受けるダメージ", "buff_amount", true],
+				["氷の与ダメージ", "ice_empower", true],
+				["経験値", "round_xp", false],
+			]
+		67:
+			return [
+				["全体の回数", "aoe_charges", false],
+				["範囲のクリティカル率", "aoe_crit", false],
+				["デバフの風耐性", "buff_amount", true],
+			]
+		68:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["2回目の基礎", "second_base", true],
+				["レリック1つの割合", "relic_ratio", true],
+				["数えるレリック", "relic_cap", false],
+				["水の与ダメージ", "buff_amount", true],
+			]
+		69:
+			return [
+				["狙う回数", "mark_moves", false],
+				["優先度の低下", "priority_cut", false],
+				["風の被ダメージ", "wind_taken", true],
+				["デバフの属性耐性", "buff_amount", true],
+			]
 		6:
 			return [
 				["最初の与ダメージ", "first_bonus", true],
@@ -497,6 +658,63 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["never_acts"] = true
 		36:
 			sheet["buff_kind"] = "highest_attack_water"
+		46:
+			sheet["buff_kind"] = "highest_attack_crit_damage"
+		47:
+			sheet["buff_kind"] = "lowest_attack_bonus"
+		48:
+			sheet["buff_kind"] = "front_taken_cut"
+		49:
+			sheet["buff_kind"] = "absorb_resist"
+			sheet["uses_buff"] = false
+		50:
+			sheet["buff_kind"] = "highest_attack_fire"
+			sheet["dot_ratio"] = 0.05
+		51:
+			sheet["buff_kind"] = "highest_attack_dealt_cut"
+			sheet["uses_buff"] = false
+		52:
+			sheet["buff_kind"] = "highest_crit_crit_damage"
+		53:
+			sheet["buff_kind"] = "highest_attack_earth"
+		54:
+			sheet["buff_kind"] = "highest_attack_ice_other"
+			sheet["gauge"] = 0
+		55:
+			sheet["buff_kind"] = "highest_attack_thunder"
+		56:
+			sheet["buff_kind"] = "highest_attack_fire"
+		57:
+			sheet["buff_kind"] = "most_earth_dot_vuln"
+			sheet["uses_buff"] = false
+			sheet["dot_ratio"] = 0.05
+		58:
+			sheet["buff_kind"] = "highest_crit_wind"
+		59:
+			sheet["buff_kind"] = "highest_attack_earth"
+		61:
+			sheet["buff_kind"] = "lowest_priority_earth"
+			sheet["gauge"] = 0
+		62:
+			sheet["buff_kind"] = "thunder_resist"
+			sheet["uses_buff"] = false
+		63:
+			sheet["buff_kind"] = "lowest_speed_absorb"
+		64:
+			sheet["buff_kind"] = "self_crit_rate"
+			sheet["gauge"] = 0
+		65:
+			sheet["buff_kind"] = "highest_thunder_thunder"
+		66:
+			sheet["buff_kind"] = "highest_threat_taken_cut"
+		67:
+			sheet["buff_kind"] = "highest_hp_wind_resist"
+			sheet["uses_buff"] = false
+		68:
+			sheet["buff_kind"] = "highest_water_water"
+		69:
+			sheet["buff_kind"] = "attr_resist_cut"
+			sheet["uses_buff"] = false
 		6:
 			sheet["buff_kind"] = "highest_attack_bonus"
 		22:

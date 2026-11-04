@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://k7x7pqwgv2ix"
+path.s3tc="res://.godot/imported/anthropomorphic deer 3d model_tripo_image_336c64d1-0a28-4324-a224-5d058f956ed3_0_0.jpg-1b2050e5a93186f1c4568ee3711bbbba.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "ace3c7b27abccf7e26fe11ff8678a7bc"
+}
+
+[deps]
+
+source_file="res://models/characters/056/anthropomorphic deer 3d model_tripo_image_336c64d1-0a28-4324-a224-5d058f956ed3_0_0.jpg"
+dest_files=["res://.godot/imported/anthropomorphic deer 3d model_tripo_image_336c64d1-0a28-4324-a224-5d058f956ed3_0_0.jpg-1b2050e5a93186f1c4568ee3711bbbba.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

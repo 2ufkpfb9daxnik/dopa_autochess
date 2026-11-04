@@ -1035,6 +1035,8 @@ func _start_battle() -> void:
 	RelicEconomy.note_battle_finished(session, battle_won)
 	session.player_hp = mini(session.player_hp, RelicEconomy.player_max_hp(session))
 	_note_deploy_cap_change(cap_before_battle)
+	session.toba_round_xp = _toba_round_xp_bonus()
+	session.nabari_round_xp = _nabari_round_xp_bonus()
 	if battle_won:
 		_log("戦闘勝利 (経験値 +%d)" % GameSession.ROUND_END_FREE_XP)
 	else:
@@ -1133,7 +1135,9 @@ func _battle_result_body(won: bool, hp_before: int, level_before: int) -> String
 	else:
 		var flat_interest := RelicEconomy.interest_flat(session) + RelicEconomy.interest_extra_preview(session)
 		income["holding"] = int(income["holding"]) + flat_interest
-		income["total"] = int(income["total"]) + flat_interest
+		if session.next_interest_bonus > 0.0:
+			income["holding"] = int(round(float(income["holding"]) * (1.0 + session.next_interest_bonus)))
+		income["total"] = int(income["base"]) + int(income["holding"]) + int(income["streak"]) + int(income["round"])
 	var streak_extra := RelicEconomy.streak_extra(session)
 	income["streak"] = int(income["streak"]) + streak_extra
 	income["total"] = int(income["total"]) + streak_extra
@@ -1356,6 +1360,8 @@ func _equip_relic_on(uid: int, unit: GameUnit) -> void:
 		_otsu_on_relic_equipped(unit)
 	elif unit.unit_id == 35:
 		_sakai_on_relic_equipped(unit)
+	elif unit.unit_id == 47:
+		_senboku_on_relic_equipped(unit)
 	_formation.refresh_widgets()
 
 
@@ -1480,6 +1486,57 @@ func _otsu_on_relic_equipped(unit: GameUnit) -> void:
 	unit.kit_flags["otsu_relic_counted"] = used + 1
 	unit.kit_flags["otsu_pending"] = int(unit.kit_flags.get("otsu_pending", 0)) + 1
 	_log("%s は次の戦闘開始時に雷の層を付与する" % unit.get_display_name())
+
+
+func _nabari_round_xp_bonus() -> int:
+	var best: GameUnit = null
+	for unit in board.get_circle_units():
+		if unit == null or unit.unit_id != 66 or unit.is_enemy:
+			continue
+		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
+			best = unit
+	if best == null:
+		return 0
+	var sheet := CharacterSheet.make(best.unit_id, best.stars)
+	return maxi(1, int(sheet.get("round_xp", 1)))
+
+
+func _toba_round_xp_bonus() -> int:
+	var best: GameUnit = null
+	for unit in board.get_circle_units():
+		if unit == null or unit.unit_id != 59 or unit.is_enemy:
+			continue
+		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
+			best = unit
+	if best == null:
+		return 0
+	var sheet := CharacterSheet.make(best.unit_id, best.stars)
+	return maxi(1, int(sheet.get("round_xp", 1)))
+
+
+func _senboku_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 47:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	if sheet.is_empty():
+		return
+	var equip_cap := int(sheet.get("equip_cap", 1))
+	var equip_used := int(unit.kit_flags.get("senboku_equip_used", 0))
+	if equip_used < equip_cap:
+		var hp_gain := int(sheet.get("equip_hp", 6))
+		if hp_gain > 0:
+			unit.kit_flags["senboku_equip_used"] = equip_used + 1
+			unit.kit_flags["senboku_equip_hp"] = int(unit.kit_flags.get("senboku_equip_hp", 0)) + hp_gain
+			_log("%s の最大体力が %d 上がった（装備）" % [unit.get_display_name(), hp_gain])
+	var swing_cap := int(sheet.get("swing_cap", 1))
+	var swing_used := int(unit.kit_flags.get("swing_thunder_used", 0))
+	if swing_used < swing_cap:
+		var base := float(sheet.get("swing_thunder", 0.06))
+		var bonus := base * _swing_mult()
+		if bonus > 0.0:
+			unit.kit_flags["swing_thunder_used"] = swing_used + 1
+			unit.kit_flags["swing_thunder_bonus"] = float(unit.kit_flags.get("swing_thunder_bonus", 0.0)) + bonus
+			_log("%s の雷与ダメージが上がった（スウィング）" % unit.get_display_name())
 
 
 func _ono_free_rerolls_on_board() -> int:

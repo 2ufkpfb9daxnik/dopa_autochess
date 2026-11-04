@@ -56,6 +56,10 @@ var relic_pending_units: Array[Dictionary] = []
 var relic_pending_picks: int = 0
 var shop_odds_level: int = 1
 var relic_end_xp: int = 0
+## ダイトーなどが戦闘で貯めた、次の利子への加算割合（1.0 = +100%）。
+var next_interest_bonus: float = 0.0
+var toba_round_xp: int = 0
+var nabari_round_xp: int = 0
 
 ## ラン終了画面用の累計。
 var tally_battles_won := 0
@@ -342,8 +346,10 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 		add_coins(cleanse_income)
 		cleanse_income = 0
 	coins_at_last_round_end = coins
-	gain_experience(ROUND_END_FREE_XP + relic_end_xp)
+	gain_experience(ROUND_END_FREE_XP + relic_end_xp + toba_round_xp + nabari_round_xp)
 	relic_end_xp = 0
+	toba_round_xp = 0
+	nabari_round_xp = 0
 
 	if won:
 		if loss_streak > 0:
@@ -441,6 +447,10 @@ func _apply_round_start_income() -> void:
 		last_income_breakdown["holding"] = 0
 	else:
 		last_income_breakdown["holding"] = int(last_income_breakdown["holding"]) + RelicEconomy.interest_extra(self) + RelicEconomy.interest_flat(self)
+		if next_interest_bonus > 0.0:
+			var boosted := int(round(float(last_income_breakdown["holding"]) * (1.0 + next_interest_bonus)))
+			last_income_breakdown["holding"] = boosted
+			next_interest_bonus = 0.0
 	last_income_breakdown["streak"] = int(last_income_breakdown["streak"]) + RelicEconomy.streak_extra(self)
 	last_income_breakdown["total"] = int(last_income_breakdown["base"]) + int(last_income_breakdown["holding"]) + int(last_income_breakdown["streak"]) + int(last_income_breakdown["round"]) + RelicEconomy.apply_round_open(self)
 	var income_total := int(last_income_breakdown["total"])

@@ -275,15 +275,33 @@ func _act(actor: Fighter) -> bool:
 	var action := _roll_action(actor)
 	if not is_instance_valid(actor.unit):
 		return false
+	var tamba_redirect := _tamba_maybe_redirect(actor, action)
 	if action != "guard":
 		actor.unit.play_battle_role(action)
 	match action:
 		"attack":
-			await _attack(actor)
+			if tamba_redirect != null:
+				await _attack(actor, false, tamba_redirect)
+			else:
+				await _attack(actor)
 		"buff":
-			await _support(actor)
+			if tamba_redirect != null and actor.uses_buff:
+				await _play_status_transfer(actor.unit, tamba_redirect.unit, true)
+				_set_single_buff(actor, tamba_redirect, str(actor.kit.get("buff_kind", "")), float(actor.kit.get("buff_amount", 0.0)))
+				tamba_redirect.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+				await _wait(BUFF_TIME)
+			else:
+				await _support(actor)
 		_:
-			await _guard(actor)
+			if tamba_redirect != null:
+				actor.kit["proxy_guard_for_id"] = tamba_redirect.unit.get_instance_id()
+				actor.guarding = true
+				if is_instance_valid(actor.unit):
+					actor.unit.play_battle_role("guard")
+					actor.unit.popup_battle_text("代行ガード", Color(0.62, 0.84, 1.0))
+				await _wait(0.2)
+			else:
+				await _guard(actor)
 	if actor.alive and is_instance_valid(actor.unit) and not actor.unit.battle_ko and not actor.guarding:
 		actor.unit.play_battle_role("idle")
 	await _wait(0.08)
@@ -295,6 +313,12 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	if actor.sheet_id == 3 and bool(actor.kit.get("force_hit", false)):
 		forced = true
 		actor.kit["force_hit"] = false
+	if actor.sheet_id == 47 and actor.element == "thunder" and int(actor.kit.get("force_hit_left", 0)) > 0:
+		forced = true
+		actor.kit["force_hit_left"] = int(actor.kit.get("force_hit_left", 0)) - 1
+	if actor.sheet_id == 62 and bool(actor.kit.get("nagano_force_hit_armed", false)):
+		forced = true
+		actor.kit["nagano_force_hit_armed"] = false
 	if float(actor.kit.get("outgoing_cut", 0.0)) > 0.0:
 		actor.kit["outgoing_cut"] = 0.0
 	var ikeda_armed := actor.sheet_id == 9 and bool(actor.kit.get("multi_armed", false))
@@ -319,6 +343,8 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 		actor.kit["bare_fire"] = not _unit_has_buff(primary.unit)
 	if actor.sheet_id == 88 and bool(actor.kit.get("aoe_pending", false)):
 		await _miyake_release_aoe(actor)
+	if actor.sheet_id == 61 and bool(actor.kit.get("extra_earth_armed", false)):
+		await _torahime_extra_strike(actor)
 	var opening := RelicCombat.begin_attack(actor)
 	var speed_before := actor.relic_speed_stack
 	var packets := _attack_packets(actor, primary)
@@ -329,12 +355,36 @@ func _attack(actor: Fighter, from_chase: bool = false, forced_target: Fighter = 
 	var dest := _approach(actor.unit.global_position, primary.unit.global_position, home.y)
 	await _move(actor.unit, dest, STEP_TIME)
 	await _wait(ATTACK_HIT_TIME)
+	var nawate_hit: Dictionary = {}
 	for packet in packets:
 		var target: Fighter = packet["target"]
 		if target == null or not target.alive or not is_instance_valid(target.unit):
 			continue
 		var direct := bool(packet["direct"])
 		await _resolve_packet(actor, target, direct, bool(packet["aoe"]), forced or opening)
+		_era3_on_crit(actor)
+		_era5_after_packet(actor, target, direct)
+		if is_instance_valid(target.unit):
+			nawate_hit[target.unit.get_instance_id()] = true
+		## ナワテ: 風撃破したその攻撃で、まだ当たっていない敵へ全体範囲を足す。
+		if actor.sheet_id == 67 and bool(actor.kit.get("nawate_full_aoe", false)) and direct:
+			actor.kit["nawate_full_aoe"] = false
+			actor.kit["nawate_aoe_crit"] = true
+			for entry_n in _opponents(actor):
+				var foe_n: Fighter = entry_n
+				if foe_n == null or not foe_n.alive or not is_instance_valid(foe_n.unit):
+					continue
+				if nawate_hit.has(foe_n.unit.get_instance_id()):
+					continue
+				nawate_hit[foe_n.unit.get_instance_id()] = true
+				await _resolve_packet(actor, foe_n, false, true, forced or opening)
+				_era5_after_packet(actor, foe_n, false)
+	actor.kit["tarumi_aoe_resolving"] = false
+	actor.kit["nawate_aoe_crit"] = false
+	actor.kit["nawate_full_aoe"] = false
+	if actor.sheet_id == 61 and float(actor.kit.get("torahime_pending_earth", 0.0)) > 0.0 and not bool(actor.kit.get("extra_earth_armed", false)):
+		actor.kit["torahime_pending_earth"] = 0.0
+	await _era5_finish_attack(actor, primary)
 	if ikeda_armed:
 		actor.kit["multi_armed"] = false
 		await _ikeda_extra_hits(actor, primary)
@@ -377,11 +427,16 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var broke := false
 	if direct:
 		broke = _reduce_break_gauge(actor, target)
+		_era4_note_break(actor, target, broke)
+		if broke and actor.sheet_id == 67 and actor.element == "wind" and int(actor.kit.get("aoe_charges_left", 0)) > 0:
+			actor.kit["nawate_full_aoe"] = true
+			actor.kit["aoe_charges_left"] = int(actor.kit.get("aoe_charges_left", 0)) - 1
 	if not connected:
 		if direct:
 			GameAudio.play_battle_miss()
 			target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
 			_host._log("%s の攻撃は %s に外れた" % [attacker_name, target_name])
+			_sumoto_on_miss(actor, target)
 			## 命中しなくても層と継続は、攻撃ヒットと同じタイミングで出す。
 			await _continuity_with_attack(actor, target)
 			await _on_attack_contact(actor, target, false, 0, false)
@@ -392,6 +447,8 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		return
 	if direct and target.sheet_id == 14 and target.alive and target.hp > 0:
 		_ibaraki_before_hit(target)
+	if direct and broke and actor.element == "thunder" and _sumoto_active(actor.enemy):
+		actor.kit["force_crit_break"] = true
 	var bonus := _kit_bonus(actor, target, false)
 	var dealt := 0
 	var crit := false
@@ -401,6 +458,18 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		dealt += int(rolled["amount"])
 		crit = bool(rolled["crit"])
 		direct_crit = crit
+		if crit and actor.element == "water" and bool(actor.kit.get("tatsuno_break_armed", false)) and _has_synergy(actor, "東雲"):
+			var extra := maxi(1, int(actor.kit.get("break_extra_pending", 1)))
+			actor.kit["tatsuno_break_armed"] = false
+			actor.kit["break_extra_pending"] = 0
+			for _i in extra:
+				var left_b := int(target.break_left.get("water", BREAK_MAX))
+				if left_b <= 0:
+					break
+				target.break_left["water"] = maxi(0, left_b - BREAK_STEP)
+				if int(target.break_left["water"]) <= 0:
+					target.break_left["water"] = BREAK_MAX
+					broke = true
 	if aoe:
 		var splash := _roll_damage(actor, target, true, bonus, -1.0)
 		dealt += int(splash["amount"])
@@ -420,7 +489,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		var color := Color(1.0, 0.86, 0.35) if crit else Color(1.0, 0.95, 0.9)
 		target.unit.popup_battle_text("-%d" % dealt, color)
 	_host._log(_damage_log(attacker_name, target_name, raw, dealt, absorbed, crit, guarded, "ダメージ", cap_before))
-	_on_damage_dealt(actor, target, dealt, absorbed)
+	await _on_damage_dealt(actor, target, dealt, absorbed)
 	## 継続ダメージは行動のあとではなく、攻撃と同時に出す。
 	if direct:
 		await _continuity_with_attack(actor, target)
@@ -482,33 +551,57 @@ func _support(actor: Fighter) -> void:
 	var kind := str(actor.kit.get("buff_kind", "highest_speed_bonus"))
 	GameAudio.play_battle_support()
 	if actor.uses_buff:
-		var ally := _buff_target(actor, kind)
-		if ally == null:
-			ally = actor
-		await _play_status_transfer(actor.unit, ally.unit, true)
-		_set_single_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
-		if actor.sheet_id == 11:
+		if actor.sheet_id == 48:
+			await _sosaki_front_buff(actor)
+		elif actor.sheet_id in [53, 58, 59] and not _is_backline(actor):
+			var ally_front := _backline_style_buff_target(actor, false)
+			if ally_front == null:
+				ally_front = actor
+			await _play_status_transfer(actor.unit, ally_front.unit, true)
+			_set_single_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
 			actor.kit["front_buff_active"] = true
-		_refresh_unit_aura(ally.unit)
-		ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
-		_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
-		await _note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
+			_refresh_unit_aura(ally_front.unit)
+			ally_front.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+			_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally_front.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
+			_nose_note_enemy_buff(actor, ally_front)
+			await _note_arita_buff(actor, ally_front, kind, float(actor.kit.get("buff_amount", 0.0)))
+		else:
+			var ally := _buff_target(actor, kind)
+			if ally == null:
+				ally = actor
+			if _tanabe_block_enemy_buff(actor, ally):
+				_host._log("%s へのバフはタナベが消した" % ally.unit.get_display_name())
+				await _wait(0.2)
+			else:
+				await _play_status_transfer(actor.unit, ally.unit, true)
+				_set_single_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
+				if actor.sheet_id == 11:
+					actor.kit["front_buff_active"] = true
+				_refresh_unit_aura(ally.unit)
+				ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+				_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
+				_nose_note_enemy_buff(actor, ally)
+				await _note_arita_buff(actor, ally, kind, float(actor.kit.get("buff_amount", 0.0)))
 	else:
-		var foe := _debuff_target(actor)
-		if foe == null or not is_instance_valid(foe.unit):
-			_host._log("%s のデバフは対象がいない" % actor.unit.get_display_name())
-			await _wait(0.25)
-			return
-		await _play_status_transfer(actor.unit, foe.unit, false)
-		_add_debuff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
-		_refresh_unit_aura(foe.unit)
-		foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
-		_host._log("%s が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
-		if actor.enemy and not foe.enemy:
-			_host.board.mark_debuffed_unit(foe.unit)
-			_host._log("%s はデバフを受けた" % foe.unit.get_display_name())
-			_release_stale_debuffs()
-			_sync_queue()
+		if actor.sheet_id == 51 and bool(actor.kit.get("aoe_debuff_armed", false)):
+			actor.kit["aoe_debuff_armed"] = false
+			await _takatsuki_aoe_debuff(actor, kind)
+		else:
+			var foe := _debuff_target(actor)
+			if foe == null or not is_instance_valid(foe.unit):
+				_host._log("%s のデバフは対象がいない" % actor.unit.get_display_name())
+				await _wait(0.25)
+				return
+			await _play_status_transfer(actor.unit, foe.unit, false)
+			_add_debuff(actor, foe, kind, float(actor.kit.get("buff_amount", 0.0)))
+			_refresh_unit_aura(foe.unit)
+			foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
+			_host._log("%s が %s にデバフ（%s）" % [actor.unit.get_display_name(), foe.unit.get_display_name(), _describe_effect(kind, float(actor.kit.get("buff_amount", 0.0)))])
+			if actor.enemy and not foe.enemy:
+				_host.board.mark_debuffed_unit(foe.unit)
+				_host._log("%s はデバフを受けた" % foe.unit.get_display_name())
+				_release_stale_debuffs()
+				_sync_queue()
 	await _wait(BUFF_TIME)
 
 
@@ -694,6 +787,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 			await _arita_on_ap_loss(fighter, was_buff)
 			_fukusaki_on_ap_loss(fighter)
 			await _miyake_on_ap_loss(fighter)
+			_tarumi_on_other_ap_loss(fighter, actor)
 		fighter.unit.action_value = fighter.ap
 	if actor.alive and is_instance_valid(actor.unit):
 		actor.ap = actor.base_ap
@@ -708,7 +802,10 @@ func _shed_dot_layers(fighter: Fighter, lost: int) -> void:
 		if count <= 0:
 			continue
 		var bank := int(fighter.dot_bank.get(element, 0)) + lost
-		while count > 0 and bank >= fighter.start_ap:
+		var floor_n := 0
+		if str(element) == "earth":
+			floor_n = int(fighter.kit.get("tsurugi_persist_floor", 0))
+		while count > floor_n and bank >= fighter.start_ap:
 			bank -= fighter.start_ap
 			count -= 1
 		fighter.layers[element] = count
@@ -859,6 +956,53 @@ func _assign_sheet(fighter: Fighter, sheet: Dictionary) -> void:
 			fighter.kit["mark_moves_left"] = int(fighter.kit.get("mark_moves", 1))
 		if fighter.sheet_id == 34:
 			fighter.kit["ice_forced_left"] = 1
+		if fighter.sheet_id == 47:
+			var start_n := fighter.unit.equipped_relic_uids.size() if is_instance_valid(fighter.unit) else 0
+			fighter.kit["start_relics"] = start_n
+			if start_n > 0:
+				fighter.kit["force_hit_left"] = int(fighter.kit.get("force_hits", 1))
+				fighter.kit["priority_cut_active"] = int(fighter.kit.get("priority_cut", 0))
+			var equip_hp := int(flags.get("senboku_equip_hp", 0))
+			if equip_hp > 0:
+				fighter.max_hp += equip_hp
+				fighter.hp = fighter.max_hp
+			fighter.kit["swing_thunder_bonus"] = float(flags.get("swing_thunder_bonus", 0.0))
+		if fighter.sheet_id in [50, 51, 52, 54]:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+		if fighter.sheet_id == 53:
+			fighter.kit["cleanse_left"] = int(fighter.kit.get("cleanse_count", 1))
+			if _is_backline(fighter):
+				fighter.kit["never_acts"] = true
+		if fighter.sheet_id in [55, 56, 58, 59]:
+			if _is_backline(fighter):
+				fighter.kit["never_acts"] = true
+		if fighter.sheet_id == 56:
+			fighter.kit["chihaya_left"] = int(flags.get("gem_charges", 0))
+		if fighter.sheet_id == 57:
+			fighter.kit["first_earth_left"] = 1
+			fighter.kit["dot_ratio"] = _metamorph_dot_ratio(fighter.enemy)
+		if fighter.sheet_id == 58:
+			fighter.kit["sign_stacks"] = clampi(int(flags.get("sign_stacks", 0)), 0, maxi(1, int(fighter.kit.get("sign_need", 4))))
+		if fighter.sheet_id == 61:
+			fighter.kit["gauge"] = clampi(int(flags.get("torahime_gauge", int(fighter.kit.get("gauge", 0)))), 0, 100)
+			fighter.kit["extra_earth_armed"] = bool(flags.get("extra_earth_armed", false))
+		if fighter.sheet_id == 62:
+			fighter.kit["nagano_force_hit_armed"] = false
+			fighter.kit["nagano_pen"] = 0.0
+		if fighter.sheet_id in [63, 64, 65, 68]:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			if fighter.sheet_id == 64:
+				fighter.kit["gauge"] = clampi(int(flags.get("nada_gauge", int(fighter.kit.get("gauge", 0)))), 0, 100)
+				fighter.kit["nada_gauge_crit"] = float(flags.get("nada_gauge_crit", 0.0))
+				fighter.kit["nada_first_fill"] = not bool(flags.get("nada_filled_once", false))
+		if fighter.sheet_id == 67:
+			fighter.kit["aoe_charges_left"] = int(fighter.kit.get("aoe_charges", 1))
+		if fighter.sheet_id == 68:
+			fighter.kit["nishimino_double_armed"] = bool(flags.get("nishimino_double_armed", false))
+			fighter.kit["nishimino_second_bonus"] = float(flags.get("nishimino_second_bonus", 0.0))
+		if fighter.sheet_id == 69:
+			fighter.kit["mark_moves_left"] = int(fighter.kit.get("mark_moves", 1))
+			fighter.kit["nose_mark_id"] = -1
 	_recompute_speed(fighter, true)
 	fighter.ap = fighter.base_ap
 	fighter.saved_ap = fighter.base_ap
@@ -894,7 +1038,7 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	var attack := attacker.attack if attack_override < 0.0 else attack_override
 	var element := attacker.element
 	var board: BoardController = _host.board if _host != null else null
-	var penetration := attacker.penetration
+	var penetration := attacker.penetration + float(attacker.kit.get("nagano_pen", 0.0))
 	if use_general_bonus:
 		penetration += RelicCombat.attack_penetration(attacker)
 		penetration += RelicCombat.aura_pen(attacker, _fighters, board)
@@ -925,17 +1069,30 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 	var resist_coef := 1.0 - resist
 	var taken_coef := 1.0 + defender.damage_taken
 	var can_crit := allow_crit and not bool(attacker.kit.get("attack_no_crit", false))
+	if bool(defender.kit.get("block_incoming_crit", false)):
+		can_crit = false
 	var crit_rate := attacker.crit_rate + RelicCombat.aura_crit(attacker, _fighters, board)
+	crit_rate += float(attacker.kit.get("nada_gauge_crit", 0.0)) / 100.0
+	if bool(attacker.kit.get("nawate_aoe_crit", false)):
+		crit_rate += float(attacker.kit.get("aoe_crit", 0.0)) / 100.0
 	crit_rate += float(attacker.kit.get("hit_crit_stacks", 0.0))
 	crit_rate += _era2_side_crit(attacker)
 	var force_id := int(attacker.kit.get("force_crit_target_id", -1))
 	var force_crit := force_id > 0 and is_instance_valid(defender.unit) and defender.unit.get_instance_id() == force_id
-	var crit := can_crit and (force_crit or randf() < crit_rate)
+	var force_break_crit := bool(attacker.kit.get("force_crit_break", false))
+	if force_break_crit:
+		attacker.kit["force_crit_break"] = false
+	if attacker.sheet_id == 52 and attacker.element == "water" and int(attacker.kit.get("gauge", 0)) >= 50:
+		crit_rate += float(attacker.kit.get("gauge_crit", 0.0))
+	var crit := can_crit and (force_crit or force_break_crit or randf() < crit_rate)
+	attacker.kit["last_roll_crit"] = crit
 	if force_crit:
 		attacker.kit["force_crit_target_id"] = -1
 	var crit_damage := attacker.crit_damage + float(attacker.kit.get("front_crit_damage_active", 0.0)) / 100.0
 	if force_crit:
 		crit_damage += float(attacker.kit.get("forced_crit_damage_bonus", 0.0)) / 100.0
+	if crit and attacker.element == "ice" and attacker.sheet_id == 64:
+		crit_damage += float(attacker.kit.get("ice_crit_damage", 200.0)) / 100.0
 	var crit_coef := (1.0 + crit_damage) if crit else 1.0
 	dealt_coef += float(defender.kit.get("mark_taken_active", 0.0))
 	dealt_coef += float(defender.kit.get("kakogawa_fire_vuln", 0.0)) if element == "fire" else 0.0
@@ -948,6 +1105,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		taken_cut += float(defender.kit.get("break_taken_cut_active", 0.0))
 		taken_cut += float(defender.kit.get("redirect_taken_cut_active", 0.0))
 		taken_cut += float(defender.kit.get("next_taken_cut_active", 0.0))
+		taken_cut += float(defender.kit.get("received_taken_cut", 0.0))
+		taken_cut += float(defender.kit.get("nabari_first_cut", 0.0))
 		amount *= maxf(0.0, 1.0 - taken_cut)
 	if not defender.enemy and _host != null:
 		amount *= maxf(0.0, 1.0 - RelicEconomy.growth_taken(_host.session, defender.unit))
@@ -1218,6 +1377,12 @@ func _threat(fighter: Fighter) -> int:
 	if fighter.sheet_id == 9 and int(fighter.kit.get("gauge", 0)) >= 1 and not bool(fighter.kit.get("multi_armed", false)):
 		value += int(fighter.kit.get("priority_bonus", 0))
 	value -= int(fighter.kit.get("priority_cut_active", 0))
+	if fighter.sheet_id == 47:
+		value -= int(fighter.kit.get("priority_cut_active", 0))
+	if fighter.sheet_id == 49 and fighter.hp >= fighter.max_hp and fighter.hp > 0:
+		value += int(fighter.kit.get("full_priority", 0))
+	if fighter.sheet_id == 69 and int(fighter.kit.get("nose_mark_id", -1)) > 0 and fighter.hp > 0:
+		value -= int(fighter.kit.get("priority_cut", 0))
 	if fighter.sheet_id == 33 and not _is_backline(fighter) and fighter.hp > 0 and _gojo_has_mark(fighter.enemy):
 		value -= int(fighter.kit.get("priority_cut", 0))
 	value += RelicCombat.aura_priority(fighter, _fighters, _host.board if _host != null else null)
@@ -1269,6 +1434,42 @@ func _describe_effect(kind: String, amount: float) -> String:
 			return "水与ダメージ %+d%%" % int(round(amount * 100.0))
 		"highest_attack_thunder":
 			return "雷与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_attack_crit_damage", "highest_crit_crit_damage":
+			return "クリティカルダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_attack_fire":
+			return "炎与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_attack_earth":
+			return "土与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_attack_ice", "highest_attack_ice_other":
+			return "氷与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_attack_wind":
+			return "風与ダメージ %+d%%" % int(round(amount * 100.0))
+		"lowest_attack_bonus":
+			return "攻撃力 %+d" % int(round(amount))
+		"front_taken_cut":
+			return "受けるダメージ %+d%%" % int(round(-amount * 100.0))
+		"highest_attack_dealt_cut":
+			return "与ダメージ %+d%%" % int(round(-amount * 100.0))
+		"highest_crit_wind":
+			return "風与ダメージ %+d%%" % int(round(amount * 100.0))
+		"lowest_priority_earth":
+			return "土与ダメージ %+d%%" % int(round(amount * 100.0))
+		"most_earth_dot_vuln":
+			return "継続ダメージ %+d%%" % int(round(amount * 100.0))
+		"lowest_speed_absorb":
+			return "吸収与ダメージ %+d%%" % int(round(amount * 100.0))
+		"self_crit_rate":
+			return "クリティカル率 %+d" % int(round(amount))
+		"highest_threat_taken_cut":
+			return "受けるダメージ %+d%%" % int(round(-amount * 100.0))
+		"highest_thunder_thunder":
+			return "雷与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_water_water":
+			return "水与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_hp_wind_resist":
+			return "風耐性 %+d%%" % int(round(-amount * 100.0))
+		"attr_resist_cut":
+			return "属性耐性 %+d%%" % int(round(-amount * 100.0))
 		"lowest_hp_dot_cut":
 			return "継続ダメージ %+d%%" % int(round(-amount * 100.0))
 		"lowest_defense_resist":
@@ -1278,7 +1479,14 @@ func _describe_effect(kind: String, amount: float) -> String:
 
 
 func _mitigate(defender: Fighter, amount: int) -> int:
-	if amount <= 0 or not defender.guarding:
+	if amount <= 0:
+		return amount
+	if not defender.guarding:
+		var proxy := _tamba_proxy_guard(defender)
+		if proxy == null:
+			return amount
+		defender = proxy
+	if not defender.guarding:
 		return amount
 	if bool(defender.kit.get("ignore_guard", false)):
 		return amount
@@ -1353,10 +1561,35 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 		bonus += float(attacker.kit.get("received_water", 0.0))
 	if attacker.element == "thunder":
 		bonus += float(attacker.kit.get("received_thunder", 0.0))
+		bonus += float(attacker.kit.get("swing_thunder_bonus", 0.0))
+		bonus += float(attacker.kit.get("sosaki_self_thunder", 0.0))
+		bonus += float(attacker.kit.get("sosaki_column_thunder", 0.0))
+	if attacker.element == "earth":
+		bonus += float(attacker.kit.get("received_earth", 0.0))
+	if attacker.element == "ice":
+		bonus += float(attacker.kit.get("received_ice", 0.0))
+		bonus += float(attacker.kit.get("nabari_ice_empower", 0.0))
+	if attacker.element == "thunder":
+		bonus += float(defender.kit.get("naura_thunder_taken", 0.0))
+	if attacker.element == "wind":
+		bonus += float(defender.kit.get("nose_wind_taken", 0.0))
+	if attacker.sheet_id == 68 and bool(attacker.kit.get("nishimino_second", false)):
+		bonus += float(attacker.kit.get("nishimino_second_bonus", 0.0))
+	if attacker.element == "wind":
+		bonus += float(attacker.kit.get("received_wind", 0.0))
+	if attacker.element == "fire":
+		bonus += float(attacker.kit.get("daito_gauge_fire", 0.0))
+		bonus += float(attacker.kit.get("chihaya_next_fire", 0.0))
+	if attacker.element == "wind":
+		bonus += float(attacker.kit.get("touin_next_wind", 0.0))
+	if attacker.element == "earth":
+		bonus += float(attacker.kit.get("torahime_pending_earth", 0.0))
+		bonus += float(attacker.kit.get("torahime_opening_bonus", 0.0))
 	if int(defender.layers.get("absorb", 0)) > 0:
 		bonus += float(attacker.kit.get("received_absorb", 0.0))
 	bonus += _era2_kit_bonus(attacker, defender, is_dot)
 	bonus -= float(attacker.kit.get("outgoing_cut", 0.0))
+	bonus -= float(attacker.kit.get("outgoing_cut_buff", 0.0))
 	return bonus
 
 
@@ -1422,6 +1655,24 @@ func _pick_attack_target(actor: Fighter) -> Fighter:
 	if forced_kawai != null and forced_kawai.alive and forced_kawai.hp > 0 and forced_kawai.enemy != actor.enemy:
 		actor.kit["force_target_id"] = -1
 		return forced_kawai
+	if actor.element == "earth":
+		var marked := _tanabe_marked_target(actor)
+		if marked != null:
+			return marked
+		var toba_t := _toba_earth_target(actor)
+		if toba_t != null:
+			return toba_t
+	if actor.sheet_id == 61 and int(actor.kit.get("lock_left", 0)) > 0:
+		var locked := _fighter_by_id(int(actor.kit.get("lock_target_id", -1)))
+		if locked != null and locked.alive and locked.hp > 0 and locked.enemy != actor.enemy:
+			return locked
+	if actor.sheet_id == 69 and int(actor.kit.get("nose_mark_id", -1)) > 0 and actor.element == "wind":
+		var marked_nose := _fighter_by_id(int(actor.kit.get("nose_mark_id", -1)))
+		if marked_nose != null and marked_nose.alive and marked_nose.hp > 0 and marked_nose.enemy != actor.enemy:
+			return marked_nose
+	var nabari := _nabari_taunt_target(actor)
+	if nabari != null:
+		return nabari
 	if actor.sheet_id == 32 and bool(actor.kit.get("started_front", false)):
 		var facing := _kouryo_facing_target(actor)
 		if facing != null:
@@ -1461,6 +1712,39 @@ func _attack_packets(actor: Fighter, primary: Fighter) -> Array:
 	elif _goshodan_splash_count(actor) > 1:
 		splash = true
 		extras = _goshodan_extras(actor, primary, _goshodan_splash_count(actor) - 1)
+	elif actor.sheet_id == 48 and actor.element == "thunder" and _lagosu_splash_count(actor) > 1:
+		splash = true
+		extras = _sosaki_extras(actor, primary, _lagosu_splash_count(actor) - 1)
+	elif actor.sheet_id == 54 and actor.element == "ice":
+		if bool(actor.kit.get("tarumi_full_aoe", false)):
+			var iced := _tarumi_ice_targets(actor, primary)
+			if not iced.is_empty():
+				splash = true
+				extras = iced
+				actor.kit["tarumi_aoe_resolving"] = true
+				actor.kit["tarumi_full_aoe"] = false
+		elif _signal_noise_splash_count(actor) > 1:
+			splash = true
+			extras = _goshodan_extras(actor, primary, _signal_noise_splash_count(actor) - 1)
+	elif actor.sheet_id == 51 and actor.element == "ice" and bool(actor.kit.get("extra_ice_armed", false)):
+		actor.kit["extra_ice_armed"] = false
+		var need51 := maxi(1, int(actor.kit.get("extra_targets", 1)))
+		var picks51 := _takatsuki_extra_targets(actor, primary, need51)
+		if not picks51.is_empty():
+			splash = true
+			extras = picks51
+	elif actor.sheet_id == 67 and actor.element == "wind" and bool(actor.kit.get("nawate_full_aoe", false)):
+		actor.kit["nawate_full_aoe"] = false
+		actor.kit["nawate_aoe_crit"] = true
+		splash = true
+		extras = []
+		for entry in _opponents(actor):
+			var foe: Fighter = entry
+			if foe != primary and foe.alive:
+				extras.append(foe)
+	elif actor.sheet_id == 67 and actor.element == "wind" and _noukyo_splash_count(actor) > 1:
+		splash = true
+		extras = _goshodan_extras(actor, primary, _noukyo_splash_count(actor) - 1)
 	extras = _era2_attack_extras(actor, primary, extras)
 	if not extras.is_empty():
 		splash = true
@@ -1528,6 +1812,7 @@ func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 	if actor.sheet_id == 12:
 		await _itami_dot_on(actor, target)
 	await _apply_randoseru_on(actor, target)
+	await _era4_on_attack_contact(actor, target)
 
 
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
@@ -1577,6 +1862,9 @@ func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int
 	if actor.sheet_id == 22 and not bool(actor.kit.get("reflecting", false)):
 		_katsuyama_note_dealt(actor, target)
 	_era2_on_damage_dealt(actor, target, dealt)
+	await _era3_after_ice_hit(actor, target)
+	_era4_on_damage_dealt(actor, target, dealt)
+	_era5_on_damage_dealt(actor, target, dealt)
 
 
 func _absorb_followup(actor: Fighter, target: Fighter) -> void:
@@ -1617,13 +1905,21 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var stacks := int(target.layers.get(actor.element, 0))
 	if stacks <= 0 or not target.alive:
 		return
+	if target.sheet_id == 49 and not bool(target.kit.get("dot_block_used", false)):
+		target.kit["dot_block_used"] = true
+		target.defense *= 1.0 + float(target.kit.get("dot_defense", 0.0))
+		if is_instance_valid(target.unit):
+			target.unit.popup_battle_text("継続無効", Color(0.7, 0.9, 1.0))
+			_host._log("%s は継続ダメージを1回防いだ" % target.unit.get_display_name())
+		return
 	GameAudio.play_battle_dot(stacks)
 	var power := actor.attack * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
 	var rolled := _roll_damage(actor, target, false, _neighbor_bonus(actor), power, false)
 	var raw := int(rolled["amount"])
 	var cut := float(target.kit.get("received_dot_cut", 0.0))
-	if cut > 0.0:
-		raw = maxi(0, int(round(float(raw) * (1.0 - cut))))
+	var taken := float(target.kit.get("received_dot_taken", 0.0))
+	if cut != 0.0 or taken != 0.0:
+		raw = maxi(0, int(round(float(raw) * (1.0 - cut + taken))))
 	var guarded := target.guarding and raw > 0
 	var dealt := _mitigate(target, raw)
 	var absorbed := _apply_damage(target, dealt)
@@ -1848,20 +2144,76 @@ func _on_fighter_down(dead: Fighter) -> void:
 
 func _buff_target(actor: Fighter, kind: String) -> Fighter:
 	match kind:
-		"lowest_speed_speed":
+		"lowest_speed_speed", "lowest_speed_absorb":
 			return _extreme(_side(actor.enemy), "speed", false)
+		"self_crit_rate":
+			return actor
+		"highest_threat_taken_cut":
+			return _extreme(_side(actor.enemy), "threat", true)
+		"highest_thunder_thunder":
+			var th_pool: Array = []
+			for entry in _side(actor.enemy):
+				var ally: Fighter = entry
+				if ally.alive and ally.hp > 0 and ally.element == "thunder":
+					th_pool.append(ally)
+			if th_pool.is_empty():
+				return actor
+			return _extreme(th_pool, "attack", true)
+		"highest_water_water":
+			var w_pool: Array = []
+			for entry in _side(actor.enemy):
+				var ally_w: Fighter = entry
+				if ally_w.alive and ally_w.hp > 0 and ally_w.element == "water":
+					w_pool.append(ally_w)
+			if w_pool.is_empty():
+				return actor
+			return _extreme(w_pool, "attack", true)
+		"highest_hp_wind_resist":
+			return _extreme(_opponents(actor), "hp", true)
 		"lowest_hp_dot_cut":
 			return _extreme(_side(actor.enemy), "hp", false)
 		"lowest_defense_resist":
 			return _extreme(_side(actor.enemy), "defense", false)
-		"lowest_attack_water":
+		"lowest_attack_water", "lowest_attack_bonus":
 			return _extreme(_side(actor.enemy), "attack", false)
-		"highest_attack_bonus", "highest_attack_absorb", "highest_attack_speed", "highest_attack_thunder":
+		"highest_attack_bonus", "highest_attack_absorb", "highest_attack_speed", "highest_attack_thunder", "highest_attack_crit_damage", "highest_attack_fire", "highest_attack_earth", "highest_attack_ice", "highest_attack_ice_other", "highest_attack_wind", "front_taken_cut":
+			if kind == "highest_attack_ice_other":
+				var pool: Array = []
+				for entry in _side(actor.enemy):
+					var ally: Fighter = entry
+					if ally != actor and ally.alive and ally.hp > 0:
+						pool.append(ally)
+				if pool.is_empty():
+					return actor
+				return _extreme(pool, "attack", true)
 			return _extreme(_side(actor.enemy), "attack", true)
+		"highest_crit_crit_damage", "highest_crit_wind":
+			return _extreme(_side(actor.enemy), "crit_rate", true)
+		"lowest_priority_earth":
+			return _extreme(_side(actor.enemy), "threat", false)
+		"most_earth_dot_vuln":
+			var layered: Array = []
+			for entry in _opponents(actor):
+				var foe: Fighter = entry
+				if int(foe.layers.get("earth", 0)) > 0:
+					layered.append(foe)
+			if not layered.is_empty():
+				var best: Fighter = null
+				var best_n := -1
+				for entry2 in layered:
+					var f2: Fighter = entry2
+					var n2 := int(f2.layers.get("earth", 0))
+					if best == null or n2 > best_n or (n2 == best_n and f2.unit.unit_id < best.unit.unit_id):
+						best = f2
+						best_n = n2
+				return best
+			return _extreme(_opponents(actor), "threat", true)
 		"highest_ap_speed":
 			return _extreme(_side(actor.enemy), "ap", true)
 		"highest_cost_fire":
 			return _extreme(_side(actor.enemy), "cost", true)
+		"highest_attack_dealt_cut":
+			return _extreme(_opponents(actor), "attack", true)
 		_:
 			return _extreme(_side(actor.enemy), "speed", true)
 
@@ -1892,6 +2244,8 @@ func _stat(fighter: Fighter, stat: String) -> float:
 			return float(fighter.unit.get_cost())
 		"threat":
 			return float(_threat(fighter))
+		"crit_rate":
+			return float(fighter.crit_rate)
 		_:
 			return float(fighter.speed)
 
@@ -1921,6 +2275,27 @@ func _debuff_target(actor: Fighter) -> Fighter:
 		return _extreme(_opponents(actor), "attack", true)
 	if actor.sheet_id == 18:
 		return _most_buffed_foe(actor)
+	if actor.sheet_id == 49:
+		var hitter49 := _fighter_by_id(int(actor.kit.get("last_hitter_id", -1)))
+		if hitter49 != null and hitter49.alive and hitter49.hp > 0 and hitter49.enemy != actor.enemy:
+			return hitter49
+		return _extreme(_opponents(actor), "threat", true)
+	if actor.sheet_id == 62:
+		var last62 := _fighter_by_id(int(actor.kit.get("last_attack_target_id", -1)))
+		if last62 != null and last62.alive and last62.hp > 0 and last62.enemy != actor.enemy:
+			return last62
+		return _extreme(_opponents(actor), "threat", true)
+	if actor.sheet_id == 69:
+		var marked69 := _fighter_by_id(int(actor.kit.get("nose_mark_id", -1)))
+		if marked69 != null and marked69.alive and marked69.hp > 0 and marked69.enemy != actor.enemy:
+			return marked69
+		return _extreme(_opponents(actor), "threat", true)
+	if actor.sheet_id == 67:
+		return _extreme(_opponents(actor), "hp", true)
+	if actor.sheet_id == 51:
+		if bool(actor.kit.get("aoe_debuff_armed", false)):
+			return null
+		return _extreme(_opponents(actor), "attack", true)
 	var last := _fighter_by_id(int(actor.kit.get("last_target_id", -1)))
 	if last != null and last.alive and last.enemy != actor.enemy:
 		return last
@@ -2077,6 +2452,42 @@ func _apply_buff_value(target: Fighter, kind: String, amount: float) -> void:
 			target.kit["received_water"] = float(target.kit.get("received_water", 0.0)) + amount
 		"highest_attack_thunder":
 			target.kit["received_thunder"] = float(target.kit.get("received_thunder", 0.0)) + amount
+		"highest_attack_crit_damage", "highest_crit_crit_damage":
+			target.crit_damage += amount
+		"highest_attack_fire":
+			target.kit["received_fire"] = float(target.kit.get("received_fire", 0.0)) + amount
+		"highest_attack_earth":
+			target.kit["received_earth"] = float(target.kit.get("received_earth", 0.0)) + amount
+		"highest_attack_ice", "highest_attack_ice_other":
+			target.kit["received_ice"] = float(target.kit.get("received_ice", 0.0)) + amount
+		"highest_attack_wind":
+			target.kit["received_wind"] = float(target.kit.get("received_wind", 0.0)) + amount
+		"lowest_attack_bonus":
+			target.attack += amount
+		"front_taken_cut":
+			target.kit["received_taken_cut"] = float(target.kit.get("received_taken_cut", 0.0)) + amount
+		"highest_attack_dealt_cut":
+			target.kit["outgoing_cut_buff"] = float(target.kit.get("outgoing_cut_buff", 0.0)) + amount
+		"highest_crit_wind":
+			target.kit["received_wind"] = float(target.kit.get("received_wind", 0.0)) + amount
+		"lowest_priority_earth":
+			target.kit["received_earth"] = float(target.kit.get("received_earth", 0.0)) + amount
+		"most_earth_dot_vuln":
+			target.kit["received_dot_taken"] = float(target.kit.get("received_dot_taken", 0.0)) + amount
+		"lowest_speed_absorb":
+			target.kit["received_absorb"] = float(target.kit.get("received_absorb", 0.0)) + amount
+		"self_crit_rate":
+			target.crit_rate += amount / 100.0
+		"highest_threat_taken_cut":
+			target.kit["received_taken_cut"] = float(target.kit.get("received_taken_cut", 0.0)) + amount
+		"highest_thunder_thunder":
+			target.kit["received_thunder"] = float(target.kit.get("received_thunder", 0.0)) + amount
+		"highest_water_water":
+			target.kit["received_water"] = float(target.kit.get("received_water", 0.0)) + amount
+		"highest_hp_wind_resist":
+			target.kit["received_wind_resist"] = float(target.kit.get("received_wind_resist", 0.0)) - amount
+		"attr_resist_cut":
+			target.attribute_resist -= amount
 		"lowest_hp_dot_cut":
 			target.kit["received_dot_cut"] = float(target.kit.get("received_dot_cut", 0.0)) + amount
 		"lowest_defense_resist":
@@ -2270,6 +2681,8 @@ func _ktrnksy_add_gauge(fighter: Fighter, step: int) -> void:
 
 func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 	_ktrnksy_on_ally_action(actor)
+	_era3_on_ally_action(actor, was_buff)
+	_era5_on_ally_action(actor, was_buff)
 	await _era2_after_turn(actor, was_buff)
 	if not actor.alive:
 		return
@@ -2832,6 +3245,8 @@ func _miyake_release_aoe(miyake: Fighter) -> void:
 func _opening_kits() -> void:
 	_era2_battle_start_flags()
 	await _otsu_opening_layers()
+	await _daito_opening_dots()
+	await _era4_opening()
 	var openers: Array = []
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
@@ -2992,6 +3407,8 @@ func _refresh_passive_kits() -> void:
 	_refresh_uda_guard()
 	_refresh_otsu_buff()
 	_refresh_sakai_aura()
+	_refresh_tanabe_back_buff()
+	_refresh_era4_back_buffs()
 
 
 func _best_sheet(enemy: bool, sheet_id: int) -> Fighter:
@@ -3012,6 +3429,8 @@ func _is_backline(fighter: Fighter) -> bool:
 
 
 func _note_primary_target_effects(actor: Fighter, target: Fighter) -> void:
+	_taishi_on_targeted(actor, target)
+	_era5_on_targeted(actor, target)
 	if target.sheet_id == 14 and not bool(target.kit.get("first_targeted", false)):
 		target.kit["first_targeted"] = true
 		actor.kit["attack_no_crit"] = true
@@ -3359,6 +3778,28 @@ func _most_buffed_foe(actor: Fighter) -> Fighter:
 	return _extreme(_opponents(actor), "threat", true)
 
 
+func _sumoto_active(enemy_side: bool) -> bool:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id != 46 or fighter.enemy != enemy_side:
+			continue
+		if fighter.alive and fighter.hp > 0 and is_instance_valid(fighter.unit):
+			return true
+	return false
+
+
+func _sumoto_on_miss(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null or target.sheet_id != 46:
+		return
+	if not target.alive or target.hp <= 0 or not is_instance_valid(target.unit):
+		return
+	if bool(actor.kit.get("sumoto_taunt_done", false)):
+		return
+	actor.kit["sumoto_taunt_done"] = true
+	actor.kit["force_target_id"] = target.unit.get_instance_id()
+	_host._log("%s の次の攻撃は %s を狙う" % [actor.unit.get_display_name(), target.unit.get_display_name()])
+
+
 func _era2_battle_start_flags() -> void:
 	var kakogawa := _best_sheet(false, 19)
 	if kakogawa != null and not _is_backline(kakogawa) and kakogawa.hp > 0:
@@ -3373,6 +3814,9 @@ func _era2_battle_start_flags() -> void:
 		if fighter.sheet_id == 29:
 			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
 			_show_gauge(fighter)
+	_era3_battle_start_sync()
+	_era4_battle_start_sync()
+	_era5_battle_start_sync()
 
 
 func _era2_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Array:
@@ -3514,6 +3958,13 @@ func _era2_on_targeted(actor: Fighter, target: Fighter) -> void:
 
 
 func _era2_on_death(dead: Fighter) -> void:
+	_naura_on_death(dead)
+	_nose_clear_mark_on_death(dead)
+	if dead.sheet_id == 68:
+		dead.kit["nishimino_double_armed"] = false
+		dead.kit["nishimino_pending_second"] = false
+		if is_instance_valid(dead.unit):
+			dead.unit.kit_flags["nishimino_double_armed"] = false
 	if dead.sheet_id == 19:
 		var best := _best_sheet(dead.enemy, 19)
 		if best == dead:
@@ -3876,3 +4327,1202 @@ func _persist_synth_left(fighter: Fighter) -> void:
 	if fighter == null or not is_instance_valid(fighter.unit):
 		return
 	fighter.unit.kit_flags["synth_charges"] = int(fighter.kit.get("synth_left", 0))
+
+
+func _era3_battle_start_sync() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if not fighter.alive or fighter.hp <= 0:
+			continue
+		if fighter.sheet_id == 48 and not _is_backline(fighter):
+			fighter.kit["sosaki_self_thunder"] = float(fighter.kit.get("self_thunder", 0.0))
+			var col := fighter.stand_slot
+			for ally in _side(fighter.enemy):
+				var other: Fighter = ally
+				if other == fighter or not other.alive or other.hp <= 0:
+					continue
+				if other.stand_slot == col + BoardController.FRONT_COUNT:
+					other.kit["sosaki_column_thunder"] = float(other.kit.get("sosaki_column_thunder", 0.0)) + float(fighter.kit.get("column_thunder", 0.0))
+					other.kit["sosaki_column_source"] = fighter.unit.get_instance_id()
+					fighter.kit["sosaki_column_ally"] = other.unit.get_instance_id()
+		if fighter.sheet_id == 49:
+			var gain := int(round(float(fighter.max_hp) * float(fighter.kit.get("start_hp_ratio", 0.2))))
+			if gain > 0:
+				fighter.max_hp += gain
+				fighter.hp = fighter.max_hp
+				if is_instance_valid(fighter.unit):
+					fighter.unit.set_battle_hp(fighter.hp, fighter.max_hp)
+		if fighter.sheet_id == 50:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			_show_gauge(fighter)
+			var foe := _extreme(_opponents(fighter), "threat", true)
+			if foe != null and foe.alive:
+				_add_layers(foe, "fire", maxi(1, int(fighter.kit.get("start_layers", 3))))
+				fighter.kit["daito_opening_dot"] = foe.unit.get_instance_id()
+		if fighter.sheet_id in [51, 52]:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			_show_gauge(fighter)
+		if fighter.sheet_id == 54:
+			fighter.kit["gauge"] = 0
+			_show_gauge(fighter)
+
+
+func _nigiyaka_dot_ratio(enemy: bool) -> float:
+	var count := _synergy_member_count(enemy, "にぎやかな未来")
+	if count >= 6:
+		return 0.15
+	if count >= 4:
+		return 0.10
+	return 0.05
+
+
+func _lagosu_splash_count(actor: Fighter) -> int:
+	if not _has_synergy(actor, "旅のラゴス") and actor.sheet_id != 48:
+		return 1
+	var count := _synergy_member_count(actor.enemy, "旅のラゴス")
+	if count >= 6:
+		return 3
+	if count >= 2:
+		return 2
+	return 1
+
+
+func _signal_noise_splash_count(actor: Fighter) -> int:
+	if not _has_synergy(actor, "シグナル・ノイズ") and actor.sheet_id != 54:
+		return 1
+	var count := _synergy_member_count(actor.enemy, "シグナル・ノイズ")
+	if count >= 6:
+		return 3
+	if count >= 2:
+		return 2
+	return 1
+
+
+func _sosaki_extras(actor: Fighter, primary: Fighter, need: int) -> Array:
+	var chosen: Array = []
+	var ally := _fighter_by_id(int(actor.kit.get("sosaki_column_ally", -1)))
+	if ally != null and ally.alive:
+		var remembered := _fighter_by_id(int(ally.kit.get("last_attack_target_id", -1)))
+		if remembered != null and remembered.alive and remembered.hp > 0 and remembered != primary and remembered.enemy != actor.enemy:
+			chosen.append(remembered)
+	var pool: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe != primary and not chosen.has(foe):
+			pool.append(foe)
+	pool.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		return a.unit.unit_id < b.unit.unit_id
+	)
+	for entry in pool:
+		if chosen.size() >= need:
+			break
+		chosen.append(entry)
+	return chosen
+
+
+func _sosaki_front_buff(actor: Fighter) -> void:
+	_clear_sosaki_front_buffs(actor)
+	var amount := float(actor.kit.get("buff_amount", 0.0))
+	var ids: Array = []
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0 or _is_backline(ally):
+			continue
+		await _play_status_transfer(actor.unit, ally.unit, true)
+		_apply_buff_value(ally, "front_taken_cut", amount)
+		_refresh_unit_aura(ally.unit)
+		ally.unit.popup_battle_text("バフ", Color(0.55, 0.95, 0.62))
+		ids.append(ally.unit.get_instance_id())
+		_host._log("%s が %s にバフ（%s）" % [actor.unit.get_display_name(), ally.unit.get_display_name(), _describe_effect("front_taken_cut", amount)])
+	actor.kit["sosaki_buff_ids"] = ids
+	actor.kit["sosaki_buff_amount"] = amount
+
+
+func _clear_sosaki_front_buffs(actor: Fighter) -> void:
+	var amount := float(actor.kit.get("sosaki_buff_amount", 0.0))
+	for entry in actor.kit.get("sosaki_buff_ids", []):
+		var ally := _fighter_by_id(int(entry))
+		if ally != null:
+			_apply_buff_value(ally, "front_taken_cut", -amount)
+			_refresh_unit_aura(ally.unit)
+	actor.kit["sosaki_buff_ids"] = []
+	actor.kit["sosaki_buff_amount"] = 0.0
+
+
+func _taishi_on_targeted(actor: Fighter, target: Fighter) -> void:
+	if target == null or target.sheet_id != 49 or not target.alive:
+		return
+	if actor == null or actor.enemy == target.enemy:
+		return
+	target.kit["last_hitter_id"] = actor.unit.get_instance_id() if is_instance_valid(actor.unit) else -1
+	var delay := maxi(1, int(target.kit.get("ap_delay", 40)))
+	actor.kit["pending_ap_delay"] = int(actor.kit.get("pending_ap_delay", 0)) + delay
+	_host._log("%s の次の行動が遅れる（+%d）" % [actor.unit.get_display_name(), delay])
+
+
+func _era3_on_ally_action(actor: Fighter, was_buff: bool) -> void:
+	var delay := int(actor.kit.get("pending_ap_delay", 0))
+	if delay > 0:
+		actor.ap += delay
+		actor.kit["pending_ap_delay"] = 0
+		if is_instance_valid(actor.unit):
+			actor.unit.action_value = actor.ap
+	var greek := _greek_gauge_step(actor.enemy)
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0:
+			continue
+		if ally.sheet_id == 50:
+			_daito_add_gauge(ally, greek)
+		if ally.sheet_id == 52:
+			_tatsuno_add_gauge(ally, greek, false)
+	if actor.sheet_id == 51 and actor.alive and actor.hp > 0:
+		var gain := _pandora_gauge_step(actor.enemy)
+		if not was_buff and bool(actor.kit.get("did_attack", false)):
+			gain += _soar_bridge_gauge_step(actor.enemy)
+		_takatsuki_add_gauge(actor, gain)
+	if actor.sheet_id == 54 and actor.alive and actor.hp > 0:
+		_tarumi_on_ap_loss(actor, false)
+
+
+func _pandora_gauge_step(enemy: bool) -> int:
+	var thresholds: Array[int] = [2, 4, 6, 8]
+	var values: Array[int] = [12, 14, 16, 18]
+	return _gauge_step_table(_synergy_member_count(enemy, "パンドラ・オートロード"), thresholds, values, 10)
+
+
+func _daito_add_gauge(daito: Fighter, step: int) -> void:
+	if daito == null or not daito.alive or daito.hp <= 0 or step <= 0:
+		return
+	var gauge := int(daito.kit.get("gauge", 0)) + _scaled_gauge(daito, step)
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		daito.kit["gauge"] = gauge
+		_daito_refresh_gauge_fire(daito)
+		_show_gauge(daito)
+		return
+	daito.kit["gauge"] = 0
+	_daito_refresh_gauge_fire(daito)
+	_show_gauge(daito)
+	var gain := float(daito.kit.get("interest_gain", 0.3))
+	var cap := float(daito.kit.get("interest_cap", 0.6))
+	if _host != null and _host.session != null:
+		var now := float(_host.session.next_interest_bonus)
+		_host.session.next_interest_bonus = minf(cap, now + gain)
+	daito.kit["interest_layer_armed"] = true
+	if is_instance_valid(daito.unit):
+		daito.unit.popup_battle_text("利息", Color(1.0, 0.75, 0.3))
+	_host._log("%s のゲージが満ち、次の利息が増える" % daito.unit.get_display_name())
+
+
+func _daito_refresh_gauge_fire(daito: Fighter) -> void:
+	if int(daito.kit.get("gauge", 0)) >= 50:
+		daito.kit["daito_gauge_fire"] = float(daito.kit.get("gauge_fire", 0.0))
+	else:
+		daito.kit["daito_gauge_fire"] = 0.0
+
+
+func _daito_after_attack(daito: Fighter) -> void:
+	if not bool(daito.kit.get("interest_layer_armed", false)):
+		return
+	# layers added via nigiyaka on attack elsewhere; add bonus layers here on next attack after arming, not fill attack
+	pass
+
+
+func _takatsuki_add_gauge(fighter: Fighter, step: int) -> void:
+	if fighter == null or not fighter.alive or fighter.hp <= 0 or step <= 0:
+		return
+	var gauge := int(fighter.kit.get("gauge", 0)) + _scaled_gauge(fighter, step)
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		_show_gauge(fighter)
+		return
+	fighter.kit["gauge"] = 0
+	fighter.kit["aoe_debuff_armed"] = true
+	fighter.kit["extra_ice_armed"] = true
+	_show_gauge(fighter)
+	if is_instance_valid(fighter.unit):
+		fighter.unit.popup_battle_text("全体", Color(0.55, 0.85, 1.0))
+	_host._log("%s のゲージが満ち、次のデバフと氷攻撃が強化される" % fighter.unit.get_display_name())
+
+
+func _takatsuki_aoe_debuff(actor: Fighter, kind: String) -> void:
+	var amount := float(actor.kit.get("buff_amount", 0.0))
+	# clear previous multi
+	_clear_takatsuki_debuffs(actor)
+	var ids: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if not foe.alive or foe.hp <= 0:
+			continue
+		await _play_status_transfer(actor.unit, foe.unit, false)
+		_apply_buff_value(foe, kind, amount)
+		_refresh_unit_aura(foe.unit)
+		foe.unit.popup_battle_text("デバフ", Color(0.82, 0.55, 1.0))
+		ids.append(foe.unit.get_instance_id())
+		if actor.enemy and not foe.enemy:
+			_host.board.mark_debuffed_unit(foe.unit)
+	actor.kit["debuffs"] = []
+	for tid in ids:
+		actor.kit["debuffs"].append({"target_id": tid, "kind": kind, "amount": amount})
+	_host._log("%s のデバフが敵全体に入った" % actor.unit.get_display_name())
+
+
+func _clear_takatsuki_debuffs(actor: Fighter) -> void:
+	for entry in actor.kit.get("debuffs", []):
+		var item: Dictionary = entry
+		var old := _fighter_by_id(int(item.get("target_id", -1)))
+		if old != null:
+			_apply_buff_value(old, str(item.get("kind", "")), -float(item.get("amount", 0.0)))
+			_refresh_unit_aura(old.unit)
+	actor.kit["debuffs"] = []
+
+
+func _takatsuki_extra_targets(actor: Fighter, primary: Fighter, need: int) -> Array:
+	var pool: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe != primary and foe.alive:
+			pool.append(foe)
+	pool.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		if a.hp != b.hp:
+			return a.hp > b.hp
+		return a.unit.unit_id < b.unit.unit_id
+	)
+	var chosen: Array = []
+	for entry in pool:
+		if chosen.size() >= need:
+			break
+		chosen.append(entry)
+	return chosen
+
+
+func _tatsuno_add_gauge(tatsuno: Fighter, step: int, from_crit: bool) -> void:
+	if tatsuno == null or not tatsuno.alive or tatsuno.hp <= 0:
+		return
+	var gain := step
+	if from_crit:
+		gain = maxi(1, int(tatsuno.kit.get("crit_gauge", 4)))
+	if gain <= 0:
+		return
+	var gauge := int(tatsuno.kit.get("gauge", 0)) + (gain if from_crit else _scaled_gauge(tatsuno, gain))
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		tatsuno.kit["gauge"] = gauge
+		_show_gauge(tatsuno)
+		return
+	tatsuno.kit["gauge"] = 0
+	tatsuno.kit["tatsuno_break_armed"] = true
+	tatsuno.kit["break_extra_pending"] = maxi(1, int(tatsuno.kit.get("break_extra", 1)))
+	_show_gauge(tatsuno)
+	if is_instance_valid(tatsuno.unit):
+		tatsuno.unit.popup_battle_text("撃破+", Color(0.45, 0.8, 1.0))
+	_host._log("%s のゲージが満ち、次の水クリで撃破が多く減る" % tatsuno.unit.get_display_name())
+
+
+func _era3_on_crit(attacker: Fighter) -> void:
+	if attacker == null or not bool(attacker.kit.get("last_roll_crit", false)):
+		return
+	for entry in _side(attacker.enemy):
+		var ally: Fighter = entry
+		if ally.sheet_id == 52 and ally.alive and ally.hp > 0:
+			_tatsuno_add_gauge(ally, 0, true)
+	_touin_on_crit(attacker)
+
+
+func _tanabe_best(enemy_side: bool) -> Fighter:
+	return _best_sheet(enemy_side, 53)
+
+
+func _tanabe_block_enemy_buff(buffer: Fighter, target: Fighter) -> bool:
+	if buffer == null or target == null or buffer.enemy != target.enemy:
+		return false
+	if buffer == target:
+		return false
+	var tanabe := _tanabe_best(not buffer.enemy)
+	if tanabe == null or not _is_backline(tanabe) or tanabe.hp <= 0:
+		return false
+	var left := int(tanabe.kit.get("cleanse_left", 0))
+	if left <= 0:
+		return false
+	tanabe.kit["cleanse_left"] = left - 1
+	target.kit["tanabe_marked"] = true
+	target.kit["tanabe_mark_order"] = int(tanabe.kit.get("mark_seq", 0)) + 1
+	tanabe.kit["mark_seq"] = int(target.kit.get("tanabe_mark_order", 0))
+	# reduce earth break one step
+	var br := int(target.break_left.get("earth", BREAK_MAX))
+	if br > 0:
+		target.break_left["earth"] = br - BREAK_STEP
+		_sync_break_gauge(target, "earth", int(target.break_left["earth"]) <= 0)
+	var ally := _extreme(_side(tanabe.enemy), "hp", false)
+	if ally != null:
+		ally.kit["next_taken_cut_active"] = float(tanabe.kit.get("ally_taken_cut", 0.0))
+	if is_instance_valid(target.unit):
+		target.unit.popup_battle_text("バフ無効", Color(1.0, 0.7, 0.35))
+	return true
+
+
+func _tanabe_marked_target(actor: Fighter) -> Fighter:
+	var tanabe := _tanabe_best(actor.enemy)
+	if tanabe == null or not _is_backline(tanabe) or tanabe.hp <= 0:
+		return null
+	var chosen: Fighter = null
+	var best_order := -1
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if not bool(foe.kit.get("tanabe_marked", false)):
+			continue
+		if _is_backline(foe) or not foe.alive or foe.hp <= 0:
+			continue
+		var order := int(foe.kit.get("tanabe_mark_order", 0))
+		if chosen == null or order > best_order:
+			chosen = foe
+			best_order = order
+	return chosen
+
+
+func _tanabe_buff_target(actor: Fighter, backline: bool) -> Fighter:
+	var pool: Array = []
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0:
+			continue
+		if backline and ally == actor:
+			continue
+		pool.append(ally)
+	if pool.is_empty():
+		return actor
+	return _extreme(pool, "attack", true)
+
+
+func _refresh_tanabe_back_buff() -> void:
+	for key in _fighters.keys():
+		var tanabe: Fighter = _fighters[key]
+		if tanabe.sheet_id != 53 or not tanabe.alive:
+			continue
+		if _is_backline(tanabe) and tanabe.hp > 0:
+			tanabe.kit["never_acts"] = true
+			tanabe.in_queue = false
+			tanabe.kit["front_buff_active"] = false
+			var target := _tanabe_buff_target(tanabe, true)
+			_set_single_buff(tanabe, target, "highest_attack_earth", float(tanabe.kit.get("buff_amount", 0.0)))
+		else:
+			tanabe.kit["never_acts"] = false
+			if int(tanabe.kit.get("buff_target_id", -1)) >= 0 and not bool(tanabe.kit.get("front_buff_active", false)):
+				_clear_single_buff(tanabe)
+
+
+func _tarumi_on_ap_loss(tarumi: Fighter, from_iced_enemy: bool) -> void:
+	if tarumi == null or not tarumi.alive or tarumi.hp <= 0:
+		return
+	var step := _pop_music_gauge_step(tarumi.enemy)
+	var gain := step * (2 if from_iced_enemy else 1)
+	var gauge := int(tarumi.kit.get("gauge", 0)) + _scaled_gauge(tarumi, gain)
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		tarumi.kit["gauge"] = gauge
+		_show_gauge(tarumi)
+		return
+	tarumi.kit["gauge"] = 0
+	tarumi.kit["tarumi_full_aoe"] = true
+	_show_gauge(tarumi)
+	if is_instance_valid(tarumi.unit):
+		tarumi.unit.popup_battle_text("範囲", Color(0.55, 0.85, 1.0))
+	_host._log("%s のゲージが満ち、氷層のある敵すべてに範囲が入る" % tarumi.unit.get_display_name())
+
+
+func _tarumi_ice_targets(actor: Fighter, primary: Fighter) -> Array:
+	var chosen: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe == primary:
+			continue
+		if int(foe.layers.get("ice", 0)) > 0 and foe.alive and foe.hp > 0:
+			chosen.append(foe)
+	return chosen
+
+
+func _era3_after_ice_hit(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null:
+		return
+	if actor.sheet_id == 54 and actor.element == "ice" and _has_synergy(actor, "舟"):
+		_add_layers(target, "ice", 1)
+	if bool(actor.kit.get("tarumi_multi_hit", false)):
+		return
+	if bool(actor.kit.get("tarumi_aoe_resolving", false)) and actor.sheet_id == 54:
+		var layers := int(target.layers.get("ice", 0))
+		var cap := maxi(1, int(actor.kit.get("aoe_hits", 2)))
+		var times := mini(layers, cap) if layers >= 2 else 1
+		actor.kit["tarumi_multi_hit"] = true
+		for _i in range(maxi(0, times - 1)):
+			if not target.alive or target.hp <= 0:
+				break
+			await _resolve_packet(actor, target, false, true, false)
+		actor.kit["tarumi_multi_hit"] = false
+
+
+func _daito_opening_dots() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id != 50:
+			continue
+		var foe := _fighter_by_id(int(fighter.kit.get("daito_opening_dot", -1)))
+		if foe == null or not foe.alive:
+			continue
+		fighter.kit["dot_ratio"] = _nigiyaka_dot_ratio(fighter.enemy)
+		await _apply_dot(fighter, foe)
+
+
+func _tarumi_on_other_ap_loss(tarumi: Fighter, actor: Fighter) -> void:
+	if tarumi == null or tarumi.sheet_id != 54 or not tarumi.alive or tarumi.hp <= 0:
+		return
+	var iced := actor != null and actor.enemy != tarumi.enemy and int(actor.layers.get("ice", 0)) > 0
+	_tarumi_on_ap_loss(tarumi, iced)
+
+
+func _metamorph_dot_ratio(enemy: bool) -> float:
+	var count := _synergy_member_count(enemy, "メタモルフォセス群島")
+	if count >= 6:
+		return 0.15
+	if count >= 4:
+		return 0.10
+	return 0.05
+
+
+func _backline_style_buff_target(actor: Fighter, exclude_self: bool) -> Fighter:
+	var pool: Array = []
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0:
+			continue
+		if exclude_self and ally == actor:
+			continue
+		pool.append(ally)
+	if pool.is_empty():
+		return actor
+	var kind := str(actor.kit.get("buff_kind", ""))
+	if kind == "highest_crit_wind":
+		return _extreme(pool, "crit_rate", true)
+	return _extreme(pool, "attack", true)
+
+
+func _refresh_era4_back_buffs() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 55:
+			if _is_backline(fighter):
+				fighter.kit["never_acts"] = true
+				fighter.in_queue = false
+				if int(fighter.kit.get("buff_target_id", -1)) >= 0:
+					_clear_single_buff(fighter)
+			elif fighter.alive and fighter.hp > 0:
+				fighter.kit["never_acts"] = false
+				var t55 := _extreme(_side(fighter.enemy), "attack", true)
+				if t55 != null:
+					_set_single_buff(fighter, t55, "highest_attack_thunder", float(fighter.kit.get("buff_amount", 0.0)))
+		elif fighter.sheet_id == 56:
+			if _is_backline(fighter):
+				fighter.kit["never_acts"] = true
+				fighter.in_queue = false
+			else:
+				fighter.kit["never_acts"] = false
+			if fighter.alive and fighter.hp > 0:
+				var t56 := _extreme(_side(fighter.enemy), "attack", true)
+				if t56 != null:
+					_set_single_buff(fighter, t56, "highest_attack_fire", float(fighter.kit.get("buff_amount", 0.0)))
+		elif fighter.sheet_id == 58:
+			if _is_backline(fighter) and fighter.hp > 0:
+				fighter.kit["never_acts"] = true
+				fighter.in_queue = false
+				fighter.kit["front_buff_active"] = false
+				var t58 := _backline_style_buff_target(fighter, false)
+				_set_single_buff(fighter, t58, "highest_crit_wind", float(fighter.kit.get("buff_amount", 0.0)))
+			else:
+				fighter.kit["never_acts"] = false
+				if int(fighter.kit.get("buff_target_id", -1)) >= 0 and not bool(fighter.kit.get("front_buff_active", false)):
+					_clear_single_buff(fighter)
+		elif fighter.sheet_id == 59:
+			if _is_backline(fighter) and fighter.hp > 0:
+				fighter.kit["never_acts"] = true
+				fighter.in_queue = false
+				fighter.kit["front_buff_active"] = false
+				var t59 := _backline_style_buff_target(fighter, true)
+				_set_single_buff(fighter, t59, "highest_attack_earth", float(fighter.kit.get("buff_amount", 0.0)))
+			else:
+				fighter.kit["never_acts"] = false
+				if int(fighter.kit.get("buff_target_id", -1)) >= 0 and not bool(fighter.kit.get("front_buff_active", false)):
+					_clear_single_buff(fighter)
+
+
+func _tamba_best(enemy_side: bool) -> Fighter:
+	return _best_sheet(enemy_side, 55)
+
+
+func _tamba_maybe_redirect(actor: Fighter, _action: String) -> Fighter:
+	var tamba := _tamba_best(not actor.enemy)
+	if tamba == null or not _is_backline(tamba) or tamba.hp <= 0:
+		return null
+	if int(actor.layers.get("thunder", 0)) <= 0:
+		return null
+	var others := 0
+	for entry in _side(actor.enemy):
+		var foe: Fighter = entry
+		if foe == actor or _is_backline(foe) or not foe.alive:
+			continue
+		if int(foe.layers.get("thunder", 0)) > 0:
+			others += 1
+	if others <= 0:
+		return null
+	if randi() % 10 >= 5:
+		return null
+	var best: Fighter = null
+	var best_n := -1
+	for entry2 in _side(actor.enemy):
+		var f2: Fighter = entry2
+		if f2 == actor or _is_backline(f2) or not f2.alive or f2.hp <= 0:
+			continue
+		var n := int(f2.layers.get("thunder", 0))
+		if n <= 0:
+			continue
+		if best == null or n > best_n or (n == best_n and f2.unit.unit_id < best.unit.unit_id):
+			best = f2
+			best_n = n
+	return best
+
+
+func _tamba_proxy_guard(defender: Fighter) -> Fighter:
+	if defender == null or not is_instance_valid(defender.unit):
+		return null
+	var did := defender.unit.get_instance_id()
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if int(fighter.kit.get("proxy_guard_for_id", -1)) != did:
+			continue
+		if fighter.alive and fighter.hp > 0 and fighter.guarding:
+			fighter.kit["proxy_guard_for_id"] = -1
+			return fighter
+	return null
+
+
+func _era4_battle_start_sync() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 57 and not _is_backline(fighter) and fighter.hp > 0:
+			var foe := _extreme(_opponents(fighter), "threat", true)
+			if foe != null:
+				_add_layers(foe, "earth", maxi(1, int(fighter.kit.get("start_layers", 1))))
+				_tsurugi_mark_persist(foe, fighter)
+		if fighter.sheet_id == 61:
+			_show_gauge(fighter)
+
+
+func _era4_opening() -> void:
+	var openers: Array = []
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 61 and fighter.alive and fighter.hp > 0:
+			openers.append(fighter)
+	openers.sort_custom(func(a: Fighter, b: Fighter) -> bool:
+		return a.unit.unit_id < b.unit.unit_id
+	)
+	for entry in openers:
+		await _torahime_opening_strike(entry as Fighter)
+
+
+func _tsurugi_mark_persist(target: Fighter, tsurugi: Fighter) -> void:
+	if target == null or tsurugi == null:
+		return
+	var cap := maxi(1, int(tsurugi.kit.get("persist_layers", 2)))
+	var cur := int(target.layers.get("earth", 0))
+	target.kit["tsurugi_persist_floor"] = mini(cap, cur)
+
+
+func _era4_on_attack_contact(actor: Fighter, target: Fighter) -> void:
+	if actor == null or target == null:
+		return
+	if actor.element == "earth" and actor.sheet_id == 57:
+		_add_layers(target, "earth", 1)
+		if int(actor.kit.get("first_earth_left", 0)) > 0 and not _is_backline(actor):
+			actor.kit["first_earth_left"] = 0
+			_add_layers(target, "earth", maxi(1, int(actor.kit.get("first_layers", 1))))
+		if not _is_backline(actor) and actor.hp > 0:
+			_tsurugi_mark_persist(target, actor)
+	if actor.element == "fire":
+		await _chihaya_on_fire_attack(actor, target)
+	if actor.element == "wind":
+		await _touin_on_wind_attack(actor, target)
+	if actor.element == "earth":
+		await _toba_on_earth_attack(actor, target)
+	if actor.sheet_id == 61 and int(actor.kit.get("lock_left", 0)) > 0:
+		if int(actor.kit.get("lock_target_id", -1)) == (target.unit.get_instance_id() if is_instance_valid(target.unit) else -2):
+			actor.kit["lock_left"] = int(actor.kit.get("lock_left", 0)) - 1
+	# consume next-attack buffs after a completed direct-style attack attempt
+	if actor.element == "fire" and float(actor.kit.get("chihaya_next_fire", 0.0)) > 0.0 and bool(actor.kit.get("chihaya_consume_next", false)):
+		actor.kit["chihaya_next_fire"] = 0.0
+		actor.kit["chihaya_consume_next"] = false
+	if actor.element == "wind" and float(actor.kit.get("touin_next_wind", 0.0)) > 0.0 and bool(actor.kit.get("touin_consume_next", false)):
+		actor.kit["touin_next_wind"] = 0.0
+		actor.kit["touin_consume_next"] = false
+
+
+func _chihaya_best(side: bool) -> Fighter:
+	return _best_sheet(side, 56)
+
+
+func _chihaya_on_fire_attack(actor: Fighter, target: Fighter) -> void:
+	var chihaya := _chihaya_best(actor.enemy)
+	if chihaya == null or chihaya.hp <= 0:
+		return
+	# spend armed next-fire on this attack if already pending from prior spend
+	if float(actor.kit.get("chihaya_next_fire", 0.0)) > 0.0:
+		actor.kit["chihaya_consume_next"] = true
+	var left := int(chihaya.kit.get("chihaya_left", 0))
+	if left <= 0:
+		return
+	chihaya.kit["chihaya_left"] = left - 1
+	if is_instance_valid(chihaya.unit):
+		chihaya.unit.kit_flags["gem_charges"] = int(chihaya.kit.get("chihaya_left", 0))
+	var extra := maxi(1, int(chihaya.kit.get("break_extra", 1)))
+	if target.alive and target.hp > 0:
+		for _i in extra:
+			var left_b := int(target.break_left.get("fire", BREAK_MAX))
+			if left_b <= 0:
+				break
+			target.break_left["fire"] = maxi(0, left_b - BREAK_STEP)
+			if int(target.break_left["fire"]) <= 0:
+				target.break_left["fire"] = BREAK_MAX
+	actor.kit["chihaya_next_fire"] = float(chihaya.kit.get("next_fire", 0.0))
+	actor.kit["chihaya_consume_next"] = false
+	_host._log("%s の炎撃破が進み、次の炎が強くなる" % actor.unit.get_display_name())
+
+
+func _touin_best(side: bool) -> Fighter:
+	return _best_sheet(side, 58)
+
+
+func _touin_on_crit(attacker: Fighter) -> void:
+	var touin := _touin_best(attacker.enemy)
+	if touin == null or not _is_backline(touin) or touin.hp <= 0:
+		return
+	var need := maxi(1, int(touin.kit.get("sign_need", 4)))
+	var stacks := mini(need, int(touin.kit.get("sign_stacks", 0)) + 1)
+	touin.kit["sign_stacks"] = stacks
+	if is_instance_valid(touin.unit):
+		touin.unit.kit_flags["sign_stacks"] = stacks
+	if stacks >= need:
+		touin.kit["sign_ready"] = true
+
+
+func _touin_on_wind_attack(actor: Fighter, target: Fighter) -> void:
+	var touin := _touin_best(actor.enemy)
+	if touin == null or not _is_backline(touin) or touin.hp <= 0:
+		return
+	if float(actor.kit.get("touin_next_wind", 0.0)) > 0.0:
+		actor.kit["touin_consume_next"] = true
+	if not bool(touin.kit.get("sign_ready", false)):
+		return
+	touin.kit["sign_ready"] = false
+	touin.kit["sign_stacks"] = 0
+	if is_instance_valid(touin.unit):
+		touin.unit.kit_flags["sign_stacks"] = 0
+	var extra := maxi(1, int(touin.kit.get("break_extra", 2)))
+	if target.alive and target.hp > 0:
+		for _i in extra:
+			var left_b := int(target.break_left.get("wind", BREAK_MAX))
+			if left_b <= 0:
+				break
+			target.break_left["wind"] = maxi(0, left_b - BREAK_STEP)
+			if int(target.break_left["wind"]) <= 0:
+				target.break_left["wind"] = BREAK_MAX
+	actor.kit["touin_next_wind"] = float(touin.kit.get("next_wind", 0.0))
+	actor.kit["touin_consume_next"] = false
+	_host._log("%s の風撃破が進み、次の風が強くなる" % actor.unit.get_display_name())
+
+
+func _toba_best(side: bool) -> Fighter:
+	return _best_sheet(side, 59)
+
+
+func _toba_earth_target(actor: Fighter) -> Fighter:
+	var toba := _toba_best(actor.enemy)
+	if toba == null or not _is_backline(toba) or toba.hp <= 0:
+		return null
+	if bool(actor.kit.get("toba_follow_resolving", false)):
+		return null
+	var best: Fighter = null
+	var best_n := -1
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if _is_backline(foe) or not foe.alive or foe.hp <= 0:
+			continue
+		var n := int(foe.kit.get("earth_break_hits", 0))
+		if n <= 0:
+			continue
+		if best == null or n > best_n or (n == best_n and foe.unit.unit_id < best.unit.unit_id):
+			best = foe
+			best_n = n
+	return best
+
+
+func _era4_note_break(actor: Fighter, target: Fighter, broke: bool) -> void:
+	if actor == null or target == null or actor.element != "earth":
+		return
+	if not is_instance_valid(target.unit):
+		return
+	target.kit["earth_break_hits"] = int(target.kit.get("earth_break_hits", 0)) + 1
+	var toba := _toba_best(actor.enemy)
+	if toba == null or not _is_backline(toba) or toba.hp <= 0:
+		return
+	# non-deep-arch allies get an extra reduce step when targeting via toba
+	if not _has_synergy(actor, "ディープ・アーキテクチャ") and _toba_earth_target(actor) == target:
+		var left_b := int(target.break_left.get("earth", BREAK_MAX))
+		if left_b > 0 and not broke:
+			target.break_left["earth"] = maxi(0, left_b - BREAK_STEP)
+			if int(target.break_left["earth"]) <= 0:
+				target.break_left["earth"] = BREAK_MAX
+				broke = true
+	if broke:
+		if _host != null and _host.session != null:
+			_host.session.gain_experience(maxi(1, int(toba.kit.get("break_xp", 1))))
+		var left := int(toba.kit.get("extra_attack_left", int(toba.kit.get("extra_attacks", 1))))
+		if left > 0 and not bool(actor.kit.get("toba_follow_resolving", false)):
+			toba.kit["extra_attack_left"] = left - 1
+			actor.kit["toba_pending_follow"] = true
+
+
+func _toba_on_earth_attack(actor: Fighter, target: Fighter) -> void:
+	var toba := _toba_best(actor.enemy)
+	if toba == null:
+		return
+	if bool(actor.kit.get("toba_pending_follow", false)):
+		actor.kit["toba_pending_follow"] = false
+		var next_t := _toba_follow_target(actor, target)
+		if next_t != null:
+			actor.kit["toba_follow_resolving"] = true
+			await _resolve_packet(actor, next_t, true, false, false)
+			actor.kit["toba_follow_resolving"] = false
+
+
+func _toba_follow_target(actor: Fighter, exclude: Fighter) -> Fighter:
+	var best: Fighter = null
+	var best_n := -1
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe == exclude or _is_backline(foe) or not foe.alive or foe.hp <= 0:
+			continue
+		var n := int(foe.kit.get("earth_break_hits", 0))
+		if best == null or n > best_n or (n == best_n and foe.unit.unit_id < best.unit.unit_id):
+			best = foe
+			best_n = n
+	return best
+
+
+func _torahime_pick_back(actor: Fighter) -> Fighter:
+	var pool: Array = []
+	for entry in _opponents(actor):
+		var foe: Fighter = entry
+		if foe.alive and foe.hp > 0 and _is_backline(foe):
+			pool.append(foe)
+	if pool.is_empty():
+		for entry2 in _opponents(actor):
+			var f2: Fighter = entry2
+			if f2.alive and f2.hp > 0 and not _is_backline(f2):
+				pool.append(f2)
+	return _extreme(pool, "threat", true)
+
+
+func _torahime_opening_strike(actor: Fighter) -> void:
+	var target := _torahime_pick_back(actor)
+	if target == null:
+		return
+	actor.kit["torahime_opening_bonus"] = float(actor.kit.get("opening_earth", 0.4))
+	if is_instance_valid(actor.unit):
+		actor.unit.play_battle_role("attack")
+		actor.unit.popup_battle_text("開幕", Color(0.85, 0.7, 0.4))
+	await _wait(ATTACK_HIT_TIME)
+	actor.kit["continuity_done"] = false
+	await _resolve_packet(actor, target, true, false, false)
+	actor.kit["torahime_opening_bonus"] = 0.0
+	actor.kit["lock_target_id"] = target.unit.get_instance_id() if target.alive and target.hp > 0 else -1
+	actor.kit["lock_left"] = 1 if int(actor.kit.get("lock_target_id", -1)) > 0 else 0
+	if is_instance_valid(actor.unit) and not actor.unit.battle_ko:
+		actor.unit.play_battle_role("idle")
+	await _wait(0.1)
+
+
+func _torahime_extra_strike(actor: Fighter) -> void:
+	actor.kit["extra_earth_armed"] = false
+	if is_instance_valid(actor.unit):
+		actor.unit.kit_flags["extra_earth_armed"] = false
+	var target := _torahime_pick_back(actor)
+	if target == null:
+		return
+	actor.kit["torahime_opening_bonus"] = float(actor.kit.get("opening_earth", 0.4))
+	if is_instance_valid(actor.unit):
+		actor.unit.popup_battle_text("追加土", Color(0.85, 0.7, 0.4))
+	await _resolve_packet(actor, target, true, false, false)
+	actor.kit["torahime_opening_bonus"] = 0.0
+	# pending buff remains for the following normal attack in same action
+	actor.kit["torahime_pending_earth"] = float(actor.kit.get("pending_earth", 0.2))
+
+
+func _era4_on_damage_dealt(actor: Fighter, target: Fighter, dealt: int) -> void:
+	if actor == null or dealt <= 0:
+		return
+	if actor.sheet_id == 61 and target != null and not target.alive:
+		_torahime_on_kill(actor)
+	if actor.sheet_id == 61 and float(actor.kit.get("torahime_pending_earth", 0.0)) > 0.0 and not bool(actor.kit.get("extra_earth_armed", false)):
+		# clear pending after the normal attack that followed the extra strike
+		if not bool(actor.kit.get("torahime_opening_bonus", false)):
+			pass
+
+
+func _torahime_on_kill(actor: Fighter) -> void:
+	if actor == null or not actor.alive or actor.hp <= 0:
+		return
+	var gain := _bistron_gauge_step(actor.enemy)
+	var gauge := int(actor.kit.get("gauge", 0)) + gain
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		actor.kit["gauge"] = gauge
+		if is_instance_valid(actor.unit):
+			actor.unit.kit_flags["torahime_gauge"] = gauge
+		_show_gauge(actor)
+		return
+	actor.kit["gauge"] = 0
+	actor.kit["extra_earth_armed"] = true
+	actor.kit["torahime_pending_earth"] = float(actor.kit.get("pending_earth", 0.2))
+	if is_instance_valid(actor.unit):
+		actor.unit.kit_flags["torahime_gauge"] = 0
+		actor.unit.kit_flags["extra_earth_armed"] = true
+		actor.unit.popup_battle_text("追加準備", Color(0.85, 0.7, 0.4))
+	_show_gauge(actor)
+	_host._log("%s のゲージが満ち、次の攻撃前に土がもう1回入る" % actor.unit.get_display_name())
+
+
+func _toba_round_xp_total(board: BoardController) -> int:
+	var total := 0
+	var best: GameUnit = null
+	for unit in board.get_circle_units():
+		if unit == null or unit.unit_id != 59 or unit.is_enemy:
+			continue
+		if best == null or unit.stars > best.stars or (unit.stars == best.stars and unit.unit_id < best.unit_id):
+			best = unit
+	if best == null:
+		return 0
+	var sheet := CharacterSheet.make(best.unit_id, best.stars)
+	return maxi(1, int(sheet.get("round_xp", 1)))
+
+
+func _era5_battle_start_sync() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 63:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			_show_gauge(fighter)
+		if fighter.sheet_id == 65:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			_show_gauge(fighter)
+		if fighter.sheet_id == 68:
+			fighter.kit["gauge"] = clampi(int(fighter.kit.get("gauge", 0)), 0, 100)
+			_show_gauge(fighter)
+		if fighter.sheet_id == 64:
+			_show_gauge(fighter)
+
+
+func _era5_on_targeted(actor: Fighter, target: Fighter) -> void:
+	if target == null or actor == null or actor.enemy == target.enemy:
+		return
+	if target.sheet_id == 62 and target.alive and target.hp > 0:
+		var pen := float(target.kit.get("pen_per_hit", 0.1))
+		target.kit["nagano_pen"] = minf(1.0, float(target.kit.get("nagano_pen", 0.0)) + pen)
+		_cut_ap(target, maxi(1, int(target.kit.get("ap_cut", 40))))
+		target.kit["nagano_force_hit_armed"] = true
+		## 狙った相手がナガノのとき、その攻撃全体（範囲端含む）はクリティカルしない。
+		actor.kit["attack_no_crit"] = true
+	if target.sheet_id == 66 and target.alive and target.hp > 0:
+		if not bool(actor.kit.get("nabari_first_done", false)):
+			actor.kit["nabari_first_done"] = true
+			target.kit["nabari_first_cut"] = float(target.kit.get("first_taken_cut", 0.3))
+			if not bool(target.kit.get("nabari_ice_armed", false)):
+				target.kit["nabari_ice_armed"] = true
+				target.kit["nabari_ice_empower"] = float(target.kit.get("ice_empower", 0.2))
+			if not bool(target.kit.get("nabari_ap_zero_used", false)) and target.hp > 0:
+				target.kit["nabari_ap_zero_used"] = true
+				target.ap = 0
+				if is_instance_valid(target.unit):
+					target.unit.action_value = 0
+					target.unit.popup_battle_text("割込", Color(0.7, 0.9, 1.0))
+
+
+func _nabari_taunt_target(actor: Fighter) -> Fighter:
+	if actor == null:
+		return null
+	if bool(actor.kit.get("nabari_first_done", false)):
+		return null
+	var nabari := _best_sheet(not actor.enemy, 66)
+	if nabari == null or nabari.hp <= 0:
+		return null
+	return nabari
+
+
+func _era5_on_ally_action(actor: Fighter, was_buff: bool) -> void:
+	# nagahama damage gauge handled on hit; kill gauge on damage
+	var greek := _greek_gauge_step(actor.enemy)
+	var pandora := _pandora_gauge_step(actor.enemy)
+	for entry in _side(actor.enemy):
+		var ally: Fighter = entry
+		if not ally.alive or ally.hp <= 0:
+			continue
+		if ally.sheet_id == 65:
+			var gain := greek
+			if ally == actor:
+				gain += pandora
+			_naura_add_gauge(ally, gain, false)
+		if ally.sheet_id == 68 and ally == actor and not _is_backline(ally):
+			_nishimino_add_gauge(ally, pandora)
+	if actor.sheet_id == 64 and bool(actor.kit.get("did_attack", false)):
+		_nada_add_gauge(actor, _soar_bridge_gauge_step(actor.enemy), false)
+
+
+func _nagahama_add_gauge(fighter: Fighter, amount: int) -> void:
+	if fighter == null or not fighter.alive or fighter.hp <= 0 or amount <= 0:
+		return
+	var gauge := int(fighter.kit.get("gauge", 0)) + amount
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		_show_gauge(fighter)
+		return
+	fighter.kit["gauge"] = 0
+	fighter.kit["nagahama_extra_layers"] = true
+	_show_gauge(fighter)
+	if is_instance_valid(fighter.unit):
+		fighter.unit.popup_battle_text("多層", Color(0.75, 0.55, 1.0))
+	_host._log("%s のゲージが満ち、次の吸収で層が多く付く" % fighter.unit.get_display_name())
+
+
+func _nada_add_gauge(fighter: Fighter, amount: int, from_crit: bool) -> void:
+	if fighter == null or amount <= 0:
+		return
+	# gauge persists even at 0 hp
+	var gauge := int(fighter.kit.get("gauge", 0)) + amount
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		if is_instance_valid(fighter.unit):
+			fighter.unit.kit_flags["nada_gauge"] = gauge
+		_show_gauge(fighter)
+		return
+	fighter.kit["gauge"] = 0
+	var add := float(fighter.kit.get("gauge_crit", 25.0))
+	if bool(fighter.kit.get("nada_first_fill", true)):
+		add *= 2.0
+		fighter.kit["nada_first_fill"] = false
+		if is_instance_valid(fighter.unit):
+			fighter.unit.kit_flags["nada_filled_once"] = true
+	var base := fighter.crit_rate * 100.0
+	var now := float(fighter.kit.get("nada_gauge_crit", 0.0))
+	var room := maxf(0.0, 100.0 - base - now)
+	fighter.kit["nada_gauge_crit"] = now + minf(add, room)
+	if is_instance_valid(fighter.unit):
+		fighter.unit.kit_flags["nada_gauge"] = 0
+		fighter.unit.kit_flags["nada_gauge_crit"] = float(fighter.kit.get("nada_gauge_crit", 0.0))
+		fighter.unit.popup_battle_text("会心+", Color(1.0, 0.85, 0.4))
+	_show_gauge(fighter)
+	_host._log("%s のゲージが満ち、クリティカル率が上がった" % fighter.unit.get_display_name())
+
+
+func _naura_add_gauge(fighter: Fighter, amount: int, after_crit: bool) -> void:
+	if fighter == null or not fighter.alive or fighter.hp <= 0 or amount <= 0:
+		return
+	var gauge := int(fighter.kit.get("gauge", 0)) + amount
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		_show_gauge(fighter)
+		return
+	fighter.kit["gauge"] = 0
+	_show_gauge(fighter)
+	_naura_break_reduce(fighter, maxi(1, int(fighter.kit.get("break_extra", 2))), true)
+	if is_instance_valid(fighter.unit):
+		fighter.unit.popup_battle_text("撃破-", Color(0.9, 0.85, 0.4))
+
+
+func _naura_break_reduce(naura: Fighter, times: int, prefer_last: bool) -> void:
+	var target: Fighter = null
+	if prefer_last:
+		target = _fighter_by_id(int(naura.kit.get("last_attack_target_id", -1)))
+	if target == null or not target.alive or target.hp <= 0 or target.enemy == naura.enemy:
+		target = _extreme(_opponents(naura), "threat", true)
+	if target == null:
+		return
+	for _i in times:
+		var left_b := int(target.break_left.get("thunder", BREAK_MAX))
+		if left_b <= 0:
+			break
+		target.break_left["thunder"] = maxi(0, left_b - BREAK_STEP)
+		if int(target.break_left["thunder"]) <= 0:
+			target.break_left["thunder"] = BREAK_MAX
+
+
+func _naura_on_death(dead: Fighter) -> void:
+	if dead == null or dead.sheet_id != 65:
+		return
+	var times := maxi(1, int(dead.kit.get("death_break", 2)))
+	var taken := float(dead.kit.get("death_thunder_taken", 0.15))
+	for entry in _opponents(dead):
+		var foe: Fighter = entry
+		if _is_backline(foe) or not foe.alive or foe.hp <= 0:
+			continue
+		for _i in times:
+			var left_b := int(foe.break_left.get("thunder", BREAK_MAX))
+			if left_b <= 0:
+				break
+			foe.break_left["thunder"] = maxi(0, left_b - BREAK_STEP)
+			if int(foe.break_left["thunder"]) <= 0:
+				foe.break_left["thunder"] = BREAK_MAX
+		var prev := float(foe.kit.get("naura_thunder_taken", 0.0))
+		if taken >= prev:
+			foe.kit["naura_thunder_taken"] = taken
+			foe.kit["naura_thunder_taken_once"] = true
+
+
+func _nishimino_add_gauge(fighter: Fighter, amount: int) -> void:
+	if fighter == null or not fighter.alive or fighter.hp <= 0 or amount <= 0:
+		return
+	var gauge := int(fighter.kit.get("gauge", 0)) + amount
+	GameAudio.play_battle_gauge()
+	if gauge < 100:
+		fighter.kit["gauge"] = gauge
+		_show_gauge(fighter)
+		return
+	fighter.kit["gauge"] = 0
+	var bonus := float(fighter.kit.get("second_base", 0.4))
+	var relics := 0
+	if _host != null and _host.session != null:
+		relics = mini(maxi(1, int(fighter.kit.get("relic_cap", 2))), _host.session.relics.size())
+	bonus += float(fighter.kit.get("relic_ratio", 0.15)) * float(relics)
+	fighter.kit["nishimino_double_armed"] = true
+	fighter.kit["nishimino_second_bonus"] = bonus
+	if is_instance_valid(fighter.unit):
+		fighter.unit.kit_flags["nishimino_double_armed"] = true
+		fighter.unit.kit_flags["nishimino_second_bonus"] = bonus
+		fighter.unit.popup_battle_text("二連", Color(0.45, 0.75, 1.0))
+	_show_gauge(fighter)
+
+
+func _noukyo_splash_count(actor: Fighter) -> int:
+	if not _has_synergy(actor, "農協月へ行く") and actor.sheet_id != 67:
+		return 1
+	var count := _synergy_member_count(actor.enemy, "農協月へ行く")
+	if count >= 6:
+		return 3
+	if count >= 2:
+		return 2
+	return 1
+
+
+func _nose_note_enemy_buff(buffer: Fighter, target: Fighter) -> void:
+	if buffer == null or target == null or buffer == target:
+		return
+	# enemy team buffs their ally: nose on opposing side remembers target
+	for entry in _side(not buffer.enemy):
+		var nose: Fighter = entry
+		if nose.sheet_id != 69 or not nose.alive or nose.hp <= 0:
+			continue
+		if int(nose.kit.get("mark_moves_left", 0)) <= 0:
+			continue
+		nose.kit["nose_mark_id"] = target.unit.get_instance_id() if is_instance_valid(target.unit) else -1
+		_host._log("%s が %s を覚えた" % [nose.unit.get_display_name(), target.unit.get_display_name()])
+
+
+func _nose_clear_mark_on_death(dead: Fighter) -> void:
+	if dead == null or not is_instance_valid(dead.unit):
+		return
+	var dead_id := dead.unit.get_instance_id()
+	for entry in _side(not dead.enemy):
+		var nose: Fighter = entry
+		if nose.sheet_id != 69:
+			continue
+		if int(nose.kit.get("nose_mark_id", -1)) == dead_id:
+			nose.kit["nose_mark_id"] = -1
+
+
+func _era5_after_packet(actor: Fighter, target: Fighter, direct: bool) -> void:
+	if actor == null or target == null:
+		return
+	if actor.sheet_id == 63 and actor.element == "absorb" and bool(actor.kit.get("nagahama_extra_layers", false)) and direct:
+		actor.kit["nagahama_extra_layers"] = false
+		var extra := maxi(1, int(actor.kit.get("extra_layers", 1)))
+		_add_layers(target, "absorb", extra)
+		# paprika base layer already via continuity; side target highest hp front
+		var side: Fighter = null
+		var best_hp := -1
+		for entry in _opponents(actor):
+			var foe: Fighter = entry
+			if foe == target or _is_backline(foe) or not foe.alive or foe.hp <= 0:
+				continue
+			if side == null or foe.hp > best_hp or (foe.hp == best_hp and foe.unit.unit_id < side.unit.unit_id):
+				side = foe
+				best_hp = foe.hp
+		if side != null:
+			_add_layers(side, "absorb", maxi(1, int(actor.kit.get("side_layers", 1))))
+	if actor.sheet_id == 69 and actor.element == "wind" and direct:
+		var mid := int(actor.kit.get("nose_mark_id", -1))
+		if mid > 0 and is_instance_valid(target.unit) and target.unit.get_instance_id() == mid:
+			# only clear on actual damage - checked in damage dealt
+			pass
+	if actor.sheet_id == 68 and actor.element == "water" and direct and bool(actor.kit.get("nishimino_double_armed", false)):
+		actor.kit["nishimino_pending_second"] = true
+
+
+func _era5_on_damage_dealt(actor: Fighter, target: Fighter, dealt: int) -> void:
+	if actor == null:
+		return
+	if actor.sheet_id == 63 and dealt > 0 and target != null and not target.alive:
+		_nagahama_add_gauge(actor, _bistron_gauge_step(actor.enemy))
+	if target != null and target.sheet_id == 63 and dealt > 0 and target.alive:
+		_nagahama_add_gauge(target, _oscillator_gauge_step(target.enemy))
+	if actor.sheet_id == 64:
+		if dealt > 0 and target != null and not target.alive:
+			_nada_add_gauge(actor, _bistron_gauge_step(actor.enemy), false)
+		if dealt > 0 and bool(actor.kit.get("last_roll_crit", false)):
+			_nada_add_gauge(actor, maxi(1, int(actor.kit.get("crit_gauge", 10))), true)
+	if actor.sheet_id == 65 and dealt > 0 and bool(actor.kit.get("last_roll_crit", false)) and actor.element == "thunder":
+		_naura_add_gauge(actor, maxi(1, int(actor.kit.get("crit_gauge", 6))), true)
+	if dealt > 0 and target != null and bool(target.kit.get("naura_thunder_taken_once", false)) and actor.element == "thunder":
+		target.kit["naura_thunder_taken"] = 0.0
+		target.kit["naura_thunder_taken_once"] = false
+	if actor.sheet_id == 69 and actor.element == "wind" and dealt > 0:
+		var mid := int(actor.kit.get("nose_mark_id", -1))
+		if mid > 0 and is_instance_valid(target.unit) and target.unit.get_instance_id() == mid:
+			actor.kit["nose_mark_id"] = -1
+			actor.kit["mark_moves_left"] = maxi(0, int(actor.kit.get("mark_moves_left", 0)) - 1)
+			if not bool(target.kit.get("nose_wind_marked", false)):
+				target.kit["nose_wind_marked"] = true
+				target.kit["nose_wind_taken"] = float(actor.kit.get("wind_taken", 0.15))
+	if actor.sheet_id == 66 and bool(actor.kit.get("nabari_first_cut_clear", false)):
+		pass
+	# clear nabari first cut after the redirected first attack resolves damage path via attacker flag
+	if bool(actor.kit.get("nabari_first_done", false)) and float(target.kit.get("nabari_first_cut", 0.0)) > 0.0 if target != null else false:
+		if target.sheet_id == 66:
+			target.kit["nabari_first_cut"] = 0.0
+
+
+func _era5_finish_attack(actor: Fighter, primary: Fighter) -> void:
+	if actor == null or actor.sheet_id != 68:
+		return
+	if not bool(actor.kit.get("nishimino_pending_second", false)):
+		return
+	actor.kit["nishimino_pending_second"] = false
+	actor.kit["nishimino_double_armed"] = false
+	if is_instance_valid(actor.unit):
+		actor.unit.kit_flags["nishimino_double_armed"] = false
+	var foe := _extreme(_opponents(actor), "hp", true)
+	if foe == null:
+		return
+	actor.kit["nishimino_second"] = true
+	await _resolve_packet(actor, foe, true, false, false)
+	actor.kit["nishimino_second"] = false

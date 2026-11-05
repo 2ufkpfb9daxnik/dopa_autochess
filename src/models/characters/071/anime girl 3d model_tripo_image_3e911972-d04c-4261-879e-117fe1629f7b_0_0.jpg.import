@@ -2,20 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://1sncmbykwphc"
-path.s3tc="res://.godot/imported/fantasy character 3d model_tripo_image_e5fce982-1604-47dd-ac54-f12e54aa2fb1_0_0.jpg-1182127d5f6a7c9d6dc0ca26e5616ba0.s3tc.ctex"
+uid="uid://myk2h1q1875v"
+path.s3tc="res://.godot/imported/anime girl 3d model_tripo_image_3e911972-d04c-4261-879e-117fe1629f7b_0_0.jpg-299bb6a8272af086003ddf936c2548ff.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "be1f03792d4883a6ab57df6878b2423d"
+"md5": "d27c5212e23d69eaedcb659eae5d4e39"
 }
 
 [deps]
 
-source_file="res://images/characters/fantasy character 3d model_tripo_image_e5fce982-1604-47dd-ac54-f12e54aa2fb1_0_0.jpg"
-dest_files=["res://.godot/imported/fantasy character 3d model_tripo_image_e5fce982-1604-47dd-ac54-f12e54aa2fb1_0_0.jpg-1182127d5f6a7c9d6dc0ca26e5616ba0.s3tc.ctex"]
+source_file="res://models/characters/071/anime girl 3d model_tripo_image_3e911972-d04c-4261-879e-117fe1629f7b_0_0.jpg"
+dest_files=["res://.godot/imported/anime girl 3d model_tripo_image_3e911972-d04c-4261-879e-117fe1629f7b_0_0.jpg-299bb6a8272af086003ddf936c2548ff.s3tc.ctex"]
 
 [params]
 

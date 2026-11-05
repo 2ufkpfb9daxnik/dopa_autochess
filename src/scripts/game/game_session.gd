@@ -58,6 +58,8 @@ var shop_odds_level: int = 1
 var relic_end_xp: int = 0
 ## ダイトーなどが戦闘で貯めた、次の利子への加算割合（1.0 = +100%）。
 var next_interest_bonus: float = 0.0
+## ハリマなどが戦闘で足した利息の元手。ラウンドをまたいで残る。
+var interest_principal_bonus: int = 0
 var toba_round_xp: int = 0
 var nabari_round_xp: int = 0
 ## シナモン(139): 次に並ぶショップの値引き（予約分と、いまの並びに効いている分）。

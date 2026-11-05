@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://bvpuiqccdi5ko"
+path.s3tc="res://.godot/imported/cute fantasy mouse 3d model_tripo_image_a8854d13-55fe-4c4c-a635-3f3bc492e02d_0_0.jpg-2e098fc9bef8a1b5ab70748ece79f897.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "e98ddc4f94817d31b4b7d6d0a45acdf4"
+}
+
+[deps]
+
+source_file="res://models/characters/070/cute fantasy mouse 3d model_tripo_image_a8854d13-55fe-4c4c-a635-3f3bc492e02d_0_0.jpg"
+dest_files=["res://.godot/imported/cute fantasy mouse 3d model_tripo_image_a8854d13-55fe-4c4c-a635-3f3bc492e02d_0_0.jpg-2e098fc9bef8a1b5ab70748ece79f897.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

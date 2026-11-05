@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://bko5teh1tb06r"
-path="res://.godot/imported/fantasy character 3d model.glb-b7a491ce5acb71dcd3ad6a3321716424.scn"
+uid="uid://5ql5kvqopqbj"
+path="res://.godot/imported/fantasy character 3d model.glb-fdae72368b7cc6ffc0577238b74f3127.scn"
 
 [deps]
 
-source_file="res://images/characters/fantasy character 3d model.glb"
-dest_files=["res://.godot/imported/fantasy character 3d model.glb-b7a491ce5acb71dcd3ad6a3321716424.scn"]
+source_file="res://models/characters/078/fantasy character 3d model.glb"
+dest_files=["res://.godot/imported/fantasy character 3d model.glb-fdae72368b7cc6ffc0577238b74f3127.scn"]
 
 [params]
 

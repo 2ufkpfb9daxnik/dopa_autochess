@@ -25,7 +25,7 @@ static func interest_extra_preview(session: GameSession) -> int:
 
 
 static func interest_principal_extra(session: GameSession) -> int:
-	return _owned_value(session, 65, "元手")
+	return _owned_value(session, 65, "元手") + session.interest_principal_bonus
 
 
 static func interest_flat(session: GameSession) -> int:

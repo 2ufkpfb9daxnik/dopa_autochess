@@ -515,6 +515,70 @@ static func _binds_for(unit_id: int) -> Array:
 				["風の被ダメージ", "wind_taken", true],
 				["デバフの属性耐性", "buff_amount", true],
 			]
+		70:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["吸収の与ダメージ", "buff_amount", true],
+				["消したバフ1つ", "cleanse_step", true],
+				["数の上限", "cleanse_cap", false],
+				["ゲージ中の吸収与ダメージ", "gauge_absorb", true],
+				["クリティカル時のゲージ", "crit_gauge", false],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		71:
+			return [
+				["1層の貫通", "layer_pen", true],
+				["数える層", "layer_cap", false],
+				["レリック1つの貫通", "relic_pen", true],
+				["数えるレリック", "relic_cap", false],
+				["バフの風ダメージ", "buff_amount", true],
+			]
+		72:
+			return [
+				["減っている体力", "missing_ratio", true],
+				["倒したときの経験値", "kill_xp", false],
+				["炎の与ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		73:
+			return [
+				["隣の氷ダメージ", "neighbor_ice", true],
+				["1体の元手", "principal_each", false],
+				["数える前衛", "principal_cap", false],
+				["バフの氷ダメージ", "buff_amount", true],
+			]
+		74:
+			return [
+				["バフの風ダメージ", "buff_amount", true],
+			]
+		75:
+			return [
+				["前衛の炎ダメージ", "front_fire", true],
+				["レリック1個", "relic_fire", true],
+				["自身の炎ダメージ", "self_fire", true],
+				["利息増加率", "interest_rate", true],
+				["バフの炎ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		76:
+			return [
+				["被弾時の低下", "hit_cut", true],
+				["低下の上限", "cut_cap", true],
+				["撃破時の与ダメージ", "break_cut", true],
+				["風のダメージ耐性", "hit_wind_resist", true],
+				["デバフの風耐性", "buff_amount", true],
+			]
+		77:
+			return [
+				["クリティカルダメージ", "chain_crit", false],
+				["続く回数", "chain_count", false],
+				["バフの土ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		78:
+			return [
+				["土のダメージ耐性", "buff_amount", true],
+			]
 		37:
 			return [
 				["倒されたときの与ダメージ", "death_bonus", true],
@@ -773,6 +837,29 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 		69:
 			sheet["buff_kind"] = "attr_resist_cut"
 			sheet["uses_buff"] = false
+		70:
+			sheet["buff_kind"] = "last_actor_absorb"
+		71:
+			sheet["buff_kind"] = "highest_attack_wind"
+		72:
+			sheet["buff_kind"] = "highest_attack_fire"
+			sheet["gauge"] = 0
+		73:
+			sheet["buff_kind"] = "highest_attack_ice"
+		74:
+			sheet["buff_kind"] = "most_actions_wind"
+			sheet["gauge"] = 0
+		75:
+			sheet["buff_kind"] = "lowest_front_hp_fire"
+		76:
+			sheet["buff_kind"] = "wind_resist"
+			sheet["uses_buff"] = false
+		77:
+			sheet["buff_kind"] = "highest_crit_damage_earth"
+		78:
+			sheet["buff_kind"] = "earth_resist"
+			sheet["uses_buff"] = false
+			sheet["gauge"] = 0
 		37:
 			sheet["buff_kind"] = "absorb_resist"
 			sheet["uses_buff"] = false

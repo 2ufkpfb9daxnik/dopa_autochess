@@ -1,0 +1,38 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://dsjr55qfu0yr8"
+path.s3tc="res://.godot/imported/fantasy warrior 3d model_tripo_image_00ca4b14-329b-4ea5-a9f3-3eaeb455e3d5_0_0.jpg-1b96151012c5161b9edb469c77512f69.s3tc.ctex"
+metadata={
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
+}
+generator_parameters={
+"md5": "e87800ffc5da128d65f202ca38e6e125"
+}
+
+[deps]
+
+source_file="res://models/characters/075/fantasy warrior 3d model_tripo_image_00ca4b14-329b-4ea5-a9f3-3eaeb455e3d5_0_0.jpg"
+dest_files=["res://.godot/imported/fantasy warrior 3d model_tripo_image_00ca4b14-329b-4ea5-a9f3-3eaeb455e3d5_0_0.jpg-1b96151012c5161b9edb469c77512f69.s3tc.ctex"]
+
+[params]
+
+compress/mode=2
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=0

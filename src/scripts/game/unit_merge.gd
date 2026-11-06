@@ -80,6 +80,8 @@ static func _merge_trio(board: BoardController, units: Array[GameUnit], pair: bo
 	if session != null:
 		var cost := int(UnitCatalog.get_unit(unit_id)["cost"])
 		RelicEconomy.note_same_merge(session, unit_id, new_stars, cost)
+		session.last_merged_unit_id = unit_id
+		session.last_merged_stars = new_stars
 		RelicEconomy.note_equipped_star(session, anchor)
 		if oumi_pair:
 			_oumi_note_pair(board, anchor)

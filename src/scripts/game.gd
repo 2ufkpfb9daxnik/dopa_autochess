@@ -91,6 +91,8 @@ var _split_x := 0.0
 var _hover_tip: PanelContainer
 var _hover_tip_label: Label
 var _demo_mode := false
+var _tutorial_mode := false
+var _tutorial: Tutorial
 var _demo_exiting := false
 var _demo_leave_started := false
 var _demo_overlay: Control
@@ -186,6 +188,7 @@ const RUN_END_MARQUEE_Z := 5
 
 func _ready() -> void:
 	_demo_mode = PlayDemo.consume_pending(get_tree())
+	_tutorial_mode = Tutorial.consume_pending(get_tree())
 	_shop.setup(self)
 	_review.setup(self)
 	_formation.setup(self)
@@ -226,6 +229,9 @@ func _ready() -> void:
 		_log("PLAY DEMO")
 		GameAudio.set_se_suppressed(true)
 		GameAudio.play_demo_bgm()
+	elif _tutorial_mode:
+		_log("チュートリアル")
+		GameAudio.play_construction()
 	else:
 		_log("準備フェーズ開始")
 		GameAudio.play_construction()
@@ -249,6 +255,15 @@ func _finish_startup_layout() -> void:
 	_update_ui()
 	await _fit_bottom_ui_layout()
 	_layout_formation_ui()
+	if _tutorial_mode:
+		_begin_tutorial()
+
+
+func _begin_tutorial() -> void:
+	if not _tutorial_mode or _tutorial != null:
+		return
+	_tutorial = Tutorial.new()
+	_tutorial.start(self)
 
 
 func _begin_demo_mode() -> void:
@@ -1109,6 +1124,8 @@ func _on_action(action: GameAction) -> void:
 			_buy_from_shop(action.shop_slot)
 		GameAction.Type.REROLL:
 			if session.try_reroll():
+				if _tutorial_mode and _tutorial != null:
+					_tutorial.on_rerolled()
 				_log("ショップを更新した")
 		GameAction.Type.BUY_EXP:
 			var cap_before_exp := session.get_board_unit_cap()
@@ -1183,6 +1200,8 @@ func _run_battle_attempt() -> Dictionary:
 	var enemy_count := 0
 	if _demo_mode:
 		enemy_count = PlayDemo.spawn_enemies(self)
+	elif _tutorial_mode:
+		enemy_count = Tutorial.spawn_enemy(self)
 	else:
 		var route := session.selected_route
 		if route.is_empty():
@@ -1203,13 +1222,16 @@ func _start_battle() -> void:
 	if _battle_playing:
 		_request_battle_restart()
 		return
+	if _tutorial_mode and _tutorial != null and not _tutorial.allows_battle():
+		_log("チュートリアルの手順を先に済ませてください")
+		return
 	if not session.is_prep():
 		return
 	if board.has_overflow():
 		_show_board_notice(NOTICE_OVERFLOW, true)
 		return
-	if board.get_front_unit_count() <= 0:
-		_log("前衛に1人以上配置してください")
+	if not board.has_circle_ally():
+		_log("サークルに1人以上配置してください")
 		return
 	_shop.hide_odds_table()
 	_log("戦闘開始 (ラウンド %d)" % session.round_number)
@@ -1251,6 +1273,15 @@ func _start_battle() -> void:
 			session.state_changed.emit()
 		battle_overlay.visible = false
 		board.set_battle_mode(false)
+		_update_ui()
+		return
+	if _tutorial_mode and _tutorial != null:
+		if session.phase == GameSession.Phase.BATTLE:
+			session.phase = GameSession.Phase.PREP
+			session.state_changed.emit()
+		battle_overlay.visible = false
+		board.set_battle_mode(false)
+		_tutorial.on_battle_ended(bool(outcome.get("won", false)))
 		_update_ui()
 		return
 	var battle_won: bool = bool(outcome.get("won", false))
@@ -1612,6 +1643,8 @@ func _equip_relic_on(uid: int, unit: GameUnit) -> void:
 		_otsu_on_relic_equipped(unit)
 	elif unit.unit_id == 35:
 		_sakai_on_relic_equipped(unit)
+		_mishima_on_relic_equipped(unit)
+		_minoo_on_relic_equipped(unit)
 	elif unit.unit_id == 47:
 		_senboku_on_relic_equipped(unit)
 	_formation.refresh_widgets()
@@ -1799,6 +1832,7 @@ func _on_relic_synth_confirmed(left_uid: int, right_uid: int) -> void:
 	var result_id := RelicCatalog.synthesize_id(left_id, right_id)
 	session.add_relic(result_id)
 	session.tally_relic_synths += 1
+	_minoo_keep_material(left_id)
 	if synth_gold > 0:
 		session.add_coins(synth_gold)
 	RelicEconomy.note_relic_synthesized(session)
@@ -1825,6 +1859,69 @@ func _note_synth_kit_charges() -> void:
 			var cap35 := float(sheet35.get("synth_cap", 0.12))
 			var now35 := float(unit.kit_flags.get("synth_bonus", 0.0))
 			unit.kit_flags["synth_bonus"] = minf(cap35, now35 + add)
+		elif unit.unit_id == 81:
+			var sheet81 := CharacterSheet.make(unit.unit_id, unit.stars)
+			var cap81 := int(sheet81.get("synth_cap", 2))
+			var now81 := int(unit.kit_flags.get("maga_left", 0))
+			if now81 < cap81:
+				unit.kit_flags["maga_left"] = now81 + 1
+				_log("%s の貫通が残った" % unit.get_display_name())
+
+
+## ミシマ: 装備したとき、上限まで属性耐性が残る。外しても残る。
+func _mishima_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 84:
+		return
+	var bonus := _swing_on_relic_equipped(unit, "swing_resist", "mishima_swing_used", "mishima_resist", true)
+	if bonus > 0.0:
+		_log("%s の属性耐性が %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
+
+
+## ミノオ: 装備したとき、上限まで炎の与ダメージが残る。外しても残る。
+func _minoo_on_relic_equipped(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 86:
+		return
+	_minoo_seed_charges(unit)
+	var bonus := _swing_on_relic_equipped(unit, "swing_fire", "minoo_swing_used", "minoo_fire", true)
+	if bonus > 0.0:
+		_log("%s の炎ダメージが %d%% 上がった（スウィング）" % [unit.get_display_name(), int(bonus)])
+
+
+## ミノオの素材回数。マッチで一度入れ、星が上がった分だけ増やす。
+func _minoo_seed_charges(unit: GameUnit) -> void:
+	if unit == null or unit.unit_id != 86:
+		return
+	var sheet := CharacterSheet.make(unit.unit_id, unit.stars)
+	var cap := int(sheet.get("material_cap", 1))
+	if not bool(unit.kit_flags.get("minoo_seeded", false)):
+		unit.kit_flags["minoo_seeded"] = true
+		unit.kit_flags["minoo_left"] = cap
+		unit.kit_flags["minoo_seen"] = cap
+		return
+	var seen := int(unit.kit_flags.get("minoo_seen", cap))
+	if cap > seen:
+		unit.kit_flags["minoo_left"] = int(unit.kit_flags.get("minoo_left", 0)) + cap - seen
+		unit.kit_flags["minoo_seen"] = cap
+
+
+## 合成の左の素材を1つ戻す。戻したレリックは新しい合成には数えない。選ぶ画面はなく、左を残す。
+func _minoo_keep_material(left_id: int) -> void:
+	if left_id <= 0:
+		return
+	var keeper: GameUnit = null
+	for unit in board.get_circle_units():
+		if unit == null or unit.is_enemy or unit.unit_id != 86:
+			continue
+		_minoo_seed_charges(unit)
+		if int(unit.kit_flags.get("minoo_left", 0)) <= 0:
+			continue
+		if keeper == null or unit.unit_id < keeper.unit_id:
+			keeper = unit
+	if keeper == null:
+		return
+	keeper.kit_flags["minoo_left"] = int(keeper.kit_flags.get("minoo_left", 0)) - 1
+	session.add_relic(left_id)
+	_log("%s の素材が1つ残った" % keeper.get_display_name())
 
 
 func _sakai_on_relic_equipped(unit: GameUnit) -> void:
@@ -3508,7 +3605,7 @@ func _update_ui() -> void:
 		battle_button.disabled = _battle_restart_requested
 	else:
 		battle_button.text = "戦闘開始"
-		battle_button.disabled = not session.is_prep() or board.get_front_unit_count() <= 0 or board.has_overflow()
+		battle_button.disabled = not session.is_prep() or not board.has_circle_ally() or board.has_overflow()
 	if _debug_roster_button != null:
 		_debug_roster_button.disabled = not session.is_prep()
 		if not session.is_prep():

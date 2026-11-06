@@ -2,12 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c7khklci0daj"
-valid=false
+uid="uid://b8i6qxuq0uf5r"
+path="res://.godot/imported/090.png-d9ba620bc3e07fdc5d9ffcd3ba7f7ca1.ctex"
+metadata={
+"vram_texture": false
+}
 
 [deps]
 
 source_file="res://images/characters/090.png"
+dest_files=["res://.godot/imported/090.png-d9ba620bc3e07fdc5d9ffcd3ba7f7ca1.ctex"]
 
 [params]
 

@@ -132,6 +132,16 @@ const BUFF_KEYS := {
 	"lowest_hp_dot_cut": ["received_dot_cut", 1.0],
 	"attr_resist_cut": ["@attribute_resist", -1.0],
 	"lowest_defense_resist": ["@attribute_resist", 1.0],
+	"lowest_cost_water": ["received_water", 1.0],
+	"highest_ice_attack": ["received_ice", 1.0],
+	"highest_defense_ice": ["received_ice", 1.0],
+	"misaki_wind": ["received_wind", 1.0],
+	"last_block_resist": ["@attribute_resist", 1.0],
+	"lowest_star_taken": ["received_taken_cut", 1.0],
+	"lowest_equipped_taken": ["received_taken_cut", 1.0],
+	"yao_earth": ["received_earth", 1.0],
+	"highest_hp_pen": ["@penetration", 1.0],
+	"moriyama_dealt": ["outgoing_cut_buff", 1.0],
 	## 037〜045（era6）の専用バフ。
 	"shimagawa_absorb": ["era6_absorb_dmg", 1.0],
 	"suzuka_fire": ["era6_fire_dmg", 1.0],
@@ -140,7 +150,7 @@ const BUFF_KEYS := {
 ## 属性の与ダメージを上げるバフのキー。継続ダメージにも入るバフは *_dot にも積む。
 const ELEMENT_DAMAGE_KEYS: PackedStringArray = ["received_fire", "received_water", "received_thunder", "received_earth", "received_ice", "received_wind", "received_absorb"]
 ## 設計書で「継続ダメージには入らない」と書かれた属性バフを持つキャラ。
-const BUFF_NO_DOT_SHEETS: Array[int] = [5, 16, 23, 25, 34, 61, 74, 75]
+const BUFF_NO_DOT_SHEETS: Array[int] = [5, 16, 23, 25, 34, 61, 74, 75, 80, 85, 86]
 ## 攻撃属性が同じ味方だけを選ぶ属性バフ（その属性の味方がいなければ自分）。
 const SAME_ELEMENT_BUFF_SHEETS := {21: "earth", 26: "wind", 29: "absorb"}
 
@@ -151,6 +161,7 @@ var _motion: Tween
 var _relic_started := false
 ## 戦闘開始時の効果（_era2_battle_start_flags）を、この戦闘ですでに出したか。
 var _battle_start_done := false
+var _action_serial := 0
 ## 055 タンバの代行ガード: あとからガードを選んだ敵を見分ける通し番号。
 var _proxy_guard_seq := 0
 var _relic_blocks := 0
@@ -327,6 +338,9 @@ func play() -> Dictionary:
 				continue
 			won = false
 			break
+		if not bool(_stats.get("era8_opened", false)):
+			_stats["era8_opened"] = true
+			await _era8_opening()
 		var actor := _next_actor()
 		if actor == null:
 			won = allies > 0
@@ -438,6 +452,7 @@ func finish() -> void:
 		_motion = null
 	_era6_on_finish()
 	_era7_on_finish()
+	_era8_on_finish()
 	_clear_battle_debuffs()
 	for key in _fighters.keys():
 		var fighter: Fighter = _fighters[key]
@@ -459,6 +474,8 @@ func finish() -> void:
 
 
 func _act(actor: Fighter) -> bool:
+	_action_serial += 1
+	actor.kit["action_stamp"] = _action_serial
 	if bool(actor.kit.get("skip_next_action", false)):
 		actor.kit["skip_next_action"] = false
 		if is_instance_valid(actor.unit):
@@ -654,6 +671,14 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	var attacker_name := actor.unit.get_display_name()
 	var target_name := target.unit.get_display_name()
 	var connected := forced or _roll_hit(target)
+	if actor.sheet_id == 82:
+		target.kit["matsu_ice_before"] = int(target.layers.get("ice", 0))
+	if direct and _era8_yao_active(target):
+		await _era8_yao_resolve(actor, target, connected)
+		return
+	if direct and connected and _era8_nullify(actor, target):
+		await _wait(0.16)
+		return
 	if armed_hit_speed > 0:
 		target.kit["hit_speed_bonus"] = maxi(armed_hit_speed, int(target.kit.get("hit_speed_bonus", 0)))
 	var broke := false
@@ -665,6 +690,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		_era4_note_break(actor, target, broke)
 		_era6_note_break(actor, target, broke)
 		_era7_note_break(actor, target, broke)
+		if broke and actor.sheet_id == 84 and actor.element == "earth" and not bool(actor.kit.get("mishima_break_used", false)):
+			actor.kit["mishima_break_used"] = true
+			actor.kit["block_left"] = int(actor.kit.get("block_left", 0)) + 1
 		if broke and actor.sheet_id == 67 and actor.element == "wind" and int(actor.kit.get("aoe_charges_left", 0)) > 0:
 			actor.kit["nawate_full_aoe"] = true
 			actor.kit["aoe_charges_left"] = int(actor.kit.get("aoe_charges_left", 0)) - 1
@@ -676,6 +704,7 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 			_sumoto_on_miss(actor, target)
 			## 命中しなくても層と継続は、攻撃ヒットと同じタイミングで出す。
 			await _continuity_with_attack(actor, target)
+			await _era8_note_packet(actor, target, direct, false)
 			await _on_attack_contact(actor, target, false, 0, direct)
 		if direct and actor.sheet_id == 4:
 			await _absorb_followup(actor, target)
@@ -725,8 +754,16 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 	actor.kit["last_direct_crit"] = direct_crit
 	var raw := dealt
 	var guarded := _guard_nullifies(target, raw)
+	if guarded and actor.sheet_id == 86 and actor.element == "fire" and int(actor.kit.get("guard_pierce_left", 0)) > 0:
+		actor.kit["guard_pierce_left"] = int(actor.kit.get("guard_pierce_left", 0)) - 1
+		guarded = false
+		dealt = raw
+	else:
+		dealt = _mitigate(target, raw)
 	target.kit["last_guard_zero"] = guarded
-	dealt = _mitigate(target, raw)
+	if direct and not guarded and int(target.kit.get("mishima_cut_left", 0)) > 0:
+		target.kit["mishima_cut_left"] = int(target.kit.get("mishima_cut_left", 0)) - 1
+		dealt = int(round(float(dealt) * 0.9))
 	var cap_before := dealt
 	dealt = _ktrnksy_cap(target, dealt, direct)
 	## 014 イバラキ: ガードで0にならず、軽減のあとにダメージが残る命中だけ、ダメージの前に最大体力が上がる。
@@ -768,6 +805,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 		direct_dealt = dealt if raw <= 0 or direct_amount >= raw else int(round(float(dealt) * float(direct_amount) / float(raw)))
 	actor.kit["last_direct_dealt"] = direct_dealt
 	await _on_damage_dealt(actor, target, dealt, absorbed)
+	if direct and direct_crit and actor.element == "thunder" and not _is_backline(target):
+		await _era8_yosato_strip(actor, target)
+	await _era8_note_packet(actor, target, direct, connected)
 	actor.kit["last_direct_dealt"] = -1
 	## 継続ダメージは行動のあとではなく、攻撃と同時に出す。
 	if direct:
@@ -841,6 +881,9 @@ func _resolve_packet(actor: Fighter, target: Fighter, direct: bool, aoe: bool, f
 func _support(actor: Fighter) -> void:
 	var kind := str(actor.kit.get("buff_kind", "highest_speed_bonus"))
 	GameAudio.play_battle_support()
+	if actor.sheet_id == 95:
+		await _era8_yodo_buff(actor)
+		return
 	if actor.uses_buff:
 		if actor.sheet_id == 48:
 			await _sosaki_front_buff(actor)
@@ -860,6 +903,9 @@ func _support(actor: Fighter) -> void:
 			var ally := _kit_buff_target_override(actor)
 			if ally == null:
 				ally = _buff_target(actor, kind)
+			if actor.sheet_id == 86 and ally == null:
+				await _wait(0.2)
+				return
 			if ally == null:
 				ally = actor
 			var gated: bool = await _era6_buff_gate(actor, ally, kind)
@@ -1094,6 +1140,7 @@ func _spend_action_points(spent: int, actor: Fighter, was_buff: bool) -> void:
 		RelicCombat.tick_time(fighter, lost, spent)
 		if fighter != actor and lost > 0:
 			await _era7_on_ap_loss(fighter, actor)
+			await _era8_on_ap_loss(fighter)
 			await _arita_on_ap_loss(fighter, was_buff)
 			_fukusaki_on_ap_loss(fighter)
 			await _miyake_on_ap_loss(fighter)
@@ -1322,6 +1369,7 @@ func _assign_sheet(fighter: Fighter, sheet: Dictionary) -> void:
 			fighter.kit["nose_mark_id"] = -1
 	_era6_assign_kit(fighter)
 	_era7_assign_kit(fighter)
+	_era8_assign_kit(fighter)
 	_recompute_speed(fighter, true)
 	fighter.ap = fighter.base_ap
 	fighter.saved_ap = fighter.base_ap
@@ -1362,6 +1410,7 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		penetration += RelicCombat.attack_penetration(attacker)
 		penetration += RelicCombat.aura_pen(attacker, _fighters, board)
 		penetration += _era7_wind_pen(attacker, defender)
+	penetration += _era8_pen(attacker, defender, not use_general_bonus)
 	penetration = clampf(penetration, 0.0, 1.0)
 	var defense := defender.defense + RelicCombat.aura_defense(defender, _fighters, board)
 	defense = maxf(0.0, defense - float(defender.kit.get("received_defense_cut", 0.0)))
@@ -1413,6 +1462,8 @@ func _roll_damage(attacker: Fighter, defender: Fighter, allow_crit: bool, bonus_
 		crit_damage += float(attacker.kit.get("hirano_crit_bonus", 0.0)) / 100.0
 		attacker.kit["hirano_crit_packet"] = true
 	var crit_coef := (1.0 + crit_damage) if crit else 1.0
+	if crit and attacker.element == "thunder" and _era8_yosato_is_self(attacker):
+		crit_coef = 1.0
 	## ゴジョーの印（033）とそのデバフは継続ダメージには入らない。カコガワの炎の上昇（019）は継続にも入る。
 	if use_general_bonus:
 		dealt_coef += float(defender.kit.get("mark_taken_active", 0.0))
@@ -1825,8 +1876,22 @@ func _describe_effect(kind: String, amount: float) -> String:
 			return "攻撃力 %+d" % int(round(amount))
 		"front_taken_cut":
 			return "受けるダメージ %+d%%" % int(round(-amount * 100.0))
-		"highest_attack_dealt_cut":
+		"highest_attack_dealt_cut", "moriyama_dealt":
 			return "与ダメージ %+d%%" % int(round(-amount * 100.0))
+		"lowest_cost_water", "highest_water_water":
+			return "水与ダメージ %+d%%" % int(round(amount * 100.0))
+		"highest_ice_attack", "highest_defense_ice":
+			return "氷与ダメージ %+d%%" % int(round(amount * 100.0))
+		"yao_earth":
+			return "土与ダメージ %+d%%" % int(round(amount * 100.0))
+		"misaki_wind":
+			return "風与ダメージ %+d%%" % int(round(amount * 100.0))
+		"last_block_resist":
+			return "属性耐性 %+d%%" % int(round(amount * 100.0))
+		"lowest_star_taken", "lowest_equipped_taken":
+			return "受けるダメージ %+d%%" % int(round(-amount * 100.0))
+		"highest_hp_pen":
+			return "貫通率 %+d%%" % int(round(amount * 100.0))
 		"highest_crit_wind":
 			return "風与ダメージ %+d%%" % int(round(amount * 100.0))
 		"lowest_priority_earth":
@@ -1945,6 +2010,8 @@ func _apply_damage(target: Fighter, amount: int) -> int:
 
 
 func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
+	if bool(attacker.kit.get("minato_ghost", false)):
+		return 0.0
 	var bonus := _neighbor_bonus(attacker)
 	var element := attacker.element
 	if is_dot:
@@ -1983,12 +2050,15 @@ func _kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
 	bonus += _era2_kit_bonus(attacker, defender, is_dot)
 	bonus += _era6_kit_bonus(attacker, defender)
 	bonus += _era7_kit_bonus(attacker, defender, is_dot)
+	bonus += _era8_kit_bonus(attacker, defender, is_dot)
 	bonus -= float(attacker.kit.get("outgoing_cut", 0.0))
 	bonus -= float(attacker.kit.get("outgoing_cut_buff", 0.0))
 	return bonus
 
 
 func _formation_bonus(attacker: Fighter) -> float:
+	if bool(attacker.kit.get("minato_ghost", false)):
+		return 0.0
 	if attacker.enemy or attacker.stand_slot < 0 or attacker.element.is_empty():
 		return 0.0
 	var count := _formation_size_for_member(attacker)
@@ -2386,6 +2456,7 @@ func _weighted_fighter(pool: Array) -> Fighter:
 
 
 func _finish_attack_kits(actor: Fighter) -> void:
+	await _era8_finish_attack(actor)
 	if actor.sheet_id == 1 or actor.sheet_id == 6:
 		actor.kit["first_attack"] = false
 	if actor.sheet_id == 1:
@@ -2429,6 +2500,9 @@ func _finish_attack_kits(actor: Fighter) -> void:
 func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 	if actor == null or target == null or not is_instance_valid(target.unit):
 		return
+	if target.sheet_id == 89 and bool(target.kit.get("last_guard_zero", false)) and bool(target.kit.get("moriyama_guard_bare", false)):
+		target.kit["moriyama_guard_bare"] = false
+		return
 	if bool(actor.kit.get("continuity_done", false)):
 		return
 	actor.kit["continuity_done"] = true
@@ -2440,6 +2514,8 @@ func _continuity_with_attack(actor: Fighter, target: Fighter) -> void:
 
 
 func _on_damage_dealt(actor: Fighter, target: Fighter, dealt: int, _hp_lost: int) -> void:
+	if not bool(actor.kit.get("minato_ghost", false)):
+		await _era8_on_damage(actor, target, dealt)
 	if actor.sheet_id == 8 and bool(actor.kit.get("opening_strike", false)):
 		actor.kit["opening_dealt"] = dealt
 	if dealt <= 0:
@@ -2579,7 +2655,7 @@ func _apply_dot(actor: Fighter, target: Fighter) -> void:
 	var stacks := int(target.layers.get(actor.element, 0))
 	if stacks <= 0 or not target.alive:
 		return
-	var power := actor.attack * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
+	var power := (actor.attack + _era8_dot_attack_add(actor, target)) * float(actor.kit.get("dot_ratio", 0.05)) * float(stacks)
 	var rolled := _roll_damage(actor, target, false, _kit_bonus(actor, target, true), power, false)
 	var raw := int(rolled["amount"])
 	var cut := float(target.kit.get("received_dot_cut", 0.0))
@@ -2790,6 +2866,7 @@ func _on_fighter_down(dead: Fighter) -> void:
 		await _otsu_on_death(dead)
 	await _era6_on_death(dead)
 	_era7_on_death(dead)
+	await _era8_on_death(dead)
 	await _era2_on_death(dead)
 	_clear_buffs_touching(dead)
 	_refresh_passive_kits()
@@ -2909,6 +2986,8 @@ func _buff_target(actor: Fighter, kind: String) -> Fighter:
 			return _extreme(_opponents(actor), "attack", true)
 		"last_actor_absorb", "most_actions_wind", "lowest_front_hp_fire", "highest_crit_damage_earth":
 			return _era7_buff_target(actor, kind)
+		"lowest_cost_water", "highest_ice_attack", "highest_defense_ice", "misaki_wind", "last_block_resist", "lowest_star_taken", "lowest_equipped_taken", "yao_earth":
+			return _era8_buff_target(actor, kind)
 		_:
 			return _era6_buff_target(actor, kind)
 
@@ -2953,6 +3032,11 @@ func _debuff_target(actor: Fighter) -> Fighter:
 		var opening := _fighter_by_id(int(actor.kit.get("opening_target_id", -1)))
 		if opening != null and opening.alive and opening.hp > 0 and opening.enemy != actor.enemy:
 			return opening
+		return _extreme(_opponents(actor), "threat", true)
+	if actor.sheet_id == 89:
+		var last := _fighter_by_id(int(actor.kit.get("last_hitter_id", -1)))
+		if last != null and last.alive and last.hp > 0 and last.enemy != actor.enemy:
+			return last
 		return _extreme(_opponents(actor), "threat", true)
 	if actor.sheet_id == 9:
 		var hitter := _fighter_by_id(int(actor.kit.get("last_hitter_id", -1)))
@@ -3031,6 +3115,8 @@ func _debuff_target(actor: Fighter) -> Fighter:
 
 func _add_debuff(actor: Fighter, target: Fighter, kind: String, amount: float) -> void:
 	if not is_instance_valid(target.unit):
+		return
+	if actor.enemy != target.enemy and _era8_block_debuff(target):
 		return
 	if actor.enemy and not target.enemy and _relic_blocks > 0:
 		_relic_blocks -= 1
@@ -3314,6 +3400,8 @@ func _apply_buff_value(target: Fighter, kind: String, amount: float, source_shee
 			target.attack += value
 		"@attribute_resist":
 			target.attribute_resist += value
+		"@penetration":
+			target.penetration += value
 		"@defense_ratio":
 			## 防御力の割合上昇。戻すときに同じ量になるよう、シートの防御力を基準にする。
 			target.defense += float(target.kit.get("defense", target.defense)) * value
@@ -3522,6 +3610,7 @@ func _kits_after_turn(actor: Fighter, was_buff: bool) -> void:
 	_era3_on_ally_action(actor, was_buff)
 	_era5_on_ally_action(actor, was_buff)
 	await _era7_on_ally_action(actor)
+	await _era8_on_ally_action(actor, was_buff)
 	await _era2_after_turn(actor, was_buff)
 	if not actor.alive:
 		return
@@ -3729,6 +3818,7 @@ func _awaji_break_damage(actor: Fighter, target: Fighter) -> void:
 			_host._log("%s の撃破ダメージは %s に外れた" % [actor.unit.get_display_name(), target.unit.get_display_name()])
 		return
 	var rolled := _roll_damage(actor, target, true, bonus, -1.0)
+
 	var raw := int(rolled["amount"])
 	var crit := bool(rolled["crit"])
 	var guarded := _guard_nullifies(target, raw)
@@ -4301,6 +4391,7 @@ func _refresh_passive_kits() -> void:
 	_refresh_era4_back_buffs()
 	_era6_refresh_passive()
 	_era7_refresh_passive()
+	_era8_refresh_passive()
 
 
 ## 同じキャラが複数いるとき、効果を持つ1体（星が最も高い1体）。
@@ -4828,6 +4919,7 @@ func _era2_battle_start_flags() -> void:
 	_era4_battle_start_sync()
 	_era5_battle_start_sync()
 	_era7_battle_start()
+	_era8_battle_start()
 
 
 func _era2_attack_extras(actor: Fighter, primary: Fighter, extras: Array) -> Array:
@@ -9200,3 +9292,886 @@ func _era7_on_death(dead: Fighter) -> void:
 		if hikone.sheet_id == 70 and int(hikone.kit.get("fill_id", -1)) == dead_id:
 			hikone.kit["fill_id"] = -1
 			dead.kit["hashimoto_absorb"] = 0.0
+
+
+## 080〜095。ゲージの100、合成の残り、肩代わり、開幕の水はここで扱う。
+## マツサカの層は、その時点の氷の層で数える。ミノオが残す素材は合成の左である。
+func _era8_assign_kit(fighter: Fighter) -> void:
+	if not is_instance_valid(fighter.unit):
+		return
+	var flags: Dictionary = fighter.unit.kit_flags
+	match fighter.sheet_id:
+		81:
+			fighter.kit["maga_left"] = int(flags.get("maga_left", 0))
+		84:
+			fighter.attribute_resist += float(flags.get("mishima_resist", 0.0))
+		86:
+			_host._minoo_seed_charges(fighter.unit)
+			fighter.kit["minoo_left"] = int(flags.get("minoo_left", 0))
+			fighter.kit["gauge"] = int(flags.get("minoo_gauge", 0))
+			fighter.kit["guard_pierce_left"] = 0
+			var fire: Dictionary = fighter.element_damage
+			fire["fire"] = float(fire.get("fire", 0.0)) + float(flags.get("minoo_fire", 0.0))
+			fighter.element_damage = fire
+		87, 92, 94:
+			fighter.kit["never_acts"] = _is_backline(fighter)
+		93:
+			var start := int(fighter.kit.get("gauge", 0))
+			var stored := int(flags.get("yoshino_gauge", 0))
+			fighter.kit["gauge"] = mini(99, stored + start)
+			flags["yoshino_gauge"] = int(fighter.kit["gauge"])
+			_show_gauge(fighter)
+	if bool(flags.get("yoshino_wind", false)):
+		fighter.kit["yoshino_wind"] = true
+		fighter.kit["yoshino_bonus"] = float(flags.get("yoshino_bonus", 0.0))
+		fighter.kit["yoshino_pen"] = float(flags.get("yoshino_pen", 0.0))
+		fighter.kit["yoshino_stars"] = int(flags.get("yoshino_stars", 1))
+		fighter.kit["yoshino_id"] = int(flags.get("yoshino_id", 0))
+
+
+func _era8_battle_start() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 80 or fighter.sheet_id == 82 or fighter.sheet_id == 91 or fighter.sheet_id == 83:
+			_show_gauge(fighter)
+		if fighter.sheet_id == 84 and is_instance_valid(fighter.unit):
+			fighter.kit["block_left"] = fighter.unit.equipped_relic_uids.size()
+		if fighter.sheet_id == 86 and is_instance_valid(fighter.unit) and fighter.unit.equipped_relic_uids.size() > 0:
+			fighter.kit["guard_pierce_left"] = int(fighter.kit.get("guard_pierce", 1))
+		if fighter.sheet_id == 89:
+			fighter.kit["nullify_left"] = 1
+		if fighter.sheet_id == 95 and fighter.hp > 0:
+			var copied := _era8_highest_attack(fighter)
+			fighter.kit["yodo_defense"] = copied.defense if copied != null else 0.0
+			fighter.kit["yodo_target_id"] = copied.unit.get_instance_id() if copied != null else -1
+			fighter.kit["yodo_fired"] = []
+	var minato := _best_sheet(false, 85)
+	if minato != null:
+		var ward := _era8_lowest_star(minato)
+		if ward != null:
+			_set_single_buff(minato, ward, "lowest_star_taken", float(minato.kit.get("buff_amount", 0.0)))
+
+
+func _era8_opening() -> void:
+	for enemy_side in [false, true]:
+		var yodo := _era8_lowest_id(enemy_side, 95)
+		if yodo == null or yodo.hp <= 0:
+			continue
+		var back: Array = []
+		for entry in _side_all(yodo.enemy):
+			var ally: Fighter = entry
+			if _is_backline(ally) and ally.hp > 0:
+				back.append(ally)
+		back.sort_custom(func(a: Fighter, b: Fighter) -> bool: return a.unit.unit_id < b.unit.unit_id)
+		for entry2 in back:
+			var ally2: Fighter = entry2
+			if not await _era8_yodo_strike(yodo, ally2):
+				break
+
+
+func _era8_on_finish() -> void:
+	if _host == null or _host.session == null:
+		return
+	var best: Fighter = null
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy or fighter.sheet_id != 87 or not is_instance_valid(fighter.unit):
+			continue
+		if fighter.stand_slot < 0 and not fighter.on_board:
+			continue
+		if best == null or fighter.unit.stars > best.unit.stars or (fighter.unit.stars == best.unit.stars and fighter.unit.get_instance_id() < best.unit.get_instance_id()):
+			best = fighter
+	if best != null:
+		_host.session.interest_principal_bonus += int(best.kit.get("interest_gold", 2))
+
+
+func _era8_on_ap_loss(fighter: Fighter) -> void:
+	if fighter == null or fighter.hp <= 0:
+		return
+	if fighter.sheet_id != 80 and fighter.sheet_id != 82:
+		return
+	await _era8_push_pop(fighter)
+
+
+func _era8_on_ally_action(actor: Fighter, was_buff: bool) -> void:
+	if actor == null:
+		return
+	var delay := int(actor.kit.get("moriyama_delay", 0))
+	if delay > 0 and actor.alive and is_instance_valid(actor.unit):
+		actor.kit["moriyama_delay"] = 0
+		actor.ap += delay
+		actor.unit.action_value = actor.ap
+	var added := float(actor.kit.get("yama_def_added", 0.0))
+	if added != 0.0:
+		actor.defense = maxf(0.0, actor.defense - added)
+		actor.kit["yama_def_added"] = 0.0
+	if actor.hp <= 0:
+		return
+	if actor.sheet_id == 80 or actor.sheet_id == 82:
+		await _era8_push_pop(actor)
+	for entry in _side_all(actor.enemy):
+		var misaki: Fighter = entry
+		if misaki.sheet_id != 83 or misaki.hp <= 0:
+			continue
+		misaki.kit["last_actor_id"] = actor.unit.get_instance_id()
+		var gain := _greek_gauge_step(misaki.enemy)
+		if not was_buff and not actor.guarding:
+			gain += int(misaki.kit.get("attack_gauge", 4))
+		if _era7_push_gauge(misaki, gain):
+			if int(actor.kit.get("misaki_layers", 0)) <= 0 and actor.hp > 0:
+				actor.kit["misaki_layers"] = int(misaki.kit.get("ally_layers", 2))
+				actor.kit["misaki_from"] = misaki.unit.get_instance_id()
+				if is_instance_valid(actor.unit):
+					actor.unit.popup_battle_text("次の層", Color(0.7, 0.95, 0.75))
+		_show_gauge(misaki)
+
+
+func _era8_push_pop(fighter: Fighter) -> void:
+	if not _era7_push_gauge(fighter, _pop_music_gauge_step(fighter.enemy)):
+		_show_gauge(fighter)
+		return
+	_show_gauge(fighter)
+	if fighter.sheet_id == 80:
+		await _era8_ibara_full(fighter)
+	elif fighter.sheet_id == 82:
+		await _era8_matsu_full(fighter)
+
+
+func _era8_ibara_full(ibara: Fighter) -> void:
+	var broke_ids: Array = []
+	var times := int(ibara.kit.get("break_times", 1))
+	for entry in _era8_foes(ibara):
+		var foe: Fighter = entry
+		if foe.hp <= 0:
+			continue
+		if _extra_break_steps(ibara, foe, "water", times):
+			broke_ids.append(foe.unit.get_instance_id())
+	var swap: Fighter = null
+	for entry2 in _era8_foes(ibara):
+		var foe2: Fighter = entry2
+		if foe2.hp <= 0 or not _is_backline(foe2):
+			continue
+		if not broke_ids.has(foe2.unit.get_instance_id()):
+			continue
+		if swap == null or foe2.unit.unit_id < swap.unit.unit_id:
+			swap = foe2
+	if swap == null or not is_instance_valid(swap.unit):
+		return
+	var front_slot := BoardController.SLOTS_PER_FACE - 1 - swap.stand_slot
+	var board: BoardController = _host.board
+	var ally: Fighter = null
+	for entry3 in _side_all(ibara.enemy):
+		var friend: Fighter = entry3
+		if friend.hp > 0 and friend.stand_slot == front_slot:
+			ally = friend
+			break
+	board.swap_enemy_column(front_slot)
+	_era8_sync_slot(swap.unit)
+	swap.ap = swap.base_ap
+	if is_instance_valid(swap.unit):
+		swap.unit.action_value = swap.ap
+	var displaced := _fighter_by_id(int(swap.kit.get("era8_pair_id", -1)))
+	for key in _fighters.keys():
+		var other: Fighter = _fighters[key]
+		if other.enemy == swap.enemy and is_instance_valid(other.unit) and other.unit.circle_slot != other.stand_slot:
+			var came_front := other.stand_slot >= BoardController.FRONT_COUNT and other.unit.circle_slot < BoardController.FRONT_COUNT
+			_era8_sync_slot(other.unit)
+			if came_front:
+				other.ap = other.base_ap
+				if is_instance_valid(other.unit):
+					other.unit.action_value = other.ap
+			elif other != swap:
+				displaced = other
+	if ally != null and is_instance_valid(ally.unit):
+		board.swap_circle_column(ally.unit.circle_face, front_slot)
+		for entry4 in _side_all(ibara.enemy):
+			var moved: Fighter = entry4
+			if is_instance_valid(moved.unit):
+				_era8_sync_slot(moved.unit)
+		if not bool(ally.kit.get("ibara_acted", false)) and ally.hp > 0:
+			ally.kit["ibara_acted"] = true
+			await _act(ally)
+			if ally.alive:
+				ally.ap = ally.base_ap
+				ally.in_queue = false
+				if is_instance_valid(ally.unit):
+					ally.unit.action_value = ally.base_ap
+	if is_instance_valid(ibara.unit):
+		_host._log("%s のゲージで後衛が前に出た" % ibara.unit.get_display_name())
+
+
+func _era8_sync_slot(unit: GameUnit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		return
+	var fighter := _fighter(unit, unit.circle_slot)
+	fighter.stand_slot = unit.circle_slot
+	var front := unit.circle_slot >= 0 and unit.circle_slot < BoardController.FRONT_COUNT
+	fighter.in_queue = front and fighter.hp > 0 and not bool(fighter.kit.get("never_acts", false))
+
+
+func _era8_matsu_full(matsu: Fighter) -> void:
+	var foe := _era8_most_ice(matsu)
+	if foe == null:
+		matsu.kit["matsu_wait"] = true
+		if is_instance_valid(matsu.unit):
+			matsu.unit.popup_battle_text("層待ち", Color(0.7, 0.85, 1.0))
+		return
+	await _era8_matsu_burst(matsu, foe)
+
+
+func _era8_matsu_burst(matsu: Fighter, foe: Fighter) -> void:
+	var times := int(matsu.kit.get("burst_times", 2))
+	for _i in times:
+		if foe == null or foe.hp <= 0:
+			break
+		await _apply_dot(matsu, foe)
+	if foe != null and foe.hp > 0:
+		_step_break_gauge(matsu, foe, "ice")
+
+
+func _era8_most_ice(actor: Fighter) -> Fighter:
+	var best: Fighter = null
+	var best_n := -1
+	for entry in _era8_foes(actor):
+		var foe: Fighter = entry
+		if foe.hp <= 0:
+			continue
+		var n := int(foe.layers.get("ice", 0))
+		if n <= 0:
+			continue
+		if best == null or n > best_n or (n == best_n and foe.unit.unit_id < best.unit.unit_id):
+			best = foe
+			best_n = n
+	return best
+
+
+func _era8_note_packet(actor: Fighter, target: Fighter, direct: bool, _connected: bool) -> void:
+	if not direct or actor == null or target == null:
+		return
+	if target.sheet_id == 89 and is_instance_valid(actor.unit):
+		target.kit["last_hitter_id"] = actor.unit.get_instance_id()
+	var layers := int(actor.kit.get("misaki_layers", 0))
+	if layers > 0 and target.hp > 0:
+		_add_layers(target, "wind", layers)
+		actor.kit["misaki_layers"] = 0
+	if actor.sheet_id == 83 and actor.element == "wind" and int(actor.kit.get("gauge", 0)) >= 50 and target.hp > 0:
+		_add_layers(target, "wind", int(actor.kit.get("gauge_layers", 1)))
+	if actor.sheet_id == 82 and bool(actor.kit.get("matsu_wait", false)):
+		var now := int(target.layers.get("ice", 0))
+		if now > int(target.kit.get("matsu_ice_before", now)):
+			actor.kit["matsu_wait"] = false
+			await _era8_matsu_burst(actor, target)
+
+
+func _era8_finish_attack(actor: Fighter) -> void:
+	if actor == null:
+		return
+	if bool(actor.kit.get("maga_spend", false)) and actor.hp > 0:
+		actor.kit["maga_spend"] = false
+		actor.kit["maga_left"] = maxi(0, int(actor.kit.get("maga_left", 0)) - 1)
+		if is_instance_valid(actor.unit):
+			actor.unit.kit_flags["maga_left"] = int(actor.kit["maga_left"])
+	if actor.element == "wind" and bool(actor.kit.get("yoshino_wind", false)):
+		actor.kit["yoshino_wind"] = false
+		if is_instance_valid(actor.unit):
+			actor.unit.kit_flags.erase("yoshino_wind")
+	if actor.sheet_id == 91 and actor.hp > 0 and not _is_backline(actor):
+		if _era7_push_gauge(actor, _soar_bridge_gauge_step(actor.enemy)):
+			if not bool(actor.kit.get("yama_next", false)):
+				actor.kit["yama_next"] = true
+				if is_instance_valid(actor.unit):
+					actor.unit.popup_battle_text("次の水", Color(0.65, 0.82, 1.0))
+		_show_gauge(actor)
+	var add_def := float(actor.kit.get("yama_def_add", 0.0))
+	if add_def > 0.0:
+		actor.kit["yama_def_add"] = 0.0
+		actor.defense += add_def
+		actor.kit["yama_def_added"] = float(actor.kit.get("yama_def_added", 0.0)) + add_def
+	var kills := int(actor.kit.get("era8_kills", 0))
+	actor.kit["era8_kills"] = 0
+	if kills <= 0 or bool(actor.kit.get("minato_ghost", false)):
+		return
+	var step := _bistron_gauge_step(actor.enemy) * kills
+	for entry in _side_all(actor.enemy):
+		var ally: Fighter = entry
+		if ally.hp <= 0:
+			continue
+		if ally.sheet_id == 93:
+			_era8_yoshino_add(ally, actor, step)
+		elif ally.sheet_id == 86:
+			_era8_minoo_add(ally, step)
+
+
+func _era8_yoshino_add(yoshino: Fighter, killer: Fighter, step: int) -> void:
+	var gauge := int(yoshino.kit.get("gauge", 0)) + step
+	if gauge >= 100:
+		yoshino.kit["gauge"] = 0
+		if killer != null and killer.hp > 0 and int(killer.kit.get("misaki_layers", 0)) >= 0:
+			var stars := yoshino.unit.stars
+			var better := not bool(killer.kit.get("yoshino_wind", false))
+			if bool(killer.kit.get("yoshino_wind", false)):
+				var old_stars := int(killer.kit.get("yoshino_stars", 0))
+				var old_id := int(killer.kit.get("yoshino_id", 999999))
+				better = stars > old_stars or (stars == old_stars and yoshino.unit.unit_id < old_id)
+			if better:
+				killer.kit["yoshino_wind"] = true
+				killer.kit["yoshino_bonus"] = float(yoshino.kit.get("next_wind", 0.25))
+				killer.kit["yoshino_pen"] = float(yoshino.kit.get("next_pen", 0.10))
+				killer.kit["yoshino_stars"] = stars
+				killer.kit["yoshino_id"] = yoshino.unit.unit_id
+				if is_instance_valid(killer.unit):
+					killer.unit.kit_flags["yoshino_wind"] = true
+					killer.unit.kit_flags["yoshino_bonus"] = killer.kit["yoshino_bonus"]
+					killer.unit.kit_flags["yoshino_pen"] = killer.kit["yoshino_pen"]
+					killer.unit.kit_flags["yoshino_stars"] = stars
+					killer.unit.kit_flags["yoshino_id"] = yoshino.unit.unit_id
+	else:
+		yoshino.kit["gauge"] = gauge
+	if is_instance_valid(yoshino.unit):
+		yoshino.unit.kit_flags["yoshino_gauge"] = int(yoshino.kit.get("gauge", 0))
+	_show_gauge(yoshino)
+
+
+func _era8_minoo_add(minoo: Fighter, step: int) -> void:
+	var gauge := int(minoo.kit.get("gauge", 0)) + step
+	if gauge >= 100:
+		minoo.kit["gauge"] = 0
+		var cap := int(minoo.kit.get("material_cap", 1))
+		if int(minoo.kit.get("minoo_left", 0)) < cap:
+			minoo.kit["minoo_left"] = int(minoo.kit.get("minoo_left", 0)) + 1
+	else:
+		minoo.kit["gauge"] = gauge
+	if is_instance_valid(minoo.unit):
+		minoo.unit.kit_flags["minoo_gauge"] = int(minoo.kit.get("gauge", 0))
+		minoo.unit.kit_flags["minoo_left"] = int(minoo.kit.get("minoo_left", 0))
+	_show_gauge(minoo)
+
+
+func _era8_on_damage(actor: Fighter, target: Fighter, dealt: int) -> void:
+	if actor == null or target == null or dealt <= 0:
+		return
+	if not target.alive:
+		actor.kit["era8_kills"] = int(actor.kit.get("era8_kills", 0)) + 1
+	if actor.sheet_id == 86 and actor.element == "fire" and is_instance_valid(target.unit):
+		var seen: Dictionary = actor.kit.get("minoo_cut_ids", {})
+		var tid := target.unit.get_instance_id()
+		if not seen.has(tid):
+			seen[tid] = true
+			actor.kit["minoo_cut_ids"] = seen
+			target.kit["received_fire_resist"] = float(target.kit.get("received_fire_resist", 0.0)) - float(actor.kit.get("fire_cut", 0.1))
+	if target.sheet_id != 92 or target.hp < 0:
+		return
+	var stamp := int(actor.kit.get("action_stamp", -1))
+	if int(target.kit.get("osc_stamp", -2)) == stamp:
+		return
+	target.kit["osc_stamp"] = stamp
+	if target.sheet_id == 92 and not _era7_push_gauge(target, _oscillator_gauge_step(target.enemy)):
+		_show_gauge(target)
+		return
+	_show_gauge(target)
+	if int(target.kit.get("summon_used", 0)) >= int(target.kit.get("summon_cap", 1)):
+		return
+	if actor.hp <= 0:
+		return
+	target.kit["summon_used"] = int(target.kit.get("summon_used", 0)) + 1
+	var saved := target.crit_damage
+	target.crit_damage += float(target.kit.get("summon_crit", 15)) / 100.0
+	target.kit["summon_strike"] = true
+	await _era6_side_strike(target, actor, "ice", "召喚", false)
+	target.kit["summon_strike"] = false
+	target.crit_damage = saved
+
+
+func _era8_pen(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
+	if attacker == null or defender == null:
+		return 0.0
+	var pen := 0.0
+	if not is_dot and attacker.element == "ice" and int(attacker.kit.get("maga_left", 0)) > 0 and attacker.hp > 0:
+		pen += float(attacker.kit.get("maga_pen", 0.2))
+		attacker.kit["maga_spend"] = true
+	if attacker.element == "water" and attacker.sheet_id == 91:
+		var stamp := int(attacker.kit.get("action_stamp", -1))
+		if not is_dot and bool(attacker.kit.get("yama_next", false)) and int(attacker.kit.get("yama_stamp", -2)) != stamp:
+			var layers := mini(int(defender.layers.get("water", 0)), int(attacker.kit.get("yama_cap", 3)))
+			var got := float(layers) * float(attacker.kit.get("yama_per", 0.08))
+			attacker.kit["yama_stamp"] = stamp
+			attacker.kit["yama_cached"] = got
+			attacker.kit["yama_next"] = false
+			defender.kit["yama_dot_pen"] = got
+			attacker.kit["yama_def_add"] = defender.defense * got * float(attacker.kit.get("def_ratio", 0.4))
+		if not is_dot and int(attacker.kit.get("yama_stamp", -2)) == stamp:
+			pen += float(attacker.kit.get("yama_cached", 0.0))
+		if is_dot:
+			var extra := float(defender.kit.get("yama_dot_pen", 0.0))
+			if attacker.hp <= 0 or int(defender.layers.get("water", 0)) <= 0:
+				defender.kit["yama_dot_pen"] = 0.0
+			else:
+				pen += extra
+	if not is_dot and attacker.element == "wind" and bool(attacker.kit.get("yoshino_wind", false)):
+		pen += float(attacker.kit.get("yoshino_pen", 0.0))
+	return pen
+
+
+func _era8_kit_bonus(attacker: Fighter, defender: Fighter, is_dot: bool) -> float:
+	if attacker == null:
+		return 0.0
+	var bonus := 0.0
+	if attacker.element == "ice" and int(attacker.kit.get("maga_left", 0)) > 0 and attacker.hp > 0 and attacker.sheet_id == 81:
+		bonus += float(attacker.kit.get("self_ice", 0.15))
+	if bool(attacker.kit.get("summon_strike", false)) and attacker.element == "ice" and not is_dot:
+		bonus += float(attacker.kit.get("summon_ice", 0.12))
+	if not is_dot and attacker.element == "wind" and bool(attacker.kit.get("yoshino_wind", false)):
+		bonus += float(attacker.kit.get("yoshino_bonus", 0.0))
+	if is_dot or defender == null or attacker.enemy == defender.enemy:
+		return bonus
+	var mihara := _best_sheet(defender.enemy, 87)
+	if mihara != null and _is_backline(mihara) and mihara.hp > 0:
+		var layers := int(attacker.layers.get("ice", 0))
+		if layers > 0:
+			var counted := mini(layers, int(mihara.kit.get("layer_cap", 2)))
+			bonus -= float(counted) * float(mihara.kit.get("layer_cut", 0.04))
+	return bonus
+
+
+func _era8_dot_attack_add(actor: Fighter, target: Fighter) -> float:
+	if actor == null or target == null or actor.element != "ice":
+		return 0.0
+	for entry in _side_all(actor.enemy):
+		var maga: Fighter = entry
+		if maga.sheet_id == 81 and maga.hp > 0 and int(maga.kit.get("maga_left", 0)) > 0:
+			return target.defense * float(maga.kit.get("dot_def", 0.2))
+	return 0.0
+
+
+func _era8_nullify(actor: Fighter, target: Fighter) -> bool:
+	if target == null or target.sheet_id != 89 or target.hp <= 0:
+		return false
+	if int(target.kit.get("nullify_left", 0)) <= 0:
+		return false
+	target.kit["nullify_left"] = int(target.kit.get("nullify_left", 0)) - 1
+	target.kit["moriyama_guard_bare"] = true
+	target.kit["last_hitter_id"] = actor.unit.get_instance_id() if is_instance_valid(actor.unit) else -1
+	actor.kit["moriyama_delay"] = 298
+	if is_instance_valid(target.unit):
+		target.unit.popup_battle_text("無効", Color(0.8, 0.9, 1.0))
+		_host._log("%s が攻撃を無効にした" % target.unit.get_display_name())
+	return true
+
+
+func _era8_yao_active(target: Fighter) -> bool:
+	return _era8_yao_for(target) != null
+
+
+func _era8_yao_for(target: Fighter) -> Fighter:
+	if target == null:
+		return null
+	var chosen: Fighter = null
+	for key in _fighters.keys():
+		var yao: Fighter = _fighters[key]
+		if yao.sheet_id != 90 or yao.enemy != target.enemy or not is_instance_valid(yao.unit):
+			continue
+		var charges := int(yao.kit.get("living_left", 0)) if yao.hp > 0 else int(yao.kit.get("death_charges", 0))
+		if charges <= 0:
+			continue
+		if _era8_yao_ward(yao) != target:
+			continue
+		if chosen == null or yao.unit.unit_id < chosen.unit.unit_id:
+			chosen = yao
+	return chosen
+
+
+func _era8_yao_ward(yao: Fighter) -> Fighter:
+	var best: Fighter = null
+	for key in _fighters.keys():
+		var ally: Fighter = _fighters[key]
+		if ally.enemy != yao.enemy or ally.hp <= 0 or _is_backline(ally):
+			continue
+		if yao.hp <= 0 and ally == yao:
+			continue
+		if best == null or ally.hp < best.hp or (ally.hp == best.hp and ally.unit.unit_id < best.unit.unit_id):
+			best = ally
+	return best
+
+
+func _era8_yao_resolve(actor: Fighter, target: Fighter, _connected: bool) -> void:
+	var yao := _era8_yao_for(target)
+	if yao == null:
+		return
+	if yao.hp > 0:
+		yao.kit["living_left"] = int(yao.kit.get("living_left", 1)) - 1
+		if is_instance_valid(target.unit):
+			target.unit.popup_battle_text("肩代わり", Color(0.8, 0.75, 0.55))
+		return
+	yao.kit["death_charges"] = int(yao.kit.get("death_charges", 1)) - 1
+	var foe := _era8_most_earth(yao)
+	var layers := int(foe.layers.get("earth", 0)) if foe != null else 0
+	if foe == null:
+		foe = _extreme(_opponents(yao), "threat", true)
+		layers = 1
+	if foe == null or foe.hp <= 0:
+		return
+	var times := mini(maxi(layers, 1), int(yao.kit.get("layer_times", 2)))
+	for _i in times:
+		if foe.hp <= 0:
+			break
+		await _era6_side_strike(actor, foe, actor.element, "肩代わり", false)
+
+
+func _era8_most_earth(yao: Fighter) -> Fighter:
+	var best: Fighter = null
+	var best_n := 0
+	for entry in _era8_foes(yao):
+		var foe: Fighter = entry
+		if foe.hp <= 0:
+			continue
+		var n := int(foe.layers.get("earth", 0))
+		if n <= 0:
+			continue
+		if best == null or n > best_n or (n == best_n and foe.unit.unit_id < best.unit.unit_id):
+			best = foe
+			best_n = n
+	return best
+
+
+func _era8_on_death(dead: Fighter) -> void:
+	if dead == null or not is_instance_valid(dead.unit):
+		return
+	if int(dead.kit.get("misaki_layers", 0)) > 0:
+		dead.kit["misaki_layers"] = 0
+	if dead.sheet_id == 83:
+		var from_id := dead.unit.get_instance_id()
+		for key in _fighters.keys():
+			var ally: Fighter = _fighters[key]
+			if int(ally.kit.get("misaki_from", -1)) == from_id:
+				ally.kit["misaki_layers"] = 0
+	if dead.sheet_id == 90:
+		dead.kit["death_charges"] = int(dead.kit.get("death_left", 1))
+	if dead.sheet_id == 91:
+		dead.kit["yama_next"] = false
+		var added := float(dead.kit.get("yama_def_added", 0.0))
+		if added != 0.0:
+			dead.defense = maxf(0.0, dead.defense - added)
+			dead.kit["yama_def_added"] = 0.0
+	if dead.sheet_id != 85:
+		return
+	var ally := _era8_lowest_ap_front(dead)
+	if ally != null:
+		await _act(ally)
+		if ally.alive and is_instance_valid(ally.unit):
+			ally.ap = ally.base_ap
+			ally.unit.action_value = ally.ap
+	var foe := _extreme(_opponents(dead), "threat", true)
+	if foe == null or foe.hp <= 0:
+		return
+	await _era8_minato_strike(dead, foe)
+
+
+func _era8_minato_strike(minato: Fighter, foe: Fighter) -> void:
+	var saved_attack := minato.attack
+	var saved_element := minato.element
+	var saved_crit := minato.crit_damage
+	var saved_rate := minato.crit_rate
+	var saved_pen := minato.penetration
+	var saved_map: Dictionary = minato.element_damage
+	if _host != null and _host.session != null and int(_host.session.last_merged_unit_id) > 0:
+		var sheet := CharacterSheet.make(int(_host.session.last_merged_unit_id), int(_host.session.last_merged_stars))
+		if not sheet.is_empty():
+			minato.attack = float(sheet.get("attack", minato.attack))
+			minato.element = str(sheet.get("element", minato.element))
+			minato.crit_damage = float(sheet.get("crit_damage", minato.crit_damage))
+			minato.crit_rate = float(sheet.get("crit_rate", minato.crit_rate))
+			minato.penetration = 0.0
+			minato.element_damage = sheet.get("element_damage", {})
+	minato.kit["minato_ghost"] = true
+	await _era8_ghost_strike(minato, foe)
+	minato.kit["minato_ghost"] = false
+	minato.attack = saved_attack
+	minato.element = saved_element
+	minato.crit_damage = saved_crit
+	minato.crit_rate = saved_rate
+	minato.penetration = saved_pen
+	minato.element_damage = saved_map
+
+
+func _era8_ghost_strike(attacker: Fighter, target: Fighter) -> void:
+	if attacker == null or target == null or target.hp <= 0 or not is_instance_valid(target.unit):
+		return
+	if not _roll_hit(target):
+		GameAudio.play_battle_miss()
+		target.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
+		return
+	var rolled := _roll_damage(attacker, target, true, 0.0, -1.0, false)
+	var dealt := int(rolled["amount"])
+	var absorbed := _apply_damage(target, dealt)
+	if dealt > 0 and is_instance_valid(target.unit):
+		target.unit.popup_battle_text("-%d" % dealt, Color(1.0, 0.9, 0.7))
+	if is_instance_valid(attacker.unit):
+		_host._log("%s の残った攻撃が %s に %d" % [attacker.unit.get_display_name(), target.unit.get_display_name(), dealt])
+	if not target.alive and is_instance_valid(target.unit) and not target.unit.battle_ko:
+		_growth_killer = attacker
+		await _ko(target)
+	if absorbed < 0:
+		return
+
+
+func _era8_lowest_ap_front(dead: Fighter) -> Fighter:
+	var best: Fighter = null
+	for key in _fighters.keys():
+		var ally: Fighter = _fighters[key]
+		if ally == dead or ally.enemy != dead.enemy or ally.hp <= 0 or _is_backline(ally):
+			continue
+		if best == null or ally.ap < best.ap or (ally.ap == best.ap and ally.unit.unit_id < best.unit.unit_id):
+			best = ally
+	return best
+
+
+func _era8_block_debuff(target: Fighter) -> bool:
+	if target == null or target.hp <= 0:
+		return false
+	var chosen: Fighter = null
+	for entry in _side_all(target.enemy):
+		var mishima: Fighter = entry
+		if mishima.sheet_id != 84 or mishima.hp <= 0 or int(mishima.kit.get("block_left", 0)) <= 0:
+			continue
+		if chosen == null or mishima.unit.unit_id < chosen.unit.unit_id:
+			chosen = mishima
+	if chosen == null:
+		return false
+	chosen.kit["block_left"] = int(chosen.kit.get("block_left", 0)) - 1
+	target.kit["mishima_cut_left"] = int(target.kit.get("mishima_cut_left", 0)) + 1
+	chosen.kit["last_block_id"] = target.unit.get_instance_id()
+	if is_instance_valid(target.unit):
+		target.unit.popup_battle_text("無効", Color(0.85, 0.75, 0.45))
+		_host._log("%s が %s へのデバフを止めた" % [chosen.unit.get_display_name(), target.unit.get_display_name()])
+	return true
+
+
+func _era8_yosato_is_self(attacker: Fighter) -> bool:
+	var best := _best_sheet(attacker.enemy, 94)
+	return best != null and best == attacker and best.hp > 0
+
+
+func _era8_yosato_strip(actor: Fighter, target: Fighter) -> void:
+	var best := _best_sheet(actor.enemy, 94)
+	if best == null or best.hp <= 0 or target == null or not is_instance_valid(target.unit):
+		return
+	var count := 0
+	if actor == best:
+		count = int(best.kit.get("strip_count", 1))
+	else:
+		if int(best.kit.get("ally_strip_left", int(best.kit.get("ally_strip", 1)))) <= 0:
+			return
+		count = 1
+		best.kit["ally_strip_left"] = int(best.kit.get("ally_strip_left", int(best.kit.get("ally_strip", 1)))) - 1
+	var removed := 0
+	while removed < count:
+		var buffer := _era8_latest_buff(target)
+		if buffer == null:
+			break
+		_clear_single_buff(buffer)
+		removed += 1
+		if target.hp > 0:
+			_step_break_gauge(actor, target, "thunder")
+	if removed > 0 and is_instance_valid(target.unit):
+		target.unit.popup_battle_text("バフ消", Color(1.0, 0.85, 0.35))
+
+
+func _era8_latest_buff(target: Fighter) -> Fighter:
+	var chosen: Fighter = null
+	var stamp := -1
+	var tid := target.unit.get_instance_id()
+	for key in _fighters.keys():
+		var buffer: Fighter = _fighters[key]
+		if buffer == target:
+			continue
+		if int(buffer.kit.get("buff_target_id", -1)) != tid:
+			continue
+		var mark := int(buffer.kit.get("buff_stamp", 0))
+		if chosen == null or mark >= stamp:
+			chosen = buffer
+			stamp = mark
+	return chosen
+
+
+func _era8_yodo_buff(actor: Fighter) -> void:
+	var pool: Array = []
+	var fired: Array = actor.kit.get("yodo_fired", [])
+	for entry in _side_all(actor.enemy):
+		var ally: Fighter = entry
+		if ally.hp <= 0:
+			continue
+		if fired.has(ally.unit.get_instance_id()):
+			continue
+		pool.append(ally)
+	if pool.is_empty():
+		await _wait(0.12)
+		return
+	var chosen: Fighter = _extreme(pool, "attack", false)
+	await _era8_yodo_strike(actor, chosen)
+
+
+func _era8_yodo_strike(yodo: Fighter, ally: Fighter) -> bool:
+	if yodo == null or ally == null or ally.hp <= 0 or yodo.hp <= 0:
+		return false
+	var foe := _fighter_by_id(int(yodo.kit.get("yodo_target_id", -1)))
+	if foe == null or foe.hp <= 0:
+		return false
+	var fired: Array = yodo.kit.get("yodo_fired", [])
+	fired.append(ally.unit.get_instance_id())
+	yodo.kit["yodo_fired"] = fired
+	var saved := ally.attack
+	ally.attack = float(yodo.kit.get("yodo_defense", ally.attack))
+	ally.kit["yodo_strike"] = true
+	ally.kit["yodo_bonus"] = float(yodo.kit.get("water_bonus", 0.2))
+	var connected := _roll_hit(foe)
+	var broke := false
+	if connected and _has_synergy(ally, "東雲"):
+		broke = _extra_break_steps(ally, foe, "water", int(yodo.kit.get("break_times", 1)))
+	if connected:
+		var bonus := _kit_bonus(ally, foe, false) + float(yodo.kit.get("water_bonus", 0.2))
+		var rolled := _roll_damage(ally, foe, true, bonus, ally.attack)
+		var dealt := _mitigate(foe, int(rolled["amount"]))
+		_apply_damage(foe, dealt)
+		if dealt > 0 and is_instance_valid(foe.unit):
+			foe.unit.popup_battle_text("-%d" % dealt, Color(0.7, 0.85, 1.0))
+		if not foe.alive and is_instance_valid(foe.unit) and not foe.unit.battle_ko:
+			_growth_killer = ally
+			await _ko(foe)
+	else:
+		GameAudio.play_battle_miss()
+		if is_instance_valid(foe.unit):
+			foe.unit.popup_battle_text("外れ", Color(0.9, 0.9, 0.9))
+	ally.attack = saved
+	ally.kit["yodo_strike"] = false
+	await _wait(0.12)
+	return foe.hp > 0 or broke
+
+
+func _era8_buff_target(actor: Fighter, kind: String) -> Fighter:
+	match kind:
+		"lowest_cost_water":
+			return _extreme(_side_all(actor.enemy), "cost", false)
+		"highest_ice_attack":
+			var pool: Array = []
+			for entry in _side_all(actor.enemy):
+				var ally: Fighter = entry
+				if ally.hp > 0 and ally.element == "ice":
+					pool.append(ally)
+			if pool.is_empty():
+				return actor
+			return _extreme(pool, "attack", true)
+		"highest_defense_ice":
+			return _extreme(_side_all(actor.enemy), "defense", true)
+		"misaki_wind":
+			for entry2 in _side_all(actor.enemy):
+				var armed: Fighter = entry2
+				if int(armed.kit.get("misaki_layers", 0)) > 0 and int(armed.kit.get("misaki_from", -1)) == actor.unit.get_instance_id():
+					return armed
+			var last := _fighter_by_id(int(actor.kit.get("last_actor_id", -1)))
+			if last != null and last.hp > 0 and last.enemy == actor.enemy:
+				return last
+			return actor
+		"last_block_resist":
+			var blocked := _fighter_by_id(int(actor.kit.get("last_block_id", -1)))
+			if blocked != null and blocked.hp > 0 and blocked.enemy == actor.enemy:
+				return blocked
+			return _extreme(_side_all(actor.enemy), "threat", true)
+		"lowest_star_taken":
+			return _era8_lowest_star(actor)
+		"yao_earth":
+			var ward := _era8_yao_ward(actor)
+			return ward if ward != null else actor
+		"lowest_equipped_taken":
+			return _era8_minoo_buff_target(actor)
+	return actor
+
+
+func _era8_minoo_buff_target(actor: Fighter) -> Fighter:
+	var best: Fighter = null
+	for entry in _side_all(actor.enemy):
+		var ally: Fighter = entry
+		if ally.hp <= 0 or not is_instance_valid(ally.unit):
+			continue
+		if ally.unit.equipped_relic_uids.is_empty():
+			continue
+		if best == null or ally.defense < best.defense or (is_equal_approx(ally.defense, best.defense) and ally.unit.unit_id < best.unit.unit_id):
+			best = ally
+	return best
+
+
+func _era8_lowest_star(actor: Fighter) -> Fighter:
+	var best: Fighter = null
+	for entry in _side_all(actor.enemy):
+		var ally: Fighter = entry
+		if ally.hp <= 0:
+			continue
+		if best == null or ally.unit.stars < best.unit.stars or (ally.unit.stars == best.unit.stars and ally.unit.unit_id < best.unit.unit_id):
+			best = ally
+	return best
+
+
+func _era8_refresh_passive() -> void:
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.sheet_id == 87 or fighter.sheet_id == 92 or fighter.sheet_id == 94:
+			var back := _is_backline(fighter) and fighter.hp > 0
+			if fighter.sheet_id == 87:
+				fighter.kit["never_acts"] = back
+				fighter.in_queue = false if back or fighter.hp <= 0 else fighter.in_queue
+			elif back:
+				fighter.kit["never_acts"] = true
+				fighter.in_queue = false
+			else:
+				fighter.kit["never_acts"] = false
+		if fighter.hp <= 0:
+			continue
+		if fighter.sheet_id == 87 and _is_backline(fighter):
+			var ice := _era7_back_target(fighter, true)
+			if ice != null:
+				_set_single_buff(fighter, ice, "highest_attack_ice", float(fighter.kit.get("buff_amount", 0.0)))
+		elif fighter.sheet_id == 90:
+			var ward := _era8_yao_ward(fighter)
+			if ward != null:
+				_set_single_buff(fighter, ward, "yao_earth", float(fighter.kit.get("buff_amount", 0.0)))
+		elif fighter.sheet_id == 92:
+			var cold := _extreme(_side_all(fighter.enemy), "attack", true)
+			if cold != null:
+				_set_single_buff(fighter, cold, "highest_attack_ice", float(fighter.kit.get("buff_amount", 0.0)))
+		elif fighter.sheet_id == 94:
+			var thunder := _extreme(_side_all(fighter.enemy), "attack", true)
+			if thunder != null:
+				_set_single_buff(fighter, thunder, "highest_attack_thunder", float(fighter.kit.get("buff_amount", 0.0)))
+
+
+func _era8_lowest_id(enemy: bool, sheet_id: int) -> Fighter:
+	var chosen: Fighter = null
+	for key in _fighters.keys():
+		var fighter: Fighter = _fighters[key]
+		if fighter.enemy != enemy or fighter.sheet_id != sheet_id or fighter.hp <= 0:
+			continue
+		if chosen == null or fighter.unit.unit_id < chosen.unit.unit_id:
+			chosen = fighter
+	return chosen
+
+
+func _era8_foes(actor: Fighter) -> Array:
+	var found: Array = []
+	if actor == null:
+		return found
+	for key in _fighters.keys():
+		var foe: Fighter = _fighters[key]
+		if foe.enemy == actor.enemy or foe.hp <= 0 or not is_instance_valid(foe.unit):
+			continue
+		found.append(foe)
+	return found
+
+
+func _era8_highest_attack(actor: Fighter) -> Fighter:
+	var best: Fighter = null
+	for entry in _era8_foes(actor):
+		var foe: Fighter = entry
+		if foe.hp <= 0:
+			continue
+		if best == null or foe.attack > best.attack or (is_equal_approx(foe.attack, best.attack) and foe.unit.unit_id < best.unit.unit_id):
+			best = foe
+	return best

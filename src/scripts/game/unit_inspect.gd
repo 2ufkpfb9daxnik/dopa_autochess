@@ -1,8 +1,12 @@
 class_name UnitInspect
 extends Control
 
-const PANEL_WIDTH := 480.0
+## レリックの吹き出し。説明が長いので、この幅を保つ。
+const RELIC_PANEL_WIDTH := 320.0
+const PANEL_MARGIN_X := 36.0
 const SUMMARY_FONT := 20
+## ステータスは2つずつで4行。吹き出し幅はこの行に合わせる。
+const STATS_PER_ROW := 2
 const DETAIL_FONT := 15
 const TABLE_FONT := 13
 const ROUNDED_ICON := preload("res://shaders/rounded_icon.gdshader")
@@ -18,6 +22,8 @@ var _tip_owner: Control
 var _anchor := Vector2.ZERO
 var _detailed := false
 var _summary_height := 0.0
+var _card_width := RELIC_PANEL_WIDTH
+var _unit_inner_width := -1.0
 var _hover_mode := false
 var _hover_key := ""
 var _pointer_over_panel := false
@@ -53,7 +59,7 @@ func _ready() -> void:
 	_summary_box.add_theme_constant_override("separation", 4)
 	box.add_child(_summary_box)
 	_detail_scroll = ScrollContainer.new()
-	_detail_scroll.custom_minimum_size = Vector2(PANEL_WIDTH - 36.0, 280)
+	_detail_scroll.custom_minimum_size = Vector2(RELIC_PANEL_WIDTH - PANEL_MARGIN_X, 280)
 	_detail_scroll.visible = false
 	_detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_detail_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -232,10 +238,11 @@ func _toggle_detail() -> void:
 func _place_panel() -> void:
 	if not visible:
 		return
-	var inner_width := PANEL_WIDTH - 36.0
+	var inner_width := _card_width - PANEL_MARGIN_X
 	_summary_box.custom_minimum_size = Vector2(inner_width, _summary_height)
+	_detail_scroll.custom_minimum_size = Vector2(inner_width, 280)
 	var button_height := maxf(42.0, _detail_button.get_combined_minimum_size().y)
-	var panel_size := Vector2(PANEL_WIDTH, 16.0 + _summary_height + 10.0 + button_height + 14.0)
+	var panel_size := Vector2(_card_width, 16.0 + _summary_height + 10.0 + button_height + 14.0)
 	if _detailed:
 		panel_size.y += 10.0 + 280.0
 	var viewport_size := get_viewport().get_visible_rect().size
@@ -254,7 +261,8 @@ func _rebuild_relic(relic_id: int) -> void:
 	_clear(_summary_box)
 	_clear(_detail_box)
 	var data := RelicCatalog.get_relic(relic_id)
-	var width := PANEL_WIDTH - 36.0
+	_card_width = RELIC_PANEL_WIDTH
+	var width := RELIC_PANEL_WIDTH - PANEL_MARGIN_X
 	var height := 0.0
 	var title := _make_label(SUMMARY_FONT)
 	title.text = str(data.get("name", "レリック"))
@@ -279,19 +287,12 @@ func _rebuild_relic(relic_id: int) -> void:
 func _rebuild_summary(unit_id: int, stars: int, equipped_relic_ids: Array = []) -> void:
 	_clear(_summary_box)
 	var info: Dictionary = CharacterText.summary_info(unit_id, stars)
-	var width := PANEL_WIDTH - 36.0
+	var width := _shared_unit_inner_width()
+	_card_width = width + PANEL_MARGIN_X
 	var height := 0.0
 	var rows := 0
-	var title := _make_label(SUMMARY_FONT)
-	title.text = "%s  %s" % [str(info.get("name", "")), "★".repeat(maxi(int(info.get("stars", stars)), 1))]
-	title.custom_minimum_size.x = width
-	_summary_box.add_child(title)
-	height += _block_height(title, width)
+	height += _add_title_row(str(info.get("name", "")), int(info.get("stars", stars)), str(info.get("cost", "")), width)
 	rows += 1
-	var cost := str(info.get("cost", ""))
-	if not cost.is_empty():
-		height += _add_labeled_icon("コスト", cost, SUMMARY_FONT, rows)
-		rows += 1
 	var synergies := str(info.get("synergies", ""))
 	if not synergies.is_empty():
 		height += _add_synergy_chips(synergies, width, rows)
@@ -368,12 +369,75 @@ func _relic_icon(relic_id: int, px: int) -> TextureRect:
 	return rect
 
 
-func _add_labeled_icon(label: String, value: String, font_size: int, rows: int) -> float:
-	var px := CharacterText.icon_px(font_size)
-	var line := _stat_pair({"label": label, "value": value, "icon": CharacterText.status_icon(label)}, font_size, px)
-	_summary_box.add_child(line)
-	var gap := 4.0 if rows > 0 else 0.0
-	return gap + maxf(float(px), float(font_size))
+## キャラクターの吹き出し幅。全キャラのステータス行で一番長い幅に揃える。
+func _shared_unit_inner_width() -> float:
+	if _unit_inner_width > 0.0:
+		return _unit_inner_width
+	var widest := 0.0
+	for unit in UnitCatalog.UNITS:
+		var rows: Array = CharacterText.stat_rows(int(unit["id"]), 4)
+		widest = maxf(widest, _measure_stat_rows(rows))
+	_unit_inner_width = widest + 8.0
+	return _unit_inner_width
+
+
+func _measure_stat_rows(entries: Array) -> float:
+	var font := ThemeDB.fallback_font
+	var font_size := SUMMARY_FONT
+	var px := float(CharacterText.icon_px(font_size))
+	var widest := 0.0
+	var index := 0
+	while index < entries.size():
+		var end := mini(index + STATS_PER_ROW, entries.size())
+		var line := 0.0
+		var count := 0
+		for entry_index in range(index, end):
+			var item: Dictionary = entries[entry_index]
+			var text_w := font.get_string_size(str(item.get("value", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+			line += px + 4.0 + text_w
+			count += 1
+		if count > 1:
+			line += float(count - 1) * 14.0
+		widest = maxf(widest, line)
+		index = end
+	return widest
+
+
+func _add_title_row(unit_name: String, stars: int, cost: String, width: float) -> float:
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_PASS
+	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.custom_minimum_size.x = width
+	var title := _make_label(SUMMARY_FONT)
+	title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	title.clip_text = true
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title.text = "%s  %s" % [unit_name, "★".repeat(maxi(stars, 1))]
+	row.add_child(title)
+	var px := CharacterText.icon_px(SUMMARY_FONT)
+	var price_width := 0.0
+	if not cost.is_empty():
+		var price := _stat_pair({"label": "コスト", "value": cost, "icon": CharacterText.status_icon("コスト")}, SUMMARY_FONT, px)
+		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(price)
+		price_width = float(px) + 4.0 + ThemeDB.fallback_font.get_string_size(cost, HORIZONTAL_ALIGNMENT_LEFT, -1, SUMMARY_FONT).x
+	var name_width := maxf(1.0, width - price_width - 10.0)
+	title.custom_minimum_size = Vector2(name_width, SUMMARY_FONT)
+	_fit_label_font(title, name_width)
+	_summary_box.add_child(row)
+	return maxf(float(SUMMARY_FONT), float(px) if not cost.is_empty() else float(SUMMARY_FONT))
+
+
+func _fit_label_font(label: Label, max_width: float) -> void:
+	var font := ThemeDB.fallback_font
+	var size := SUMMARY_FONT
+	while size > 14 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > max_width:
+		size -= 1
+	if size != SUMMARY_FONT:
+		label.add_theme_font_size_override("font_size", size)
 
 
 func _add_stat_rows(entries: Array, font_size: int, rows: int) -> float:
@@ -385,7 +449,7 @@ func _add_stat_rows(entries: Array, font_size: int, rows: int) -> float:
 		var line := HBoxContainer.new()
 		line.mouse_filter = Control.MOUSE_FILTER_PASS
 		line.add_theme_constant_override("separation", 14)
-		var end := mini(index + 4, entries.size())
+		var end := mini(index + STATS_PER_ROW, entries.size())
 		for entry_index in range(index, end):
 			var item: Dictionary = entries[entry_index]
 			line.add_child(_stat_pair(item, font_size, px))
@@ -542,7 +606,7 @@ func _add_role_rows(entries: Array, font_size: int, rows: int) -> float:
 
 func _rebuild_detail(unit_id: int) -> void:
 	_clear(_detail_box)
-	var width := PANEL_WIDTH - 52.0
+	var width := _card_width - 52.0
 	var blocks: Array = CharacterText.detail_blocks(unit_id)
 	for entry in blocks:
 		var block: Dictionary = entry

@@ -57,6 +57,12 @@ func set_layout(origin: Vector2, limit: Vector2, obstacle: Rect2) -> void:
 	_place()
 
 
+func icon_global_rect() -> Rect2:
+	if _buttons.is_empty() or not is_instance_valid(_buttons[0]):
+		return Rect2()
+	return _buttons[0].get_global_rect()
+
+
 func uid_at(global_position: Vector2) -> int:
 	for index in _buttons.size():
 		var button := _buttons[index]

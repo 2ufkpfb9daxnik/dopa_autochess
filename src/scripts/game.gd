@@ -566,7 +566,7 @@ func _mount_side_controls() -> void:
 		action_column.move_child(ordered[index], index)
 	_mount_battle_speed_button()
 	top_bar.visible = false
-	_mount_debug_grants()
+	# _mount_debug_grants()
 	_mount_audio_settings()
 	var ui := $CanvasLayer/UI as Control
 	action_column.get_parent().remove_child(action_column)

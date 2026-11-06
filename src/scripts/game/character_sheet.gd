@@ -579,6 +579,108 @@ static func _binds_for(unit_id: int) -> Array:
 			return [
 				["土のダメージ耐性", "buff_amount", true],
 			]
+		80:
+			return [
+				["減少の回数", "break_times", false],
+				["バフの水ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		81:
+			return [
+				["残る回数", "synth_cap", false],
+				["貫通", "maga_pen", true],
+				["回数中の氷の与ダメージ", "self_ice", true],
+				["継続に入る防御力", "dot_def", true],
+				["氷の与ダメージ", "buff_amount", true],
+			]
+		82:
+			return [
+				["一度に入る回数", "burst_times", false],
+				["撃破の減少", "break_times", false],
+				["バフの氷ダメージ", "buff_amount", true],
+			]
+		83:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["攻撃時のゲージ", "attack_gauge", false],
+				["味方の層", "ally_layers", false],
+				["ゲージ中の層", "gauge_layers", false],
+				["風の与ダメージ", "buff_amount", true],
+			]
+		84:
+			return [
+				["属性耐性", "buff_amount", true],
+				["スウィングの属性耐性", "swing_resist", true],
+				["スウィングの装備", "swing_cap", false],
+			]
+		85:
+			return [
+				["バフの受けるダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		86:
+			return [
+				["素材が残る回数", "material_cap", false],
+				["ガードで消えない回数", "guard_pierce", false],
+				["炎の耐性低下", "fire_cut", true],
+				["バフの被ダメージ", "buff_amount", true],
+				["スウィングの炎ダメージ", "swing_fire", true],
+				["スウィングの装備", "swing_cap", false],
+			]
+		87:
+			return [
+				["1層の低下", "layer_cut", true],
+				["数える層", "layer_cap", false],
+				["利息に入れるゴールド", "interest_gold", false],
+				["バフの氷ダメージ", "buff_amount", true],
+			]
+		89:
+			return [
+				["与ダメージ", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		90:
+			return [
+				["倒れたあとの回数", "death_left", false],
+				["層の回数", "layer_times", false],
+				["生きているときの回数", "living_left", false],
+				["バフの土ダメージ", "buff_amount", true],
+			]
+		91:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["層1つの貫通", "yama_per", true],
+				["数える層", "yama_cap", false],
+				["防御力に足す割合", "def_ratio", true],
+				["水の与ダメージ", "buff_amount", true],
+			]
+		92:
+			return [
+				["召喚の回数", "summon_cap", false],
+				["召喚の氷ダメージ", "summon_ice", true],
+				["召喚のクリティカルダメージ", "summon_crit", false],
+				["バフの氷ダメージ", "buff_amount", true],
+			]
+		93:
+			return [
+				["開始時のゲージ", "gauge", false],
+				["次の風の攻撃", "next_wind", true],
+				["次の風の貫通率", "next_pen", true],
+				["バフの貫通率", "buff_amount", true],
+				["隣の与ダメージ", "neighbor", true],
+			]
+		94:
+			return [
+				["消す数", "strip_count", false],
+				["味方の消す数", "ally_strip", false],
+				["バフの雷ダメージ", "buff_amount", true],
+			]
+		95:
+			return [
+				["水の与ダメージ", "water_bonus", true],
+				["撃破の減少", "break_times", false],
+				["隣の与ダメージ", "neighbor", true],
+			]
 		37:
 			return [
 				["倒されたときの与ダメージ", "death_bonus", true],
@@ -860,6 +962,40 @@ static func _apply_identity(sheet: Dictionary, unit_id: int) -> void:
 			sheet["buff_kind"] = "earth_resist"
 			sheet["uses_buff"] = false
 			sheet["gauge"] = 0
+		80:
+			sheet["buff_kind"] = "lowest_cost_water"
+			sheet["gauge"] = 0
+		81:
+			sheet["buff_kind"] = "highest_ice_attack"
+		82:
+			sheet["buff_kind"] = "highest_defense_ice"
+			sheet["gauge"] = 0
+		83:
+			sheet["buff_kind"] = "misaki_wind"
+		84:
+			sheet["buff_kind"] = "last_block_resist"
+		85:
+			sheet["buff_kind"] = "lowest_star_taken"
+		86:
+			sheet["buff_kind"] = "lowest_equipped_taken"
+		87:
+			sheet["buff_kind"] = "highest_attack_ice_other"
+		89:
+			sheet["buff_kind"] = "moriyama_dealt"
+			sheet["uses_buff"] = false
+		90:
+			sheet["buff_kind"] = "yao_earth"
+		91:
+			sheet["buff_kind"] = "highest_water_water"
+		92:
+			sheet["buff_kind"] = "highest_attack_ice"
+			sheet["gauge"] = 0
+		93:
+			sheet["buff_kind"] = "highest_hp_pen"
+		94:
+			sheet["buff_kind"] = "highest_attack_thunder"
+		95:
+			sheet["buff_kind"] = "yodo_strike"
 		37:
 			sheet["buff_kind"] = "absorb_resist"
 			sheet["uses_buff"] = false

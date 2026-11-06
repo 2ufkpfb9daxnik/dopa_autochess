@@ -60,6 +60,9 @@ var relic_end_xp: int = 0
 var next_interest_bonus: float = 0.0
 ## ハリマなどが戦闘で足した利息の元手。ラウンドをまたいで残る。
 var interest_principal_bonus: int = 0
+## ミナト: このラウンドで最後に合成したキャラ。ラウンドが終わるときに消す。
+var last_merged_unit_id: int = 0
+var last_merged_stars: int = 0
 var toba_round_xp: int = 0
 var nabari_round_xp: int = 0
 ## シナモン(139): 次に並ぶショップの値引き（予約分と、いまの並びに効いている分）。
@@ -396,6 +399,8 @@ func finish_battle(won: bool = true, remaining_enemy_units: int = 0) -> void:
 
 	round_number += 1
 	round_relics_gained = 0
+	last_merged_unit_id = 0
+	last_merged_stars = 0
 
 	if not won and player_hp <= 0:
 		finish_run(RunEndReason.DEFEAT)

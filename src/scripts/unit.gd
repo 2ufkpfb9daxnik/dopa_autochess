@@ -496,8 +496,8 @@ func set_battle_break(current: int, maximum: int, show: bool, hide_after: float 
 func popup_battle_text(text: String, color: Color) -> void:
 	var popup := Label3D.new()
 	popup.text = text
-	popup.font_size = 42
-	popup.outline_size = 8
+	popup.font_size = 68
+	popup.outline_size = 12
 	popup.modulate = Color(color.r, color.g, color.b, 0.0)
 	popup.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	popup.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -505,18 +505,20 @@ func popup_battle_text(text: String, color: Color) -> void:
 	popup.scale = Vector3(2.4, 2.4, 2.4)
 	var start := Vector3(randf_range(-0.36, 0.36), 1.12 + randf_range(0.0, 0.32), randf_range(-0.06, 0.06))
 	var dipped := start + Vector3(0.0, -0.1, 0.0)
-	var risen := dipped + Vector3(randf_range(-0.1, 0.1), randf_range(0.42, 0.68), 0.0)
 	popup.position = start
 	popup.render_priority = 8
 	popup.outline_render_priority = 7
 	popup.no_depth_test = true
 	add_child(popup)
+	## 文字の縦幅だけ上へ。距離が短いので、1秒でもゆっくり見える。
+	var rise := float(popup.font_size) * popup.pixel_size
+	var risen := dipped + Vector3(0.0, rise, 0.0)
 	var tween := create_tween()
 	tween.tween_property(popup, "scale", Vector3.ONE, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(popup, "modulate:a", color.a, 0.2)
 	tween.parallel().tween_property(popup, "position", dipped, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tween.tween_property(popup, "position", risen, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.parallel().tween_property(popup, "modulate:a", 0.0, 0.7)
+	tween.tween_property(popup, "position", risen, 1.0).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(popup, "modulate:a", 0.0, 1.0)
 	tween.finished.connect(popup.queue_free)
 
 

@@ -443,6 +443,16 @@ func get_front_unit_count() -> int:
 	return count
 
 
+## 戦闘に出られる味方がいるか。前衛だけでなく、後衛や別の面も数える。
+func has_circle_ally() -> bool:
+	for face_index in _unlocked_faces:
+		for slot_index in SLOTS_PER_FACE:
+			var unit := get_placed_unit(face_index, slot_index)
+			if unit != null and is_instance_valid(unit):
+				return true
+	return false
+
+
 func get_board_unit_count() -> int:
 	var count := 0
 	for face in _faces:
@@ -694,6 +704,32 @@ func remove_unit(unit: GameUnit) -> void:
 	_detach(unit)
 	refresh_presentation()
 	units_changed.emit()
+
+
+## イバラ: 同じ列の前衛と後衛を入れ替える。左=0/5、中=1/4、右=2/3。空の席も入れ替える。
+func swap_enemy_column(front_slot: int) -> void:
+	_swap_slot_array(_enemy_slots, front_slot)
+
+
+func swap_circle_column(face_index: int, front_slot: int) -> void:
+	if face_index < 0 or face_index >= _faces.size():
+		return
+	_swap_slot_array(_faces[face_index], front_slot)
+
+
+func _swap_slot_array(slots: Array, front_slot: int) -> void:
+	if front_slot < 0 or front_slot >= FRONT_COUNT:
+		return
+	var back := SLOTS_PER_FACE - 1 - front_slot
+	var front_unit: GameUnit = slots[front_slot]
+	var back_unit: GameUnit = slots[back]
+	slots[front_slot] = back_unit
+	slots[back] = front_unit
+	if front_unit != null and is_instance_valid(front_unit):
+		front_unit.circle_slot = back
+	if back_unit != null and is_instance_valid(back_unit):
+		back_unit.circle_slot = front_slot
+	refresh_presentation()
 
 
 func place_enemy_unit(unit: GameUnit, slot_index: int) -> bool:

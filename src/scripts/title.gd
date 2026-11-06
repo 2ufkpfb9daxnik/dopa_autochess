@@ -14,6 +14,7 @@ func _ready() -> void:
 	GameAudio.stop_bgm()
 	GameAudio.set_se_suppressed(false)
 	$StartButton.pressed.connect(_on_start_pressed)
+	$TutorialButton.pressed.connect(_on_tutorial_pressed)
 	_video = $Background as VideoStreamPlayer
 	## 内蔵ループだと finished が来ないので、手動で繋いでループ時に dance を出す。
 	_video.loop = false
@@ -63,6 +64,13 @@ func _layout_chrome() -> void:
 		start.offset_right = 0.0
 		start.offset_top = -120.0
 		start.offset_bottom = 0.0
+	var tutorial := $TutorialButton as Button
+	if tutorial != null:
+		tutorial.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		tutorial.offset_left = 0.0
+		tutorial.offset_right = 0.0
+		tutorial.offset_top = -210.0
+		tutorial.offset_bottom = -120.0
 	var title := $TitleLabel as Control
 	if title != null:
 		var lift := 520.0 * 0.5
@@ -70,7 +78,7 @@ func _layout_chrome() -> void:
 			lift = float((title as TitleCipher).font_size) * 0.5
 		title.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 		title.offset_right = -24.0
-		title.offset_bottom = -140.0 - lift
+		title.offset_bottom = -230.0 - lift
 		title.offset_left = -minf(size.x * 0.72, 1100.0)
 		title.offset_top = -minf(size.y * 0.78, 980.0) - lift
 
@@ -141,6 +149,15 @@ func _list_frame_paths() -> PackedStringArray:
 		paths.append(FRAME_DIR.path_join(file_name))
 	paths.sort()
 	return paths
+
+
+func _on_tutorial_pressed() -> void:
+	if _leaving:
+		return
+	_leaving = true
+	GameAudio.play_confirm_strong()
+	Tutorial.mark_pending(get_tree())
+	get_tree().change_scene_to_file("res://scenes/game.tscn")
 
 
 func _on_start_pressed() -> void:
